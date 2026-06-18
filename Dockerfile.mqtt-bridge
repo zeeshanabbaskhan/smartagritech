@@ -1,0 +1,7 @@
+FROM python:3.12-alpine
+WORKDIR /app
+RUN apk add --no-cache gcc musl-dev
+COPY requirements-mqtt.txt .
+RUN pip install --no-cache-dir -r requirements-mqtt.txt
+COPY script.py .
+CMD ["python", "-u", "script.py"]

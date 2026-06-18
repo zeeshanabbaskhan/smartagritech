@@ -1,0 +1,205 @@
+import { useState, useEffect, useCallback } from 'react'
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+import PageState, { useFetch } from '../../components/ui/PageState'
+import { Download } from 'lucide-react'
+import emsApi, { list } from '../../api/emsApi'
+import { mapDevice, mapGateway, VAR_API_NAMES, bucketToChart } from '../../utils/mappers'
+
+const VARIABLES = ['voltageA', 'voltageB', 'voltageC', 'currentA', 'power']
+const VAR_LABELS = {
+  voltageA: 'Voltage A',
+  voltageB: 'Voltage B',
+  voltageC: 'Voltage C',
+  currentA: 'Current A',
+  power: 'Active Power',
+}
+const VAR_COLORS = {
+  voltageA: '#F5A623',
+  voltageB: '#3B82F6',
+  voltageC: '#EF4444',
+  currentA: '#10B981',
+  power: '#06b6d4',
+}
+const RANGE_MAP = { today: '24h', yesterday: '24h', '7days': '7d', '30days': '30d', custom: '30d' }
+
+export default function OrgHistoricalData() {
+  const { data: lookups, loading, error, reload } = useFetch(async () => {
+    const [devicesRes, gatewaysRes] = await Promise.all([
+      emsApi.getDevices({ limit: 100 }),
+      emsApi.getGateways({ limit: 100 }),
+    ])
+    const devices = list(devicesRes).map(mapDevice)
+    const gateways = list(gatewaysRes).map(mapGateway)
+    return { devices, gateways }
+  }, [])
+
+  const [deviceId, setDeviceId] = useState('')
+  const [dateRange, setDateRange] = useState('today')
+  const [selectedVars, setSelectedVars] = useState(['voltageA', 'currentA'])
+  const [chartData, setChartData] = useState([])
+  const [chartLoading, setChartLoading] = useState(false)
+
+  const devices = lookups?.devices ?? []
+  const gateways = lookups?.gateways ?? []
+
+  useEffect(() => {
+    if (!deviceId && devices[0]?.id) setDeviceId(devices[0].id)
+  }, [devices, deviceId])
+
+  const loadChart = useCallback(async () => {
+    if (!deviceId || selectedVars.length === 0) {
+      setChartData([])
+      return
+    }
+    setChartLoading(true)
+    try {
+      const timeRange = RANGE_MAP[dateRange] ?? '24h'
+      const series = await Promise.all(
+        selectedVars.map(async (v) => {
+          const res = await emsApi.getSensorAggregate({
+            deviceId,
+            variableName: VAR_API_NAMES[v],
+            timeRange,
+          })
+          return { key: v, points: bucketToChart(res?.data ?? [], v) }
+        })
+      )
+      const maxLen = Math.max(...series.map((s) => s.points.length), 0)
+      const merged = Array.from({ length: maxLen }, (_, i) => {
+        const row = { time: series[0]?.points[i]?.time ?? `${i}` }
+        series.forEach(({ key, points }) => { row[key] = points[i]?.[key] ?? points[i]?.value })
+        return row
+      })
+      setChartData(merged)
+    } catch {
+      setChartData([])
+    } finally {
+      setChartLoading(false)
+    }
+  }, [deviceId, dateRange, selectedVars])
+
+  useEffect(() => { loadChart() }, [loadChart])
+
+  const toggleVar = (v) => {
+    setSelectedVars((prev) => (prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v]))
+  }
+
+  const deviceName = devices.find((d) => d.id === deviceId)?.name ?? gateways.find((g) => g.id === deviceId)?.name ?? ''
+  const tableColumns = ['Variable Name', 'Min', 'Max', 'Average', 'Last Value']
+  const tableData = selectedVars.map((v) => {
+    const values = chartData.map((d) => d[v]).filter((x) => x != null)
+    if (!values.length) return { key: v, label: VAR_LABELS[v], min: '—', max: '—', avg: '—', last: '—' }
+    const min = Math.min(...values).toFixed(1)
+    const max = Math.max(...values).toFixed(1)
+    const avg = (values.reduce((a, b) => a + b, 0) / values.length).toFixed(1)
+    const last = values[values.length - 1]
+    return { key: v, label: VAR_LABELS[v], min, max, avg, last }
+  })
+
+  return (
+    <PageState loading={loading} error={error} onRetry={reload}>
+      <div>
+        <div className="page-header">
+          <div>
+            <h2 className="page-title">Historical Data</h2>
+            <p className="breadcrumb">Organization / Historical Data</p>
+          </div>
+          <button type="button" className="btn-secondary"><Download size={14} /> Export CSV</button>
+        </div>
+
+        <div className="card p-4 mb-5">
+          <div className="flex flex-wrap items-end gap-4">
+            <div className="flex-1 min-w-40">
+              <label className="label">Device</label>
+              <select className="select" value={deviceId} onChange={(e) => setDeviceId(e.target.value)}>
+                <option value="">Select Device</option>
+                {devices.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                {gateways.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+              </select>
+            </div>
+            <div className="flex-1 min-w-40">
+              <label className="label">Date Range</label>
+              <select className="select" value={dateRange} onChange={(e) => setDateRange(e.target.value)}>
+                <option value="today">Today</option>
+                <option value="yesterday">Yesterday</option>
+                <option value="7days">Last 7 Days</option>
+                <option value="30days">Last 30 Days</option>
+                <option value="custom">Custom</option>
+              </select>
+            </div>
+            <div className="flex-1 min-w-40">
+              <label className="label">Variables</label>
+              <div className="flex flex-wrap gap-2">
+                {VARIABLES.map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => toggleVar(v)}
+                    className={`text-xs px-2.5 py-1 rounded-md border transition-colors ${
+                      selectedVars.includes(v)
+                        ? 'border-primary-500 bg-primary-600/20 text-primary-800 font-bold'
+                        : 'border-surface-200 text-surface-600 hover:border-surface-500'
+                    }`}
+                  >
+                    {VAR_LABELS[v]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="card p-5 mb-5">
+          <h3 className="text-sm font-semibold text-surface-700 mb-4">
+            {deviceName || 'Select a device'} — Variable Trend
+            {chartLoading && <span className="text-xs text-surface-400 ml-2">Loading...</span>}
+          </h3>
+          {selectedVars.length === 0 ? (
+            <div className="h-64 flex items-center justify-center text-surface-500 text-sm">
+              Select at least one variable to display the chart
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={280}>
+              <LineChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
+                <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
+                <YAxis tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
+                <Tooltip contentStyle={{ background: '#ffffff', border: '1px solid #ECEEE6', borderRadius: 8, fontSize: 12 }} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                {selectedVars.map((v) => (
+                  <Line key={v} type="monotone" dataKey={v} name={VAR_LABELS[v]} stroke={VAR_COLORS[v]} strokeWidth={2} dot={false} />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+        <div className="table-container">
+          <div className="p-4 border-b border-surface-200">
+            <h3 className="text-sm font-semibold text-surface-700">Variable Summary</h3>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="data-table">
+              <thead>
+                <tr>{tableColumns.map((col) => <th key={col}>{col}</th>)}</tr>
+              </thead>
+              <tbody>
+                {tableData.length === 0 ? (
+                  <tr><td colSpan={5} className="text-center py-10 text-surface-500">Select variables to see summary</td></tr>
+                ) : tableData.map((row) => (
+                  <tr key={row.key}>
+                    <td className="font-medium text-surface-800">{row.label}</td>
+                    <td className="text-danger-600">{row.min}</td>
+                    <td className="text-success-600">{row.max}</td>
+                    <td className="text-primary-600">{row.avg}</td>
+                    <td>{row.last}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </PageState>
+  )
+}
