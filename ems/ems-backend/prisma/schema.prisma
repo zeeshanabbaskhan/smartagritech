@@ -1,0 +1,912 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Organization {
+  id          String    @id @default(uuid())
+  name        String
+  description String?
+  status      OrgStatus @default(ACTIVE)
+  themeId     String?
+  logoUrl     String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  theme               Theme?            @relation(fields: [themeId], references: [id])
+  users               User[]
+  devices             Device[]
+  gateways            Gateway[]
+  deviceTemplates     DeviceTemplate[]
+  alarmConfigurations AlarmSetting[]
+  alarmContacts       AlarmContact[]
+  templateTriggers    TemplateTrigger[]
+  widgetTemplates     WidgetTemplate[]
+  mqttConfigs         MqttConfig[]
+  subscriptions       Subscription[]
+
+  @@map("organizations")
+}
+
+enum OrgStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model User {
+  id             String     @id @default(uuid())
+  fullName       String
+  email          String     @unique
+  passwordHash   String
+  phone          String?
+  role           Role       @default(USER)
+  organizationId String?
+  status         UserStatus @default(ACTIVE)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  organization       Organization?       @relation(fields: [organizationId], references: [id])
+  deviceUsers        DeviceUser[]
+  createdTriggers    TemplateTrigger[]
+  notifications      Notification[]
+  assignedTasks      ScheduledTask[]     @relation("TaskCreator")
+  passwordResetCodes PasswordResetCode[]
+  alarmContacts      AlarmContact[]      @relation("ContactCreator")
+  alarmSettings      AlarmSetting[]      @relation("SettingCreator")
+  widgetTemplates    WidgetTemplate[]
+  createdSlabRates   SlabRate[]          @relation("SlabRateCreator")
+  createdThemes      Theme[]             @relation("ThemeCreator")
+  createdMqttConfigs MqttConfig[]        @relation("MqttConfigCreator")
+  refreshTokens      RefreshToken[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+enum Role {
+  SUPER_ADMIN
+  ORG_ADMIN
+  USER
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  DELETED
+}
+
+model Gateway {
+  id             String       @id @default(uuid())
+  name           String
+  serialNumber   String       @unique
+  model          String?
+  status         DeviceStatus @default(OFFLINE)
+  organizationId String
+  lastSeenAt     DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  devices      Device[]
+
+  @@map("gateways")
+}
+
+enum DeviceStatus {
+  ONLINE
+  OFFLINE
+}
+
+model DeviceTemplate {
+  id                String   @id @default(uuid())
+  name              String
+  organizationId    String
+  acquisitionMethod String?
+  totalSlaves       Int      @default(0)
+  totalVariables    Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  organization Organization          @relation(fields: [organizationId], references: [id])
+  slaves       DeviceTemplateSlave[]
+  devices      Device[]
+  triggers     TemplateTrigger[]
+
+  @@map("device_templates")
+}
+
+model DeviceTemplateSlave {
+  id             String   @id @default(uuid())
+  templateId     String
+  organizationId String
+  name           String
+  description    String?
+  isDefault      Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  template           DeviceTemplate           @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  variables          DeviceTemplateVariable[]
+  deviceConfigSlaves DeviceConfigSlave[]
+  aiForecastReadings AIForecastReading[]
+  intervalHistories  IntervalHistory[]
+
+  @@map("device_template_slaves")
+}
+
+model DeviceTemplateVariable {
+  id              String   @id @default(uuid())
+  templateSlaveId String
+  templateId      String
+  organizationId  String
+  name            String
+  displayName     String?
+  unit            String?
+  registerAddress String?
+  iconId          String?
+  dataType        DataType @default(FLOAT)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  templateSlave      DeviceTemplateSlave    @relation(fields: [templateSlaveId], references: [id], onDelete: Cascade)
+  icon               Icon?                  @relation(fields: [iconId], references: [id])
+  deviceConfigVars   DeviceConfigVariable[]
+  triggers           TemplateTrigger[]      @relation("WatchedVariable")
+  linkageTriggers    TemplateTrigger[]      @relation("LinkageVariable")
+  intervalHistories  IntervalHistory[]
+  aiForecastReadings AIForecastReading[]
+
+  @@unique([templateSlaveId, name])
+  @@map("device_template_variables")
+}
+
+enum DataType {
+  FLOAT
+  INTEGER
+  BOOLEAN
+  STRING
+}
+
+model Device {
+  id                 String       @id @default(uuid())
+  name               String
+  gatewayId          String?
+  organizationId     String
+  templateId         String
+  switchState        SwitchState  @default(OFF)
+  status             DeviceStatus @default(OFFLINE)
+  mqttConfigId       String?      @unique
+  lastDataReceivedAt DateTime?
+  ingestApiKeyHash   String?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  organization              Organization                   @relation(fields: [organizationId], references: [id])
+  gateway                   Gateway?                       @relation(fields: [gatewayId], references: [id])
+  template                  DeviceTemplate                 @relation(fields: [templateId], references: [id])
+  mqttConfig                MqttConfig?                    @relation(fields: [mqttConfigId], references: [id])
+  deviceUsers               DeviceUser[]
+  configSlaves              DeviceConfigSlave[]
+  configVariables           DeviceConfigVariable[]
+  configVariableLogs        DeviceConfigVariableLog[]
+  scheduledTasks            ScheduledTask[]
+  scheduleExecutionLogs     ScheduleExecutionLog[]
+  alarmConfigDevices        AlarmConfigurationDevice[]
+  alarmHistoryNotifications AlarmHistoryNotification[]
+  deviceTimestamp           DeviceTimestamp?
+  sensorReadings            SensorReading[]
+  anomalyHistories          DeviceVariableAlarmHistory[]
+  linkageHistories          DeviceVariableLinkageHistory[]
+  forecastReadings          AIForecastReading[]
+  intervalHistories         IntervalHistory[]
+  commands                  DeviceCommand[]
+
+  @@map("devices")
+}
+
+model DeviceCommand {
+  id             String        @id @default(uuid())
+  deviceId       String
+  organizationId String
+  action         String
+  status         CommandStatus @default(PENDING)
+  requestedBy    String?
+  requestedAt    DateTime      @default(now())
+  acknowledgedAt DateTime?
+  failedReason   String?
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, status])
+  @@index([organizationId, requestedAt])
+  @@map("device_commands")
+}
+
+enum CommandStatus {
+  PENDING
+  ACKNOWLEDGED
+  FAILED
+  TIMEOUT
+}
+
+enum SwitchState {
+  ON
+  OFF
+}
+
+model DeviceConfigSlave {
+  id              String   @id @default(uuid())
+  deviceId        String
+  templateSlaveId String
+  organizationId  String
+  name            String
+  description     String?
+  isDefault       Boolean  @default(false)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  device            Device                 @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  templateSlave     DeviceTemplateSlave    @relation(fields: [templateSlaveId], references: [id])
+  configVariables   DeviceConfigVariable[]
+  sensorReadings    SensorReading[]
+  slabRates         SlabRate[]
+  scheduledTasks    ScheduledTask[]
+  intervalHistories IntervalHistory[]
+
+  @@map("device_config_slaves")
+}
+
+model DeviceConfigVariable {
+  id                  String    @id @default(uuid())
+  deviceId            String
+  deviceConfigSlaveId String
+  templateVariableId  String
+  organizationId      String
+  name                String
+  displayName         String?
+  unit                String?
+  currentValue        String?
+  lastUpdatedAt       DateTime?
+  isActive            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  device           Device                    @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  configSlave      DeviceConfigSlave         @relation(fields: [deviceConfigSlaveId], references: [id], onDelete: Cascade)
+  templateVariable DeviceTemplateVariable    @relation(fields: [templateVariableId], references: [id])
+  logs             DeviceConfigVariableLog[]
+  scheduledTasks   ScheduledTask[]
+
+  @@unique([deviceId, deviceConfigSlaveId, name])
+  @@map("device_config_variables")
+}
+
+model DeviceConfigVariableLog {
+  id                     String    @id @default(uuid())
+  deviceConfigVariableId String
+  deviceId               String
+  organizationId         String
+  previousValue          String?
+  newValue               String?
+  source                 LogSource @default(INGEST)
+  changedAt              DateTime  @default(now())
+
+  configVariable DeviceConfigVariable @relation(fields: [deviceConfigVariableId], references: [id], onDelete: Cascade)
+  device         Device               @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceConfigVariableId, changedAt])
+  @@index([deviceId, changedAt])
+  @@map("device_config_variable_logs")
+}
+
+enum LogSource {
+  INGEST
+  MANUAL
+  SCHEDULE
+  AUTOMATION
+}
+
+model DeviceUser {
+  id             String   @id @default(uuid())
+  deviceId       String
+  userId         String
+  organizationId String
+  assignedAt     DateTime @default(now())
+  assignedBy     String?
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, userId])
+  @@index([userId, deviceId])
+  @@map("device_users")
+}
+
+model SensorReading {
+  id                  String   @id @default(uuid())
+  deviceId            String
+  deviceConfigSlaveId String?
+  organizationId      String
+  timestamp           DateTime @default(now())
+  readings            Json
+
+  device      Device             @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  configSlave DeviceConfigSlave? @relation(fields: [deviceConfigSlaveId], references: [id], onDelete: SetNull)
+
+  @@index([deviceId, deviceConfigSlaveId, timestamp])
+  @@index([deviceId, timestamp])
+  @@index([organizationId, timestamp])
+  @@map("sensor_readings")
+}
+
+model SensorReadingValue {
+  id                  String   @id @default(uuid())
+  sensorReadingId     String
+  deviceId            String
+  deviceConfigSlaveId String?
+  organizationId      String
+  variableName        String
+  value               Float
+  timestamp           DateTime
+
+  @@index([sensorReadingId])
+  @@index([deviceId, variableName, timestamp])
+  @@index([deviceId, timestamp])
+  @@index([organizationId, timestamp])
+  @@map("sensor_reading_values")
+}
+
+model DeviceTimestamp {
+  id             String   @id @default(uuid())
+  deviceId       String   @unique
+  organizationId String
+  lastActiveAt   DateTime @default(now())
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@map("device_timestamps")
+}
+
+model TemplateTrigger {
+  id                 String   @id @default(uuid())
+  deviceTemplateId   String
+  organizationId     String
+  name               String
+  templateVariableId String
+  operator           Operator
+  threshold          Float
+  anomalyType        String
+  priority           Priority @default(MEDIUM)
+  linkageVariableId  String?
+  linkageAction      String?
+  linkageValue       String?
+  isActive           Boolean  @default(true)
+  createdBy          String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  deviceTemplate   DeviceTemplate                 @relation(fields: [deviceTemplateId], references: [id], onDelete: Cascade)
+  organization     Organization                   @relation(fields: [organizationId], references: [id])
+  watchedVariable  DeviceTemplateVariable         @relation("WatchedVariable", fields: [templateVariableId], references: [id])
+  linkageVariable  DeviceTemplateVariable?        @relation("LinkageVariable", fields: [linkageVariableId], references: [id])
+  creator          User?                          @relation(fields: [createdBy], references: [id])
+  alarmSettings    AlarmSetting[]
+  alarmHistories   DeviceVariableAlarmHistory[]
+  linkageHistories DeviceVariableLinkageHistory[]
+
+  @@map("template_triggers")
+}
+
+enum Operator {
+  GT
+  LT
+  EQ
+  GTE
+  LTE
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+model AlarmSetting {
+  id                String      @id @default(uuid())
+  name              String
+  organizationId    String
+  templateTriggerId String?
+  pushType          String?
+  pushBody          String?
+  pushMethod        String?
+  pushingMechanism  String?
+  status            AlarmStatus @default(ACTIVE)
+  createdBy         String?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  organization   Organization                @relation(fields: [organizationId], references: [id])
+  trigger        TemplateTrigger?            @relation(fields: [templateTriggerId], references: [id])
+  creator        User?                       @relation("SettingCreator", fields: [createdBy], references: [id])
+  configDevices  AlarmConfigurationDevice[]
+  configContacts AlarmConfigurationContact[]
+  notifications  AlarmHistoryNotification[]
+  alarmHistories DeviceVariableAlarmHistory[]
+
+  @@map("alarm_settings")
+}
+
+enum AlarmStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model AlarmConfigurationDevice {
+  id             String @id @default(uuid())
+  alarmSettingId String
+  deviceId       String
+
+  alarmSetting AlarmSetting @relation(fields: [alarmSettingId], references: [id], onDelete: Cascade)
+  device       Device       @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([alarmSettingId, deviceId])
+  @@map("alarm_configuration_devices")
+}
+
+model AlarmConfigurationContact {
+  id             String @id @default(uuid())
+  alarmSettingId String
+  alarmContactId String
+
+  alarmSetting AlarmSetting @relation(fields: [alarmSettingId], references: [id], onDelete: Cascade)
+  alarmContact AlarmContact @relation(fields: [alarmContactId], references: [id], onDelete: Cascade)
+
+  @@unique([alarmSettingId, alarmContactId])
+  @@map("alarm_configuration_contacts")
+}
+
+model AlarmContact {
+  id             String   @id @default(uuid())
+  name           String
+  organizationId String
+  mobile         String?
+  email          String?
+  whatsapp       String?
+  remark         String?
+  createdBy      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization                @relation(fields: [organizationId], references: [id])
+  creator        User?                       @relation("ContactCreator", fields: [createdBy], references: [id])
+  configContacts AlarmConfigurationContact[]
+
+  @@map("alarm_contacts")
+}
+
+model AlarmHistoryNotification {
+  id             String             @id @default(uuid())
+  alarmSettingId String?
+  organizationId String
+  deviceId       String?
+  message        String?
+  pushType       String?
+  sentTo         String?
+  sentAt         DateTime           @default(now())
+  status         NotificationStatus @default(SENT)
+
+  alarmSetting AlarmSetting? @relation(fields: [alarmSettingId], references: [id])
+  device       Device?       @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  @@map("alarm_history_notifications")
+}
+
+enum NotificationStatus {
+  SENT
+  FAILED
+}
+
+model DeviceVariableAlarmHistory {
+  id                  String       @id @default(uuid())
+  alarmSettingId      String?
+  templateTriggerId   String?
+  deviceId            String
+  organizationId      String
+  variableName        String
+  triggerName         String?
+  triggerType         String?
+  slaveName           String?
+  currentValue        Float?
+  triggeringCondition String?
+  alarmTime           DateTime     @default(now())
+  alarmState          AlarmState   @default(ACTIVE)
+  processState        ProcessState @default(UNPROCESSED)
+
+  device       Device           @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  trigger      TemplateTrigger? @relation(fields: [templateTriggerId], references: [id])
+  alarmSetting AlarmSetting?   @relation(fields: [alarmSettingId], references: [id])
+
+  @@index([deviceId, alarmTime])
+  @@map("device_variable_alarm_histories")
+}
+
+enum AlarmState {
+  ACTIVE
+  RESOLVED
+}
+
+enum ProcessState {
+  UNPROCESSED
+  PROCESSED
+}
+
+model DeviceVariableLinkageHistory {
+  id                   String   @id @default(uuid())
+  deviceId             String
+  organizationId       String
+  templateTriggerId    String?
+  triggerName          String?
+  watchedVariableName  String?
+  watchedVariableValue Float?
+  linkedVariableName   String?
+  actionTaken          String?
+  firedAt              DateTime @default(now())
+
+  device  Device           @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  trigger TemplateTrigger? @relation(fields: [templateTriggerId], references: [id])
+
+  @@index([deviceId, firedAt])
+  @@map("device_variable_linkage_histories")
+}
+
+model ScheduledTask {
+  id                     String     @id @default(uuid())
+  organizationId         String
+  createdBy              String?
+  deviceId               String
+  deviceConfigSlaveId    String?
+  deviceConfigVariableId String?
+  variableName           String
+  action                 TaskAction
+  scheduledTime          String
+  repeatType             RepeatType @default(DAILY)
+  daysOfWeek             Int[]
+  status                 TaskStatus @default(ACTIVE)
+  nextRunAt              DateTime?
+  createdAt              DateTime   @default(now())
+  updatedAt              DateTime   @updatedAt
+
+  device         Device                 @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  creator        User?                  @relation("TaskCreator", fields: [createdBy], references: [id])
+  configVariable DeviceConfigVariable?  @relation(fields: [deviceConfigVariableId], references: [id])
+  configSlave    DeviceConfigSlave?     @relation(fields: [deviceConfigSlaveId], references: [id], onDelete: SetNull)
+  executionLogs  ScheduleExecutionLog[]
+
+  @@map("scheduled_tasks")
+}
+
+enum TaskAction {
+  ON
+  OFF
+}
+
+enum RepeatType {
+  DAILY
+  WEEKLY
+  ONCE
+}
+
+enum TaskStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model ScheduleExecutionLog {
+  id             String          @id @default(uuid())
+  scheduleTaskId String
+  deviceId       String
+  organizationId String
+  executedAt     DateTime        @default(now())
+  action         String?
+  variableName   String?
+  result         ExecutionResult @default(SUCCESS)
+  errorMessage   String?
+
+  scheduleTask ScheduledTask @relation(fields: [scheduleTaskId], references: [id], onDelete: Cascade)
+  device       Device        @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([scheduleTaskId, executedAt])
+  @@map("schedule_execution_logs")
+}
+
+enum ExecutionResult {
+  SUCCESS
+  FAILED
+}
+
+model SlabRate {
+  id                  String   @id @default(uuid())
+  organizationId      String
+  deviceConfigSlaveId String
+  unitFrom            Float
+  unitTo              Float
+  rate                Float
+  onPeakRate          Float?
+  offPeakRate         Float?
+  createdBy           String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  configSlave DeviceConfigSlave @relation(fields: [deviceConfigSlaveId], references: [id], onDelete: Cascade)
+  creator     User?             @relation("SlabRateCreator", fields: [createdBy], references: [id])
+
+  @@map("slab_rates")
+}
+
+model IntervalHistory {
+  id                  String   @id @default(uuid())
+  organizationId      String
+  deviceId            String?
+  deviceConfigSlaveId String
+  templateVariableId  String?
+  templateSlaveId     String?
+  variableName        String
+  slaveName           String?
+  totalUnit           Float    @default(0)
+  tariff              Float    @default(0)
+  startDate           DateTime
+  endDate             DateTime
+  computedAt          DateTime @default(now())
+
+  device           Device?                 @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  configSlave      DeviceConfigSlave       @relation(fields: [deviceConfigSlaveId], references: [id], onDelete: Cascade)
+  templateVariable DeviceTemplateVariable? @relation(fields: [templateVariableId], references: [id])
+  templateSlave    DeviceTemplateSlave?    @relation(fields: [templateSlaveId], references: [id])
+
+  @@map("interval_histories")
+}
+
+model AIForecastReading {
+  id                 String   @id @default(uuid())
+  deviceId           String
+  organizationId     String
+  templateVariableId String?
+  templateSlaveId    String?
+  variableName       String
+  horizon            Horizon
+  predictions        Json
+  generatedAt        DateTime @default(now())
+
+  device           Device                  @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  templateVariable DeviceTemplateVariable? @relation(fields: [templateVariableId], references: [id])
+  templateSlave    DeviceTemplateSlave?    @relation(fields: [templateSlaveId], references: [id])
+
+  @@map("ai_forecast_readings")
+}
+
+enum Horizon {
+  TEN_MIN
+  FIVE_HR
+  SEVEN_DAY
+  CUSTOM
+}
+
+model Notification {
+  id             String   @id @default(uuid())
+  userId         String
+  organizationId String
+  triggerName    String?
+  deviceName     String?
+  description    String?
+  read           Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("notifications")
+}
+
+model Icon {
+  id        String     @id @default(uuid())
+  name      String
+  imageUrl  String
+  status    IconStatus @default(ACTIVE)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  templateVariables DeviceTemplateVariable[]
+  widgetTemplates   WidgetTemplate[]
+
+  @@map("icons")
+}
+
+enum IconStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model Product {
+  id          String        @id @default(uuid())
+  name        String
+  price       Float?
+  imageUrl    String?
+  description String?
+  status      ProductStatus @default(ACTIVE)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@map("products")
+}
+
+enum ProductStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model Theme {
+  id              String      @id @default(uuid())
+  name            String
+  headerFontColor String?
+  headerBgColor   String?
+  bodyFontColor   String?
+  bodyBgColor     String?
+  fontSize        String?
+  status          ThemeStatus @default(ACTIVE)
+  createdBy       String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  organizations   Organization[]
+  widgetTemplates WidgetTemplate[]
+  creator         User?            @relation("ThemeCreator", fields: [createdBy], references: [id])
+
+  @@map("themes")
+}
+
+enum ThemeStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model WidgetTemplate {
+  id             String     @id @default(uuid())
+  organizationId String?
+  name           String
+  iconId         String?
+  themeId        String?
+  widgetType     WidgetType @default(VALUE_CARD)
+  variableName   String?
+  displayName    String?
+  unit           String?
+  position       Int        @default(0)
+  isActive       Boolean    @default(true)
+  createdBy      String?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  organization Organization? @relation(fields: [organizationId], references: [id])
+  icon         Icon?         @relation(fields: [iconId], references: [id])
+  theme        Theme?        @relation(fields: [themeId], references: [id])
+  creator      User?         @relation(fields: [createdBy], references: [id])
+
+  @@map("widget_templates")
+}
+
+enum WidgetType {
+  BAR
+  LINE
+  AREA
+  GAUGE
+  VALUE_CARD
+  PIE
+}
+
+model SystemSetting {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  type        String
+  value       String?
+  description String?
+  updatedAt   DateTime @updatedAt
+
+  @@map("system_settings")
+}
+
+model ListType {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  items ListTypeItem[]
+
+  @@map("list_types")
+}
+
+model ListTypeItem {
+  id          String   @id @default(uuid())
+  listTypeId  String
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  listType ListType @relation(fields: [listTypeId], references: [id], onDelete: Cascade)
+
+  @@map("list_type_items")
+}
+
+model MqttConfig {
+  id                String   @id @default(uuid())
+  organizationId    String
+  brokerUrl         String?
+  port              Int      @default(1883)
+  username          String?
+  passwordEncrypted String?
+  topic             String?
+  isActive          Boolean  @default(true)
+  createdBy         String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  creator      User?        @relation("MqttConfigCreator", fields: [createdBy], references: [id])
+  device       Device?
+
+  @@map("mqtt_configs")
+}
+
+model PasswordResetCode {
+  id        String   @id @default(uuid())
+  userId    String
+  code      String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("password_reset_codes")
+}
+
+model Subscription {
+  id             String             @id @default(uuid())
+  organizationId String?
+  name           String
+  email          String
+  phone          String?
+  description    String?
+  status         SubscriptionStatus @default(NEW)
+  submittedAt    DateTime           @default(now())
+
+  organization Organization? @relation(fields: [organizationId], references: [id])
+
+  @@map("subscriptions")
+}
+
+enum SubscriptionStatus {
+  NEW
+  CONTACTED
+  CLOSED
+}

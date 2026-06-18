@@ -1,0 +1,593 @@
+{
+  "project": {
+    "name": "EMS - Energy Management System",
+    "description": "IoT-based energy monitoring platform for Smart Agritech Lab. Multi-tenant: Super Admin → Organizations → Users. Devices push sensor readings; platform stores, computes, and visualizes energy metrics with AI analytics.",
+    "tech_stack": {
+      "backend": "Node.js + Express.js",
+      "database": "MongoDB (Mongoose ODM)",
+      "auth": "JWT (httpOnly cookies)",
+      "realtime": "Socket.IO (live dashboard readings)",
+      "file_storage": "Cloudinary (icons, product images, logos)",
+      "email": "Nodemailer / Gmail SMTP",
+      "scheduler": "node-cron (scheduled device tasks)",
+      "frontend": "Next.js 14 (App Router, TypeScript)",
+      "styling": "Tailwind CSS + CSS Modules",
+      "charts": "Recharts"
+    },
+    "roles": ["SUPER_ADMIN", "ORG_ADMIN", "USER"],
+    "design_notes": "Every entity (devices, gateways, slaves, templates, variables, icons) has full CRUD — the lab can add their own custom machines, sensors, and data types at any point. Nothing is hardcoded."
+  },
+
+  "database_models": {
+    "User": {
+      "fields": ["_id", "fullName", "email", "passwordHash", "phone", "role (SUPER_ADMIN|ORG_ADMIN|USER)", "organizationId (ref:Organization)", "status (active|inactive|deleted)", "createdAt", "updatedAt"],
+      "notes": "SUPER_ADMIN has no organizationId. OrgAdmin and User are scoped to one org."
+    },
+    "Organization": {
+      "fields": ["_id", "name", "description", "status (active|inactive)", "themeId (ref:Theme)", "logoUrl", "createdAt", "updatedAt"],
+      "notes": "One org = one lab or company. Super admin creates orgs and assigns users to them."
+    },
+    "Gateway": {
+      "fields": ["_id", "name", "serialNumber", "model", "status (online|offline)", "organizationId (ref:Organization)", "lastSeenAt", "createdAt", "updatedAt"],
+      "notes": "Physical hardware box. One gateway can have multiple devices attached."
+    },
+    "DeviceTemplate": {
+      "fields": ["_id", "name", "organizationId (ref:Organization)", "acquisitionMethod (edge_computing|cloud)", "variables: [{name, unit, registerAddress, iconId (ref:Icon), displayName}]", "createdAt", "updatedAt"],
+      "notes": "Defines what variables a device type reports. Fully customizable — lab adds their own templates. Drives dashboard widget generation."
+    },
+    "Device": {
+      "fields": ["_id", "name", "gatewayId (ref:Gateway)", "organizationId (ref:Organization)", "templateId (ref:DeviceTemplate)", "switchState (on|off)", "status (online|offline)", "createdAt", "updatedAt"],
+      "notes": "Physical device/meter. Has slaves (sub-meters/channels) as a separate collection."
+    },
+    "Slave": {
+      "fields": ["_id", "name", "deviceId (ref:Device)", "organizationId (ref:Organization)", "description", "isDefault (boolean)", "createdAt", "updatedAt"],
+      "notes": "Sub-meter or channel within a device. A simple single-channel device gets one default slave named 'Main'. Enables Device→Slave dropdown on all user dashboard pages."
+    },
+    "SensorReading": {
+      "fields": ["_id", "deviceId (ref:Device)", "slaveId (ref:Slave)", "organizationId (ref:Organization)", "timestamp", "readings: [{variableName, value, unit}]"],
+      "notes": "Core time-series collection. Written by IoT ingest endpoint. High-volume — TTL index set. All dashboard metrics computed from this. Indexed on (deviceId, slaveId, timestamp)."
+    },
+    "Anomaly": {
+      "fields": ["_id", "deviceId (ref:Device)", "slaveId (ref:Slave)", "organizationId (ref:Organization)", "variableName", "type (overvoltage|overload|low_power_factor|custom)", "value", "threshold", "priority (low|medium|high)", "detectedAt", "acknowledged (boolean)"],
+      "notes": "Written when ingest detects threshold breach against alarm templates. Powers Anomalies Detail page and dashboard anomaly count widget."
+    },
+    "AlarmTemplate": {
+      "fields": ["_id", "name", "organizationId (ref:Organization)", "templateId (ref:DeviceTemplate)", "createdBy (ref:User)", "conditions: [{variableName, operator (gt|lt|eq|gte|lte), threshold, anomalyType, priority}]", "updatedAt"],
+      "notes": "User-defined rules: if VoltageA > 250 → Overvoltage anomaly. Checked on every ingest."
+    },
+    "AlarmContact": {
+      "fields": ["_id", "name", "organizationId (ref:Organization)", "mobile", "email", "whatsapp", "remark", "createdBy (ref:User)", "updatedAt"],
+      "notes": "Who to notify when alarm fires. Linked to AlarmSetting."
+    },
+    "AlarmSetting": {
+      "fields": ["_id", "name", "organizationId (ref:Organization)", "alarmTemplateId (ref:AlarmTemplate)", "pushType (email|sms|whatsapp)", "pushMethod", "pushBody", "pushingMechanism (immediate|digest)", "contacts: [ref:AlarmContact]", "status (active|inactive)", "createdBy (ref:User)", "updatedAt"],
+      "notes": "Wires an alarm template to notification delivery config."
+    },
+    "Notification": {
+      "fields": ["_id", "userId (ref:User)", "organizationId (ref:Organization)", "triggerName", "deviceName", "description", "anomalyId (ref:Anomaly)", "read (boolean)", "createdAt"],
+      "notes": "In-app notification inbox per user. Created when anomaly fires."
+    },
+    "ScheduledTask": {
+      "fields": ["_id", "organizationId (ref:Organization)", "createdBy (ref:User)", "deviceId (ref:Device)", "slaveId (ref:Slave)", "variableName", "action (on|off)", "scheduledTime (HH:mm)", "repeatType (daily|weekly|once)", "daysOfWeek ([0-6])", "status (active|inactive)", "nextRunAt", "updatedAt"],
+      "notes": "Cron-style tasks to set a device variable ON/OFF at a time. node-cron evaluates these. Lab can schedule their own irrigation pumps, heaters, etc."
+    },
+    "SlabRate": {
+      "fields": ["_id", "organizationId (ref:Organization)", "slaveId (ref:Slave)", "unitFrom (number)", "unitTo (number)", "rate (PKR per kWh)", "onPeakRate", "offPeakRate", "createdBy (ref:User)", "updatedAt"],
+      "notes": "Electricity tariff tiers per slave. Backend uses these to compute cost in IntervalHistory."
+    },
+    "IntervalHistory": {
+      "fields": ["_id", "organizationId (ref:Organization)", "slaveId (ref:Slave)", "variableName", "slaveName", "totalUnit (kWh)", "tariff (computed PKR)", "startDate", "endDate", "computedAt"],
+      "notes": "Billing period records. Backend computes totalUnit from SensorReading aggregation over date range, applies SlabRate, stores result."
+    },
+    "Prediction": {
+      "fields": ["_id", "deviceId (ref:Device)", "slaveId (ref:Slave)", "organizationId (ref:Organization)", "variableName", "horizon (10min|5hr|7day|custom)", "predictions: [{timestamp, predictedValue}]", "generatedAt"],
+      "notes": "Pre-seeded dummy predicted values. Served to AI Analytics page. No real ML — realistic dummy data already in DB."
+    },
+    "Icon": {
+      "fields": ["_id", "name", "imageUrl (Cloudinary)", "status (active|inactive)", "createdAt"],
+      "notes": "Icon library (AC, Current, Furnace, etc.) used by DeviceTemplate variables and dashboard widgets."
+    },
+    "Product": {
+      "fields": ["_id", "name", "price", "imageUrl (Cloudinary)", "description", "status (active|inactive)", "createdAt"],
+      "notes": "Hardware product catalog (M100, N510 gateways). Displayed on user Products page."
+    },
+    "Theme": {
+      "fields": ["_id", "name", "headerFontColor", "headerBgColor", "bodyFontColor", "bodyBgColor", "fontSize", "status (active|inactive)", "createdBy (ref:User)", "createdAt"],
+      "notes": "Color themes. Assigned to organizations. Applied on user login."
+    },
+    "SystemSetting": {
+      "fields": ["_id", "key", "type (logo|text|config)", "value", "description", "updatedAt"],
+      "notes": "Key-value system config store. e.g. AdminLoginLogo."
+    },
+    "ListItem": {
+      "fields": ["_id", "listType (protocols_and_drivers|acquisition_methods|repeat_types|anomaly_types)", "name", "description", "updatedAt"],
+      "notes": "Generic lookup/enum table. Admins can add new protocols, drivers, etc. Powers all dropdowns."
+    },
+    "Subscription": {
+      "fields": ["_id", "name", "email", "phone", "description", "status (new|contacted|closed)", "submittedAt"],
+      "notes": "Service inquiry form submissions from user side. Super admin reviews these."
+    },
+    "DeviceTimestamp": {
+      "fields": ["_id", "deviceId (ref:Device)", "organizationId (ref:Organization)", "lastActiveAt"],
+      "notes": "Updated by ingest on every reading. Powers Device Timestamps page showing online/offline/last-seen."
+    }
+  },
+
+  "backend": {
+    "structure": {
+      "root_files": ["server.js", ".env", "package.json"],
+      "folders": {
+        "config": ["db.js (Mongoose connect)", "cloudinary.js", "nodemailer.js"],
+        "middleware": ["auth.js (JWT verify, role guard)", "errorHandler.js", "upload.js (Cloudinary multer)", "rateLimiter.js"],
+        "models": ["all Mongoose models, one file per model"],
+        "routes": ["index.js (mounts all routers)", "one file per resource"],
+        "controllers": ["one file per resource, matching route file"],
+        "services": ["anomalyDetector.js", "costCalculator.js", "schedulerService.js", "notificationService.js"],
+        "utils": ["pagination.js", "dateHelpers.js", "dummyDataSeeder.js"],
+        "socket": ["index.js (Socket.IO setup, broadcasts live readings)"]
+      }
+    },
+
+    "routes_and_controllers": {
+
+      "AUTH": {
+        "route_file": "routes/auth.js",
+        "controller_file": "controllers/authController.js",
+        "endpoints": [
+          { "method": "POST", "path": "/api/auth/login", "desc": "Login for all roles. Returns JWT in httpOnly cookie. Body: {email, password}. Returns user object with role." },
+          { "method": "POST", "path": "/api/auth/logout", "desc": "Clears JWT cookie." },
+          { "method": "GET", "path": "/api/auth/me", "desc": "Returns current user profile from JWT. Used on app load to restore session." }
+        ]
+      },
+
+      "ORGANIZATIONS": {
+        "route_file": "routes/organizations.js",
+        "controller_file": "controllers/organizationController.js",
+        "access": "SUPER_ADMIN only",
+        "endpoints": [
+          { "method": "GET", "path": "/api/organizations", "desc": "List all orgs. Supports pagination, search by name, filter by status." },
+          { "method": "POST", "path": "/api/organizations", "desc": "Create org. Body: {name, description}. Auto-sets status: active." },
+          { "method": "PUT", "path": "/api/organizations/:id", "desc": "Update org name, description, themeId, status." },
+          { "method": "DELETE", "path": "/api/organizations/:id", "desc": "Soft-delete org (set status: inactive). Does not delete child records." }
+        ]
+      },
+
+      "USERS": {
+        "route_file": "routes/users.js",
+        "controller_file": "controllers/userController.js",
+        "access": "SUPER_ADMIN (all users), ORG_ADMIN (own org users only)",
+        "endpoints": [
+          { "method": "GET", "path": "/api/users", "desc": "List users. SUPER_ADMIN: all users with org filter, role filter, status filter, search. ORG_ADMIN: only their org's users." },
+          { "method": "POST", "path": "/api/users", "desc": "Create user. Body: {fullName, email, password, phone, role, organizationId}. SUPER_ADMIN can set any role. ORG_ADMIN can only create USER role in their org." },
+          { "method": "PUT", "path": "/api/users/:id", "desc": "Update user. Can toggle status active/inactive/deleted. Cannot change role to SUPER_ADMIN unless caller is SUPER_ADMIN." },
+          { "method": "DELETE", "path": "/api/users/:id", "desc": "Soft-delete user (status: deleted)." },
+          { "method": "POST", "path": "/api/users/:id/reset-password", "desc": "Admin resets a user's password. Body: {newPassword}." }
+        ]
+      },
+
+      "GATEWAYS": {
+        "route_file": "routes/gateways.js",
+        "controller_file": "controllers/gatewayController.js",
+        "access": "SUPER_ADMIN (all), ORG_ADMIN (own org)",
+        "endpoints": [
+          { "method": "GET", "path": "/api/gateways", "desc": "List gateways. Filters: organizationId, status (online|offline), model, search by name/serial. Returns total/online/offline counts in header." },
+          { "method": "POST", "path": "/api/gateways", "desc": "Add gateway. Body: {name, serialNumber, model, organizationId}." },
+          { "method": "PUT", "path": "/api/gateways/:id", "desc": "Update gateway name, model, org assignment." },
+          { "method": "DELETE", "path": "/api/gateways/:id", "desc": "Delete gateway. Warns if devices are attached." },
+          { "method": "POST", "path": "/api/gateways/:id/link-device", "desc": "Link an existing device to this gateway." }
+        ]
+      },
+
+      "DEVICE_TEMPLATES": {
+        "route_file": "routes/deviceTemplates.js",
+        "controller_file": "controllers/deviceTemplateController.js",
+        "access": "SUPER_ADMIN (all), ORG_ADMIN (own org)",
+        "endpoints": [
+          { "method": "GET", "path": "/api/device-templates", "desc": "List templates with totalVariables count and associatedDevices count. Filters: organizationId, search by name." },
+          { "method": "GET", "path": "/api/device-templates/:id", "desc": "Get template detail including full variables array with icons." },
+          { "method": "POST", "path": "/api/device-templates", "desc": "Create template. Body: {name, organizationId, acquisitionMethod, variables:[{name,unit,registerAddress,iconId,displayName}]}." },
+          { "method": "PUT", "path": "/api/device-templates/:id", "desc": "Update template name or variables. If variables change, does NOT break existing SensorReadings — readings store variableName as string." },
+          { "method": "DELETE", "path": "/api/device-templates/:id", "desc": "Delete template. Blocked if devices are using it." },
+          { "method": "POST", "path": "/api/device-templates/:id/clone", "desc": "Clone template into a new one. Useful for creating lab-specific variants." }
+        ]
+      },
+
+      "DEVICES": {
+        "route_file": "routes/devices.js",
+        "controller_file": "controllers/deviceController.js",
+        "access": "SUPER_ADMIN (all), ORG_ADMIN/USER (own org)",
+        "endpoints": [
+          { "method": "GET", "path": "/api/devices", "desc": "List devices. Filters: organizationId, gatewayId, userId (assigned), status, search by name. Returns switchState per device." },
+          { "method": "GET", "path": "/api/devices/:id", "desc": "Single device detail with template info and linked slaves." },
+          { "method": "POST", "path": "/api/devices", "desc": "Add device. Body: {name, gatewayId, organizationId, templateId}. Auto-creates one default Slave named 'Main'." },
+          { "method": "PUT", "path": "/api/devices/:id", "desc": "Update device name, gateway, template, switch state (on|off)." },
+          { "method": "DELETE", "path": "/api/devices/:id", "desc": "Delete device. Cascades: deletes its slaves, sensor readings, anomalies, scheduled tasks." },
+          { "method": "PATCH", "path": "/api/devices/:id/switch", "desc": "Toggle device switchState on/off. Updates device doc. In future can send command to gateway." }
+        ]
+      },
+
+      "SLAVES": {
+        "route_file": "routes/slaves.js",
+        "controller_file": "controllers/slaveController.js",
+        "access": "SUPER_ADMIN, ORG_ADMIN, USER (own org)",
+        "endpoints": [
+          { "method": "GET", "path": "/api/devices/:deviceId/slaves", "desc": "List all slaves for a device. Always returns at least the default 'Main' slave." },
+          { "method": "POST", "path": "/api/devices/:deviceId/slaves", "desc": "Add a slave/sub-meter to a device. Body: {name, description}." },
+          { "method": "PUT", "path": "/api/devices/:deviceId/slaves/:slaveId", "desc": "Update slave name or description." },
+          { "method": "DELETE", "path": "/api/devices/:deviceId/slaves/:slaveId", "desc": "Delete slave. Blocked if it is the only (default) slave." }
+        ]
+      },
+
+      "INGEST": {
+        "route_file": "routes/ingest.js",
+        "controller_file": "controllers/ingestController.js",
+        "access": "Gateway device (API key auth, not JWT)",
+        "endpoints": [
+          { "method": "POST", "path": "/api/ingest", "desc": "IoT device pushes readings. Body: {gatewaySerial, deviceId, slaveId, readings:[{variableName, value}]}. Steps: 1) Validate API key. 2) Write SensorReading doc. 3) Update DeviceTimestamp. 4) Run anomalyDetector.check(). 5) If anomaly: write Anomaly doc, create Notification, emit Socket.IO event to org room. 6) Emit live reading via Socket.IO to dashboard subscribers." }
+        ]
+      },
+
+      "SENSOR_DATA": {
+        "route_file": "routes/sensorData.js",
+        "controller_file": "controllers/sensorDataController.js",
+        "access": "SUPER_ADMIN, ORG_ADMIN, USER (own org)",
+        "endpoints": [
+          { "method": "GET", "path": "/api/sensor-data/latest", "desc": "Latest reading per variable for a device+slave. Powers the Detail page (live variable cards). Query: {deviceId, slaveId}." },
+          { "method": "GET", "path": "/api/sensor-data/history", "desc": "Historical readings for a device+slave+variable over a date range. Query: {deviceId, slaveId, variableName, startDate, endDate, limit}. Powers Historical Data table+chart." },
+          { "method": "GET", "path": "/api/sensor-data/aggregate", "desc": "Aggregated metric for a variable over time range and interval (1h|24h|7d|30d). Returns [{timestamp, value}] for chart widgets. Powers all dashboard chart widgets." },
+          { "method": "GET", "path": "/api/sensor-data/dashboard-summary", "desc": "One call that returns all 9 dashboard widget values for a device+slave+timeRange. Computes: totalPowerConsumption, totalExportPower, voltageImbalance%, currentImbalance, powerFactor, predictedConsumption, anomalyCount+breakdown, thdV, thdI, frequency, energySavingsComparison(daily/weekly/monthly)." },
+          { "method": "DELETE", "path": "/api/sensor-data", "desc": "Delete readings for a device+slave over a date range. SUPER_ADMIN only." },
+          { "method": "GET", "path": "/api/sensor-data/download", "desc": "Download readings as CSV. Query: {deviceId, slaveId, variableName, startDate, endDate}. Streams CSV response." }
+        ]
+      },
+
+      "ANOMALIES": {
+        "route_file": "routes/anomalies.js",
+        "controller_file": "controllers/anomalyController.js",
+        "access": "SUPER_ADMIN, ORG_ADMIN, USER (own org)",
+        "endpoints": [
+          { "method": "GET", "path": "/api/anomalies", "desc": "List anomalies. Filters: deviceId, slaveId, type, timeRange (1h|24h|7d|30d|custom). Returns total count + breakdown by type. Powers Anomalies Detail page and dashboard widget." },
+          { "method": "GET", "path": "/api/anomalies/timeline", "desc": "Anomaly count per time bucket (30min intervals) for timeline chart. Query: {deviceId, slaveId, timeRange}." },
+          { "method": "PATCH", "path": "/api/anomalies/:id/acknowledge", "desc": "Mark anomaly as acknowledged." }
+        ]
+      },
+
+      "ALARM_LINKAGE": {
+        "route_file": "routes/alarmLinkage.js",
+        "controller_file": "controllers/alarmLinkageController.js",
+        "access": "SUPER_ADMIN (all), ORG_ADMIN/USER (own org)",
+        "sub_resources": {
+          "Template Triggers (AlarmTemplate)": [
+            { "method": "GET", "path": "/api/alarm-templates", "desc": "List alarm templates. Filters: organizationId, search by trigger name/template name." },
+            { "method": "POST", "path": "/api/alarm-templates", "desc": "Create template trigger. Body: {name, organizationId, templateId, conditions:[{variableName, operator, threshold, anomalyType, priority}]}." },
+            { "method": "PUT", "path": "/api/alarm-templates/:id", "desc": "Update trigger conditions." },
+            { "method": "DELETE", "path": "/api/alarm-templates/:id", "desc": "Delete trigger." }
+          ],
+          "Alarm Settings": [
+            { "method": "GET", "path": "/api/alarm-settings", "desc": "List alarm configurations. Filters: organizationId, alarmTemplateId." },
+            { "method": "POST", "path": "/api/alarm-settings", "desc": "Create alarm setting. Body: {name, organizationId, alarmTemplateId, pushType, pushBody, pushMethod, pushingMechanism, contactIds}." },
+            { "method": "PUT", "path": "/api/alarm-settings/:id", "desc": "Update push config or linked contacts." },
+            { "method": "DELETE", "path": "/api/alarm-settings/:id", "desc": "Delete alarm setting." }
+          ],
+          "Alarm Contacts": [
+            { "method": "GET", "path": "/api/alarm-contacts", "desc": "List alarm contacts. Filters: organizationId, search by name/phone." },
+            { "method": "POST", "path": "/api/alarm-contacts", "desc": "Add contact. Body: {name, organizationId, mobile, email, whatsapp, remark}." },
+            { "method": "PUT", "path": "/api/alarm-contacts/:id", "desc": "Update contact info." },
+            { "method": "DELETE", "path": "/api/alarm-contacts/:id", "desc": "Delete contact." }
+          ]
+        }
+      },
+
+      "DEVICE_TIMESTAMPS": {
+        "route_file": "routes/deviceTimestamps.js",
+        "controller_file": "controllers/deviceTimestampController.js",
+        "access": "SUPER_ADMIN, ORG_ADMIN",
+        "endpoints": [
+          { "method": "GET", "path": "/api/device-timestamps", "desc": "List all devices with lastActiveAt, computed 'lastActive ago' string, and online/offline status (online if lastActiveAt < 5 min ago). Paginated." }
+        ]
+      },
+
+      "SCHEDULED_TASKS": {
+        "route_file": "routes/scheduledTasks.js",
+        "controller_file": "controllers/scheduledTaskController.js",
+        "access": "SUPER_ADMIN (all), ORG_ADMIN/USER (own org)",
+        "endpoints": [
+          { "method": "GET", "path": "/api/scheduled-tasks", "desc": "List tasks. Filters: organizationId, deviceId. Returns slave name, variable, action, time, repeat type, status." },
+          { "method": "POST", "path": "/api/scheduled-tasks", "desc": "Create task. Body: {deviceId, slaveId, variableName, action, scheduledTime, repeatType, daysOfWeek}. Registers with node-cron. Lab adds their own pump/heater schedules here." },
+          { "method": "PUT", "path": "/api/scheduled-tasks/:id", "desc": "Update task. Re-registers cron job." },
+          { "method": "DELETE", "path": "/api/scheduled-tasks/:id", "desc": "Delete task and remove from cron." },
+          { "method": "PATCH", "path": "/api/scheduled-tasks/:id/toggle", "desc": "Toggle task active/inactive." }
+        ]
+      },
+
+      "SLAB_RATES": {
+        "route_file": "routes/slabRates.js",
+        "controller_file": "controllers/slabRateController.js",
+        "access": "ORG_ADMIN, USER (own org)",
+        "endpoints": [
+          { "method": "GET", "path": "/api/slab-rates", "desc": "List slab rates. Filter by deviceId/slaveId." },
+          { "method": "POST", "path": "/api/slab-rates", "desc": "Add slab tier. Body: {slaveId, unitFrom, unitTo, rate, onPeakRate, offPeakRate}. Multiple tiers per slave." },
+          { "method": "PUT", "path": "/api/slab-rates/:id", "desc": "Update tier. Triggers recalculation of affected interval histories." },
+          { "method": "DELETE", "path": "/api/slab-rates/:id", "desc": "Delete tier." }
+        ]
+      },
+
+      "INTERVAL_HISTORY": {
+        "route_file": "routes/intervalHistory.js",
+        "controller_file": "controllers/intervalHistoryController.js",
+        "access": "ORG_ADMIN, USER (own org)",
+        "endpoints": [
+          { "method": "GET", "path": "/api/interval-history", "desc": "List billing intervals. Filter by slaveId." },
+          { "method": "POST", "path": "/api/interval-history", "desc": "Add billing interval. Body: {slaveId, variableName, startDate, endDate}. Backend: 1) Queries SensorReading to sum kWh in range. 2) Applies matching SlabRate tiers. 3) Computes and stores totalUnit + tariff." },
+          { "method": "DELETE", "path": "/api/interval-history/:id", "desc": "Delete interval record." }
+        ]
+      },
+
+      "NOTIFICATIONS": {
+        "route_file": "routes/notifications.js",
+        "controller_file": "controllers/notificationController.js",
+        "access": "USER (own notifications)",
+        "endpoints": [
+          { "method": "GET", "path": "/api/notifications", "desc": "Get user's alarm notification inbox. Paginated. Returns trigger name, device, description, time." },
+          { "method": "DELETE", "path": "/api/notifications", "desc": "Delete all notifications for current user." },
+          { "method": "DELETE", "path": "/api/notifications/:id", "desc": "Delete single notification." }
+        ]
+      },
+
+      "AI_ANALYTICS": {
+        "route_file": "routes/aiAnalytics.js",
+        "controller_file": "controllers/aiAnalyticsController.js",
+        "access": "USER (own org)",
+        "endpoints": [
+          { "method": "GET", "path": "/api/ai/predictions", "desc": "Get predicted readings. Query: {deviceId, slaveId, variableName, horizon (10min|5hr|7day|custom), startDate, endDate}. Returns [{timestamp, predictedValue}]. Served from pre-seeded Prediction docs." },
+          { "method": "GET", "path": "/api/ai/voltage-imbalance", "desc": "Returns current voltage imbalance value + anomaly list (time, type) + predicted voltage chart data for device+slave." },
+          { "method": "GET", "path": "/api/ai/current-imbalance", "desc": "Same structure for current imbalance." },
+          { "method": "GET", "path": "/api/ai/power-factor", "desc": "Same structure for power factor." },
+          { "method": "GET", "path": "/api/ai/energy-consumption", "desc": "Energy consumption trend + predicted consumption + anomaly list." }
+        ]
+      },
+
+      "ICONS": {
+        "route_file": "routes/icons.js",
+        "controller_file": "controllers/iconController.js",
+        "access": "SUPER_ADMIN",
+        "endpoints": [
+          { "method": "GET", "path": "/api/icons", "desc": "List icons. Filter by status. Paginated." },
+          { "method": "POST", "path": "/api/icons", "desc": "Upload icon. Multipart: {name, imageFile}. Uploads to Cloudinary." },
+          { "method": "PUT", "path": "/api/icons/:id", "desc": "Update icon name or image." },
+          { "method": "DELETE", "path": "/api/icons/:id", "desc": "Delete icon. Blocked if used in device templates." }
+        ]
+      },
+
+      "PRODUCTS": {
+        "route_file": "routes/products.js",
+        "controller_file": "controllers/productController.js",
+        "access": "SUPER_ADMIN (write), all roles (read)",
+        "endpoints": [
+          { "method": "GET", "path": "/api/products", "desc": "List products with image, price, description, status. Paginated." },
+          { "method": "POST", "path": "/api/products", "desc": "Add product. Multipart: {name, price, description, imageFile}." },
+          { "method": "PUT", "path": "/api/products/:id", "desc": "Update product." },
+          { "method": "DELETE", "path": "/api/products/:id", "desc": "Delete product." }
+        ]
+      },
+
+      "THEMES": {
+        "route_file": "routes/themes.js",
+        "controller_file": "controllers/themeController.js",
+        "access": "SUPER_ADMIN",
+        "endpoints": [
+          { "method": "GET", "path": "/api/themes", "desc": "List all themes with color swatches and font size. Paginated." },
+          { "method": "POST", "path": "/api/themes", "desc": "Create theme. Body: {name, headerFontColor, headerBgColor, bodyFontColor, bodyBgColor, fontSize}." },
+          { "method": "PUT", "path": "/api/themes/:id", "desc": "Update theme." },
+          { "method": "DELETE", "path": "/api/themes/:id", "desc": "Delete theme. Blocked if assigned to any org." },
+          { "method": "POST", "path": "/api/themes/:id/assign", "desc": "Assign theme to an organization. Body: {organizationId}." }
+        ]
+      },
+
+      "SETTINGS": {
+        "route_file": "routes/settings.js",
+        "controller_file": "controllers/settingController.js",
+        "access": "SUPER_ADMIN",
+        "endpoints": [
+          { "method": "GET", "path": "/api/settings", "desc": "List all system settings. Filter by type." },
+          { "method": "PUT", "path": "/api/settings/:key", "desc": "Update a setting value. Handles file upload for Logo type settings." },
+          { "method": "DELETE", "path": "/api/settings/:key", "desc": "Delete a setting." }
+        ]
+      },
+
+      "LIST_ITEMS": {
+        "route_file": "routes/listItems.js",
+        "controller_file": "controllers/listItemController.js",
+        "access": "SUPER_ADMIN",
+        "endpoints": [
+          { "method": "GET", "path": "/api/list-items", "desc": "List all items. Filter by listType (protocols_and_drivers, acquisition_methods, etc.)." },
+          { "method": "POST", "path": "/api/list-items", "desc": "Add new item. Body: {listType, name, description}. Lab adds their own protocol or custom type here." },
+          { "method": "PUT", "path": "/api/list-items/:id", "desc": "Update item." },
+          { "method": "DELETE", "path": "/api/list-items/:id", "desc": "Delete item." }
+        ]
+      },
+
+      "SUBSCRIPTIONS": {
+        "route_file": "routes/subscriptions.js",
+        "controller_file": "controllers/subscriptionController.js",
+        "access": "Public (POST), SUPER_ADMIN (GET/manage)",
+        "endpoints": [
+          { "method": "POST", "path": "/api/subscriptions", "desc": "Submit service inquiry. Body: {name, email, phone, description}. No auth required. Creates Subscription doc with status: new." },
+          { "method": "GET", "path": "/api/subscriptions", "desc": "SUPER_ADMIN: list all inquiries. Filter by status." },
+          { "method": "PATCH", "path": "/api/subscriptions/:id/status", "desc": "Update inquiry status (contacted|closed)." }
+        ]
+      }
+    },
+
+    "services": {
+      "anomalyDetector.js": "Called by ingest on each reading. Loads active AlarmTemplate for the device's template. Checks each condition against incoming variable values. If breached: writes Anomaly, calls notificationService.",
+      "costCalculator.js": "Called when IntervalHistory is created or SlabRate updated. Aggregates SensorReading kWh for the given slave+variable+dateRange. Applies matching slab tiers (including on-peak/off-peak logic). Stores computed totalUnit and tariff.",
+      "schedulerService.js": "On server start: loads all active ScheduledTasks from DB and registers node-cron jobs. On task CRUD: adds/removes/updates cron entries. On trigger: updates device variable in DB and emits socket event.",
+      "notificationService.js": "Creates Notification doc for the affected user. If AlarmSetting has email push: sends email via Nodemailer. Socket.IO emit to user's room for real-time notification badge update."
+    }
+  },
+
+  "frontend": {
+    "structure_note": "Next.js 14 App Router. Two separate route groups: (superadmin) and (user). Each has its own layout with sidebar. Auth guard in middleware.ts.",
+
+    "pages": {
+
+      "shared": {
+        "/login": {
+          "desc": "Login page for all roles. Single form: email + password. On success, redirects to /superadmin or /dashboard based on role.",
+          "api_calls": ["POST /api/auth/login"]
+        }
+      },
+
+      "super_admin": {
+        "layout": "Sidebar with all SA nav items. Top bar with notification icon and logout.",
+
+        "/superadmin/organizations": {
+          "desc": "Manage Organizations list. Table: name, description, creation time, status badge, edit/delete actions. Add Organization button opens modal form.",
+          "api_calls": ["GET /api/organizations", "POST /api/organizations", "PUT /api/organizations/:id", "DELETE /api/organizations/:id"],
+          "features": ["Pagination", "Search by name", "Status filter", "Add/Edit modal form"]
+        },
+        "/superadmin/users": {
+          "desc": "Manage Users list. Table: org, full name, email, phone, role, status, creation time, edit/delete/reset-password actions. Filter by org and status.",
+          "api_calls": ["GET /api/users", "POST /api/users", "PUT /api/users/:id", "DELETE /api/users/:id"],
+          "features": ["Org dropdown filter", "Status filter", "Search", "Add/Edit modal"]
+        },
+        "/superadmin/gateways": {
+          "desc": "Manage Gateways. Summary bar: total/online/offline counts. Table: status badge, name, serial, model, associated devices count, org, edit/link/delete.",
+          "api_calls": ["GET /api/gateways", "POST /api/gateways", "PUT /api/gateways/:id", "DELETE /api/gateways/:id"]
+        },
+        "/superadmin/devices": {
+          "desc": "Manage Devices list. Table: status, name, org, gateway, template, switch toggle, view/edit/delete. Batch delete. Export CSV.",
+          "api_calls": ["GET /api/devices", "POST /api/devices", "PUT /api/devices/:id", "DELETE /api/devices/:id", "PATCH /api/devices/:id/switch"]
+        },
+        "/superadmin/devices/templates": {
+          "desc": "Device Templates. Table: name, org, variable count, associated devices, acquisition method, last updated. Add/clone/edit/delete.",
+          "api_calls": ["GET /api/device-templates", "POST /api/device-templates", "PUT /api/device-templates/:id", "DELETE /api/device-templates/:id", "POST /api/device-templates/:id/clone"]
+        },
+        "/superadmin/icons": {
+          "desc": "Icon library. Table: name, icon preview image, status, add/edit/delete. Upload icon via file picker.",
+          "api_calls": ["GET /api/icons", "POST /api/icons", "PUT /api/icons/:id", "DELETE /api/icons/:id"]
+        },
+        "/superadmin/products": {
+          "desc": "Hardware product catalog. Table: name, price, image thumbnail, description, status, edit/delete.",
+          "api_calls": ["GET /api/products", "POST /api/products", "PUT /api/products/:id", "DELETE /api/products/:id"]
+        },
+        "/superadmin/data/variable-alarm-records": {
+          "desc": "Variable Alarm Records. Filters: device, trigger, variable, alarm state, date range. Table: device, trigger, type, slave, variable, current value, condition, alarm time, alarm state, process state.",
+          "api_calls": ["GET /api/anomalies", "DELETE /api/anomalies (batch)"]
+        },
+        "/superadmin/data/linkage-records": {
+          "desc": "Linkage Records. Filters: device, trigger, variable, date range. Table: device, trigger, type, slave, variable, condition, trigger device, linkage time.",
+          "api_calls": ["GET /api/anomalies?type=linkage"]
+        },
+        "/superadmin/data/historical": {
+          "desc": "Historical Data. Filters: device, date range, slave, variable (multi-select). Table: variable, value, received time. Line chart on right. Download CSV, Delete Data buttons.",
+          "api_calls": ["GET /api/sensor-data/history", "GET /api/sensor-data/download", "DELETE /api/sensor-data"]
+        },
+        "/superadmin/alarm-linkage/template-triggers": {
+          "desc": "Template Triggers list. Table: trigger name, org, template name, founder, update time. Add/edit/delete.",
+          "api_calls": ["GET /api/alarm-templates", "POST /api/alarm-templates", "PUT /api/alarm-templates/:id", "DELETE /api/alarm-templates/:id"]
+        },
+        "/superadmin/alarm-linkage/alarm-settings": {
+          "desc": "Alarm Settings list. Table: config name, org, push type, body, method, mechanism, status, founder, update time. Add/edit/delete.",
+          "api_calls": ["GET /api/alarm-settings", "POST /api/alarm-settings", "PUT /api/alarm-settings/:id", "DELETE /api/alarm-settings/:id"]
+        },
+        "/superadmin/alarm-linkage/alarm-contacts": {
+          "desc": "Alarm Contacts list. Table: contact name, org, mobile, email, WhatsApp, remark, added by, update time. Add/edit/delete.",
+          "api_calls": ["GET /api/alarm-contacts", "POST /api/alarm-contacts", "PUT /api/alarm-contacts/:id", "DELETE /api/alarm-contacts/:id"]
+        },
+        "/superadmin/device-timestamps": {
+          "desc": "Device Timestamps. Table: device name, last activity datetime, time-ago string, online/offline status badge. No filters needed — shows all.",
+          "api_calls": ["GET /api/device-timestamps"]
+        },
+        "/superadmin/scheduled-tasks": {
+          "desc": "Manage Scheduled Tasks. Table: serial, device+variable, action (ON/OFF badge), scheduled time, repeat type, status, created by. Add/edit/toggle/delete.",
+          "api_calls": ["GET /api/scheduled-tasks", "POST /api/scheduled-tasks", "PUT /api/scheduled-tasks/:id", "DELETE /api/scheduled-tasks/:id", "PATCH /api/scheduled-tasks/:id/toggle"]
+        },
+        "/superadmin/themes": {
+          "desc": "Theme Settings. Table: serial, name, header colors (font+bg swatches), body colors, font size, status, created by/date. Add/edit/assign to org/delete.",
+          "api_calls": ["GET /api/themes", "POST /api/themes", "PUT /api/themes/:id", "DELETE /api/themes/:id", "POST /api/themes/:id/assign"]
+        },
+        "/superadmin/settings": {
+          "desc": "System settings key-value store. Table: key, type badge, value preview, description, last updated. Edit values (file upload for logo type).",
+          "api_calls": ["GET /api/settings", "PUT /api/settings/:key", "DELETE /api/settings/:key"]
+        },
+        "/superadmin/others/list": {
+          "desc": "Manage Lists (lookup enums). Filter by list type. Table: list type, name, description. Add/edit/delete. Lab adds custom protocols or driver types here.",
+          "api_calls": ["GET /api/list-items", "POST /api/list-items", "PUT /api/list-items/:id", "DELETE /api/list-items/:id"]
+        },
+        "/superadmin/subscriptions": {
+          "desc": "Service inquiries submitted by users. Table: name, email, phone, description, status, date. Update status to contacted/closed.",
+          "api_calls": ["GET /api/subscriptions", "PATCH /api/subscriptions/:id/status"]
+        }
+      },
+
+      "user": {
+        "layout": "Sidebar: Manage Dashboard, Subscription, Products, Schedule, Manage Slab Rates, Manage Interval History, Alarm Template, Notification, Manage AI Analytics. Top bar: notification bell badge + logout.",
+
+        "/dashboard": {
+          "desc": "Main energy monitoring dashboard. Device + Slave dropdowns at top. 9 metric cards in 3-col grid, each with 1h/24h/7d/30d toggle and mini chart: Total Power Consumption (bar), Total Export Power (bar), Voltage Imbalance % (area), Current Imbalance (area), Real Time Power Factor (line), Predicted Consumption (line), Anomalies (count + type list + pagination), THD-V (line), THD-I (line), Frequency (line). Bottom: Energy Savings Comparison cards (Daily/Weekly/Monthly % vs prior period). Download Data button.",
+          "api_calls": ["GET /api/sensor-data/dashboard-summary", "GET /api/sensor-data/download"],
+          "realtime": "Socket.IO subscription to org room for live updates on readings"
+        },
+        "/dashboard/detail": {
+          "desc": "Live variable cards grid. Device + Slave selector. Shows all variables from the device's template as individual cards: variable name with icon, current value with unit. Auto-refreshes every 30s or via Socket.IO.",
+          "api_calls": ["GET /api/sensor-data/latest"],
+          "realtime": "Socket.IO for live value updates"
+        },
+        "/subscription": {
+          "desc": "Service inquiry form. Fields: Name, Email, Phone, Description/Requirement. Submit sends inquiry to super admin.",
+          "api_calls": ["POST /api/subscriptions"]
+        },
+        "/products": {
+          "desc": "Product Catalog. Displays hardware products from super admin catalog: image, name, price, description. Read-only browse.",
+          "api_calls": ["GET /api/products"]
+        },
+        "/schedule": {
+          "desc": "User's scheduled tasks. Device filter dropdown. Table: slave, variable, action, scheduled time, repeat type, status. Add/edit/toggle/delete tasks for own devices.",
+          "api_calls": ["GET /api/scheduled-tasks", "POST /api/scheduled-tasks", "PUT /api/scheduled-tasks/:id", "DELETE /api/scheduled-tasks/:id", "PATCH /api/scheduled-tasks/:id/toggle"]
+        },
+        "/slab-rates": {
+          "desc": "Electricity tariff configuration. Device filter. Table: slave, unit from, unit to, rate, on-peak rate, off-peak rate. Add/edit/delete slab tiers for own slaves.",
+          "api_calls": ["GET /api/slab-rates", "POST /api/slab-rates", "PUT /api/slab-rates/:id", "DELETE /api/slab-rates/:id"]
+        },
+        "/interval-history": {
+          "desc": "Billing period records. Device filter. Table: variable name, slave name, total units (kWh), tariff (PKR), start date, end date. Add Interval triggers backend cost computation.",
+          "api_calls": ["GET /api/interval-history", "POST /api/interval-history", "DELETE /api/interval-history/:id"]
+        },
+        "/alarm-template": {
+          "desc": "User's alarm templates. Table: trigger name, org, template name, founder, update time. Add/edit/delete templates for own devices.",
+          "api_calls": ["GET /api/alarm-templates", "POST /api/alarm-templates", "PUT /api/alarm-templates/:id", "DELETE /api/alarm-templates/:id"]
+        },
+        "/notifications": {
+          "desc": "Alarm notification inbox. Table: trigger name, device name, description, time. Delete All button. Badge count on sidebar icon.",
+          "api_calls": ["GET /api/notifications", "DELETE /api/notifications", "DELETE /api/notifications/:id"]
+        },
+        "/ai/readings": {
+          "desc": "AI Analytics — Predicted Readings. Tabs: Next 10 Min / Next 5 Hours / Next 7 Days / Custom date. Device+Slave+Variable(multi) filters. Table: variable name, predicted value, timestamp. Line chart on right.",
+          "api_calls": ["GET /api/ai/predictions"]
+        },
+        "/ai/voltage-imbalance": {
+          "desc": "Voltage Imbalance Detail. Device+Slave filters. Left: current imbalance value (large), anomaly table (time, type) with pagination. Right: Predicted Voltage bar chart (1h/24h/7d/30d toggle) + Voltage Over Time bar chart.",
+          "api_calls": ["GET /api/ai/voltage-imbalance"]
+        },
+        "/ai/current-imbalance": {
+          "desc": "Current Imbalance Detail. Same layout as voltage imbalance but for current. Anomaly types: Overload.",
+          "api_calls": ["GET /api/ai/current-imbalance"]
+        },
+        "/ai/power-factor": {
+          "desc": "Power Factor Detail. Same layout. Shows current PF value, Low Power Factor anomaly list, Predicted PF line chart, PF Over Time bar chart.",
+          "api_calls": ["GET /api/ai/power-factor"]
+        },
+        "/ai/energy-consumption": {
+          "desc": "Energy Consumption Detail. Shows total consumption value, anomaly list, Predicted Consumption line chart, Consumption Over Time bar chart.",
+          "api_calls": ["GET /api/ai/energy-consumption"]
+        },
+        "/ai/anomalies": {
+          "desc": "Anomalies Detail page. Device+Slave filters. Left: total anomaly count (large red), timeline area chart (1h/24h/7d/30d). Right: Issues Breakdown horizontal bar chart by type with color coding + legend (type, category, priority, occurrences).",
+          "api_calls": ["GET /api/anomalies", "GET /api/anomalies/timeline"]
+        }
+      }
+    }
+  }
+}
