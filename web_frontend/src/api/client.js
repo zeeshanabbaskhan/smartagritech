@@ -1,10 +1,20 @@
 const TOKEN_KEY = 'ems_token'
 const REFRESH_KEY = 'ems_refresh'
 
-const baseUrl = () => import.meta.env.VITE_API_URL || '/api'
+function normalizeApiBase(raw) {
+  if (!raw) return '/api'
+  let base = String(raw).trim()
+  // Repair common misconfigured build URLs (e.g. https://http//host/api)
+  base = base.replace(/^https:\/\/http\/\//i, 'https://')
+  base = base.replace(/^https:\/\/http:\/\//i, 'https://')
+  base = base.replace(/^https:\/\/https:\/\//i, 'https://')
+  return base.replace(/\/$/, '')
+}
+
+const baseUrl = () => normalizeApiBase(import.meta.env.VITE_API_URL || '/api')
 
 function buildUrl(path, query) {
-  const base = baseUrl().replace(/\/$/, '')
+  const base = baseUrl()
   const segment = path.startsWith('/') ? path : `/${path}`
   const full = base.startsWith('http')
     ? `${base}${segment}`

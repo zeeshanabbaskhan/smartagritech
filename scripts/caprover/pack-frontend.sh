@@ -1,10 +1,23 @@
 #!/usr/bin/env bash
 # Pack frontend tarball for CapRover (run from repo root).
-# Usage: ./scripts/caprover/pack-frontend.sh ems-api.yourdomain.com
-#   (public backend hostname — no https://)
+# Usage: ./scripts/caprover/pack-frontend.sh iotbackend.yourdomain.com
+#   Hostname only — no https://, no /api suffix
 set -euo pipefail
 
-API_HOST="${1:?Usage: pack-frontend.sh <api-host e.g. ems-api.yourdomain.com>}"
+RAW_HOST="${1:?Usage: pack-frontend.sh <api-host e.g. iotbackend.yourdomain.com>}"
+
+# Strip accidental protocol / path suffixes from GitHub secret or manual input
+API_HOST="$RAW_HOST"
+API_HOST="${API_HOST#https://}"
+API_HOST="${API_HOST#http://}"
+API_HOST="${API_HOST#http//}"
+API_HOST="${API_HOST%%/*}"
+API_HOST="${API_HOST%/}"
+
+if [ -z "$API_HOST" ]; then
+  echo "Invalid API host: $RAW_HOST (use hostname only, e.g. iotbackend.yourdomain.com)"
+  exit 1
+fi
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 OUT="${ROOT}/dist/caprover-frontend.tgz"

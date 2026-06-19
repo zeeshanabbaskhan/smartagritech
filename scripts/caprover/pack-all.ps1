@@ -7,13 +7,25 @@ param(
   [string]$WebHost = ""
 )
 
+function Normalize-ApiHost([string]$Host) {
+  $h = $Host.Trim()
+  $h = $h -replace '^https?://', ''
+  $h = $h -replace '^http//', ''
+  $h = $h -replace '/.*$', ''
+  $h = $h.TrimEnd('/')
+  return $h
+}
+
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $dist = Join-Path $root "dist"
 New-Item -ItemType Directory -Force -Path $dist | Out-Null
 
-$apiUrl = "https://$ApiHost/api"
-$socketUrl = "https://$ApiHost"
+$apiHost = Normalize-ApiHost $ApiHost
+if (-not $apiHost) { throw "Invalid API host: $ApiHost (use hostname only, e.g. iotbackend.yourdomain.com)" }
+
+$apiUrl = "https://$apiHost/api"
+$socketUrl = "https://$apiHost"
 
 # Backend
 $backendTar = Join-Path $dist "caprover-backend.tgz"

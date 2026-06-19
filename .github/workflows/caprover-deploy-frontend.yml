@@ -35,7 +35,7 @@ jobs:
           CAPROVER_BACKEND_PUBLIC_HOST: ${{ secrets.CAPROVER_BACKEND_PUBLIC_HOST }}
         run: |
           if [ -z "$CAPROVER_BACKEND_PUBLIC_HOST" ]; then
-            echo "Missing CAPROVER_BACKEND_PUBLIC_HOST (public API host, e.g. ems-api.yourdomain.com)"
+            echo "Missing CAPROVER_BACKEND_PUBLIC_HOST (hostname only, e.g. iotbackend.yourdomain.com — no https://)"
             exit 1
           fi
           chmod +x scripts/caprover/pack-frontend.sh
