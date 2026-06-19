@@ -13,7 +13,8 @@ RUN npm ci --omit=dev --legacy-peer-deps --ignore-scripts \
 COPY . .
 
 ENV NODE_ENV=production
-EXPOSE 5000
+ENV PORT=9001
+EXPOSE 9001
 
 COPY docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
