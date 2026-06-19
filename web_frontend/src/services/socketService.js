@@ -1,9 +1,16 @@
 import { io } from 'socket.io-client'
 import { tokenStore } from '../api/client'
 
+export function isSocketEnabled() {
+  if (import.meta.env.VITE_ENABLE_SOCKET === 'false') return false
+  const configured = import.meta.env.VITE_SOCKET_URL
+  if (configured === 'false' || configured === '') return false
+  return true
+}
+
 const socketUrl = () => {
   const configured = import.meta.env.VITE_SOCKET_URL
-  if (configured) return configured
+  if (configured && configured !== 'false') return configured
   if (typeof window !== 'undefined') return window.location.origin
   return ''
 }
@@ -21,6 +28,8 @@ export function onSocketEvent(handler) {
 }
 
 export function connectSocket() {
+  if (!isSocketEnabled()) return
+
   const url = socketUrl()
   const token = tokenStore.get()
   if (!url || !token) return

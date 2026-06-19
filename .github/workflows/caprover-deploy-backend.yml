@@ -1,0 +1,52 @@
+name: CapRover Deploy Backend
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'ems/ems-backend/**'
+      - '.github/workflows/caprover-deploy-backend.yml'
+      - 'scripts/caprover/pack-backend.sh'
+  workflow_dispatch:
+
+concurrency:
+  group: caprover-backend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy backend to CapRover
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install CapRover CLI
+        run: npm install -g caprover
+
+      - name: Pack backend tarball
+        run: |
+          chmod +x scripts/caprover/pack-backend.sh
+          ./scripts/caprover/pack-backend.sh
+
+      - name: Deploy to CapRover
+        env:
+          CAPROVER_SERVER_URL: ${{ secrets.CAPROVER_SERVER_URL }}
+          CAPROVER_BACKEND_APP: ${{ secrets.CAPROVER_BACKEND_APP }}
+          CAPROVER_BACKEND_TOKEN: ${{ secrets.CAPROVER_BACKEND_TOKEN }}
+        run: |
+          if [ -z "$CAPROVER_SERVER_URL" ] || [ -z "$CAPROVER_BACKEND_APP" ] || [ -z "$CAPROVER_BACKEND_TOKEN" ]; then
+            echo "Missing required secrets: CAPROVER_SERVER_URL, CAPROVER_BACKEND_APP, CAPROVER_BACKEND_TOKEN"
+            exit 1
+          fi
+          caprover deploy \
+            -u "$CAPROVER_SERVER_URL" \
+            -a "$CAPROVER_BACKEND_APP" \
+            --appToken "$CAPROVER_BACKEND_TOKEN" \
+            --tarFile dist/caprover-backend.tgz

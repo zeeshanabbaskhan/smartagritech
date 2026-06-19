@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
-import { connectSocket, disconnectSocket, onSocketEvent } from '../services/socketService'
+import { connectSocket, disconnectSocket, isSocketEnabled, onSocketEvent } from '../services/socketService'
 import { useDevices } from '../context/DeviceContext'
 
 export default function SocketBridge({ onAlarm }) {
@@ -8,7 +8,7 @@ export default function SocketBridge({ onAlarm }) {
   const { loadDevices, selectedDeviceId, selectDevice } = useDevices()
 
   useEffect(() => {
-    if (!user) {
+    if (!user || !isSocketEnabled()) {
       disconnectSocket()
       return undefined
     }

@@ -1,7 +1,0 @@
-.git
-**/.env
-**/node_modules
-**/.git
-**/dist
-**/*.md
-agent-transcripts

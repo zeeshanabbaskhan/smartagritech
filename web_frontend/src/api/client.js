@@ -3,6 +3,21 @@ const REFRESH_KEY = 'ems_refresh'
 
 const baseUrl = () => import.meta.env.VITE_API_URL || '/api'
 
+function buildUrl(path, query) {
+  const base = baseUrl().replace(/\/$/, '')
+  const segment = path.startsWith('/') ? path : `/${path}`
+  const full = base.startsWith('http')
+    ? `${base}${segment}`
+    : `${window.location.origin}${base.startsWith('/') ? base : `/${base}`}${segment}`
+  const url = new URL(full)
+  if (query) {
+    Object.entries(query).forEach(([k, v]) => {
+      if (v != null && v !== '') url.searchParams.set(k, String(v))
+    })
+  }
+  return url.toString()
+}
+
 export class ApiError extends Error {
   constructor(message, status) {
     super(message)
@@ -25,7 +40,7 @@ export const setUnauthorizedHandler = (fn) => { onUnauthorized = fn }
 async function refreshAccessToken() {
   const refreshToken = tokenStore.getRefresh()
   if (!refreshToken) return null
-  const res = await fetch(`${baseUrl()}/auth/refresh`, {
+  const res = await fetch(buildUrl('/auth/refresh'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ refreshToken }),
@@ -38,19 +53,12 @@ async function refreshAccessToken() {
 }
 
 async function request(method, path, { body, query, retry = true } = {}) {
-  const url = new URL(`${baseUrl()}${path.startsWith('/') ? path : `/${path}`}`, window.location.origin)
-  if (query) {
-    Object.entries(query).forEach(([k, v]) => {
-      if (v != null && v !== '') url.searchParams.set(k, String(v))
-    })
-  }
-
   const headers = { Accept: 'application/json' }
   const token = tokenStore.get()
   if (token) headers.Authorization = `Bearer ${token}`
   if (body != null) headers['Content-Type'] = 'application/json'
 
-  const res = await fetch(url.pathname + url.search, {
+  const res = await fetch(buildUrl(path, query), {
     method,
     headers,
     body: body != null ? JSON.stringify(body) : undefined,
@@ -79,12 +87,11 @@ async function request(method, path, { body, query, retry = true } = {}) {
 }
 
 async function upload(method, path, formData, { retry = true } = {}) {
-  const url = new URL(`${baseUrl()}${path.startsWith('/') ? path : `/${path}`}`, window.location.origin)
   const headers = { Accept: 'application/json' }
   const token = tokenStore.get()
   if (token) headers.Authorization = `Bearer ${token}`
 
-  const res = await fetch(url.pathname + url.search, {
+  const res = await fetch(buildUrl(path), {
     method,
     headers,
     body: formData,
@@ -113,16 +120,10 @@ async function upload(method, path, formData, { retry = true } = {}) {
 }
 
 async function download(path, query, filename = 'export.csv') {
-  const url = new URL(`${baseUrl()}${path.startsWith('/') ? path : `/${path}`}`, window.location.origin)
-  if (query) {
-    Object.entries(query).forEach(([k, v]) => {
-      if (v != null && v !== '') url.searchParams.set(k, String(v))
-    })
-  }
   const headers = { Accept: 'text/csv' }
   const token = tokenStore.get()
   if (token) headers.Authorization = `Bearer ${token}`
-  const res = await fetch(url.pathname + url.search, { headers, credentials: 'include' })
+  const res = await fetch(buildUrl(path, query), { headers, credentials: 'include' })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
     throw new ApiError(err.message || `Download failed (${res.status})`, res.status)
