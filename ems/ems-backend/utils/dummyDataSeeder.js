@@ -740,11 +740,14 @@ const seedDummyData = async () => {
   console.log('\n✓ Seed complete.')
 }
 
-const SEED_MARKER_EMAIL = 'superadmin@ems.com'
+const SEED_MARKER_DEVICE_NAME = 'Energy Meter 01'
 
 const isDatabaseSeeded = async () => {
-  const user = await prisma.user.findUnique({ where: { email: SEED_MARKER_EMAIL } })
-  return Boolean(user)
+  const device = await prisma.device.findFirst({
+    where: { name: SEED_MARKER_DEVICE_NAME },
+    select: { id: true },
+  })
+  return Boolean(device)
 }
 
 /** Run seed once; skip if marker user already exists. */
