@@ -740,11 +740,28 @@ const seedDummyData = async () => {
   console.log('\n✓ Seed complete.')
 }
 
+const SEED_MARKER_EMAIL = 'superadmin@ems.com'
+
+const isDatabaseSeeded = async () => {
+  const user = await prisma.user.findUnique({ where: { email: SEED_MARKER_EMAIL } })
+  return Boolean(user)
+}
+
+/** Run seed once; skip if marker user already exists. */
+const seedIfEmpty = async () => {
+  if (await isDatabaseSeeded()) {
+    console.log('Seed skipped: database already initialized')
+    return false
+  }
+  await seedDummyData()
+  return true
+}
+
 // ─── standalone execution ─────────────────────────────────────────────────────
 
 if (require.main === module) {
   prisma.$connect()
-    .then(() => seedDummyData())
+    .then(() => seedIfEmpty())
     .then(async () => { await prisma.$disconnect(); process.exit(0) })
     .catch(async (err) => {
       console.error('Seeder error:', err)
@@ -753,4 +770,4 @@ if (require.main === module) {
     })
 }
 
-module.exports = { seedDummyData }
+module.exports = { seedDummyData, seedIfEmpty, isDatabaseSeeded }

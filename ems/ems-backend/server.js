@@ -61,6 +61,19 @@ app.get('/metrics', (req, res) => {
 app.use((req, res) => res.status(404).json({ success: false, message: 'Route not found' }));
 app.use(errorHandler);
 
+const runSeedIfEmpty = () => {
+  if (process.env.SEED_ON_START === 'false') return;
+
+  const { seedIfEmpty } = require('./utils/dummyDataSeeder');
+  seedIfEmpty()
+    .then((ran) => {
+      if (ran) logger.info('Initial database seed completed');
+    })
+    .catch((err) => {
+      logger.error('Database seed failed', { message: err.message });
+    });
+};
+
 const start = async () => {
   await prisma.$connect()
     .then(() => logger.info('PostgreSQL connected via Prisma'))
@@ -80,7 +93,10 @@ const start = async () => {
   await initScheduler();
 
   const PORT = process.env.PORT || 5000;
-  server.listen(PORT, '0.0.0.0', () => logger.info(`Server running on port ${PORT}`));
+  server.listen(PORT, '0.0.0.0', () => {
+    logger.info(`Server running on port ${PORT}`);
+    runSeedIfEmpty();
+  });
 };
 
 start();
