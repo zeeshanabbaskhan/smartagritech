@@ -91,11 +91,11 @@ export default function OrgAlarmContacts() {
           title={modal === 'add' ? 'Add Alarm Contact' : 'Edit Alarm Contact'}
           footer={<><button type="button" className="btn-secondary" onClick={close}>Cancel</button><button type="button" className="btn-primary" onClick={handleSave} disabled={saving}>{saving ? 'Saving...' : modal === 'add' ? 'Create' : 'Save Changes'}</button></>}>
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <TextInput label="Contact Name" required value={form.name} onChange={f('name')} />
               <TextInput label="Mobile Phone" required type="tel" value={form.phone} onChange={f('phone')} />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <TextInput label="Email" required type="email" value={form.email} onChange={f('email')} />
               <TextInput label="WhatsApp" value={form.whatsapp} onChange={f('whatsapp')} />
             </div>

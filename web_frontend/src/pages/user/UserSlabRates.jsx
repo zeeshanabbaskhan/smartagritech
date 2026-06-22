@@ -124,7 +124,7 @@ export default function UserSlabRates() {
           footer={<><button type="button" className="btn-secondary" onClick={close}>Cancel</button><button type="button" className="btn-primary" onClick={handleSave} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button></>}>
           <div className="space-y-4">
             <TextInput label="Device Config Slave ID" required value={form.deviceConfigSlaveId} onChange={(e) => setForm((f) => ({ ...f, deviceConfigSlaveId: e.target.value }))} />
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <TextInput label="Unit From" type="number" value={form.unitFrom} onChange={(e) => setForm((f) => ({ ...f, unitFrom: e.target.value }))} />
               <TextInput label="Unit To" type="number" value={form.unitTo} onChange={(e) => setForm((f) => ({ ...f, unitTo: e.target.value }))} />
               <TextInput label="Rate" type="number" value={form.rate} onChange={(e) => setForm((f) => ({ ...f, rate: e.target.value }))} />

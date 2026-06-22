@@ -130,7 +130,7 @@ export default function AdminGateways() {
           }
         >
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <TextInput label="Gateway Name" required placeholder="e.g. CF-GW-001"
                 value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
               <TextInput label="Serial Number" required placeholder="e.g. SN-10021"
@@ -141,7 +141,7 @@ export default function AdminGateways() {
               placeholder="Select organization"
               options={orgs.map((o) => ({ value: o.id, label: o.name }))}
               disabled={modal === 'edit'} />
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <SelectInput label="Model" value={form.model}
                 onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))}
                 options={['CF-G100', 'CF-G200', 'CF-G300']} />

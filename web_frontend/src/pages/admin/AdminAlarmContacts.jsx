@@ -137,7 +137,7 @@ export default function AdminAlarmContacts() {
           }
         >
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <TextInput label="Full Name" required placeholder="e.g. Huzaifa Ahmed"
                 value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
               <SelectInput label="Organization" required placeholder="Select organization"
@@ -147,7 +147,7 @@ export default function AdminAlarmContacts() {
                 }}
                 options={(meta?.organizations ?? []).map((o) => ({ value: o.id, label: o.name }))} />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <TextInput label="Phone Number" placeholder="+92-300-0000000"
                 value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
               <TextInput label="WhatsApp Number" placeholder="+92-300-0000000"

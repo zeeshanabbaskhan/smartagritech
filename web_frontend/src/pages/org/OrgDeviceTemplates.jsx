@@ -100,7 +100,7 @@ export default function OrgDeviceTemplates() {
         <Modal open={modal === 'view'} onClose={close} title="Template Details" size="lg">
           {selected && (
             <div className="space-y-5">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {[['Template Name', selected.name], ['Communication Method', selected.method], ['Variables Count', selected.variables], ['Devices Using It', selected.devices], ['Last Updated', selected.createdAt], ['Organization', selected.org]].map(([label, value]) => (
                   <div key={label}>
                     <p className="text-xs text-surface-500 mb-0.5">{label}</p>
@@ -110,7 +110,7 @@ export default function OrgDeviceTemplates() {
               </div>
               <div className="border-t border-surface-200 pt-4">
                 <p className="text-xs font-medium text-surface-400 uppercase tracking-wider mb-3">Template Variables</p>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {vars.length === 0 ? (
                     <p className="text-xs text-surface-500 col-span-2">No variables loaded.</p>
                   ) : vars.map((v, i) => (

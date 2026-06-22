@@ -1,24 +1,22 @@
 import { useState, useEffect } from 'react'
 import { NavLink } from 'react-router-dom'
-import { ChevronDown, ChevronRight, ChevronLeft, PanelLeftClose, PanelLeft } from 'lucide-react'
+import { ChevronDown, ChevronRight, PanelLeftClose, PanelLeft, X } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 
-function SidebarItem({ item, depth = 0, collapsed }) {
+function SidebarItem({ item, depth = 0, collapsed, onNavClick }) {
   const [open, setOpen] = useState(false)
   const hasChildren = item.children?.length > 0
 
   if (hasChildren) {
     if (collapsed) {
-      // In collapsed mode, render parent item icon only (no dropdown list expansion to avoid breaking UI layout)
       return (
         <div className="relative group">
           <button
             type="button"
-            className={`sidebar-link justify-center py-3 w-full`}
+            className="sidebar-link justify-center py-3 w-full"
           >
             {item.icon && <item.icon size={18} className="flex-shrink-0 text-surface-500 group-hover:text-surface-100" />}
           </button>
-          {/* Tooltip on hover */}
           <div className="absolute left-full top-1/2 -translate-y-1/2 ml-2 bg-surface-900 border border-surface-700 text-surface-100 text-xs px-2.5 py-1.5 rounded-md shadow-floating opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity duration-150 z-50 whitespace-nowrap">
             {item.label}
           </div>
@@ -42,7 +40,7 @@ function SidebarItem({ item, depth = 0, collapsed }) {
         {open && (
           <div className="ml-2 pl-3 border-l border-surface-800 mt-0.5 space-y-0.5">
             {item.children.map(child => (
-              <SidebarItem key={child.to} item={child} depth={depth + 1} collapsed={collapsed} />
+              <SidebarItem key={child.to} item={child} depth={depth + 1} collapsed={collapsed} onNavClick={onNavClick} />
             ))}
           </div>
         )}
@@ -53,6 +51,7 @@ function SidebarItem({ item, depth = 0, collapsed }) {
   return (
     <NavLink
       to={item.to}
+      onClick={onNavClick}
       className={({ isActive }) =>
         `sidebar-link ${depth > 0 ? 'pl-3' : ''} ${isActive ? 'active' : ''} ${
           collapsed ? 'justify-center py-3' : ''
@@ -81,7 +80,7 @@ function SidebarItem({ item, depth = 0, collapsed }) {
   )
 }
 
-export default function Sidebar({ navItems, role }) {
+export default function Sidebar({ navItems, role, mobileOpen = false, onMobileClose }) {
   const { user } = useAuth()
   const [collapsed, setCollapsed] = useState(() => {
     return localStorage.getItem('sidebar-collapsed') === 'true'
@@ -89,22 +88,25 @@ export default function Sidebar({ navItems, role }) {
 
   useEffect(() => {
     localStorage.setItem('sidebar-collapsed', collapsed)
-    // Dispatch custom event to notify parent containers of width resize
     window.dispatchEvent(new Event('resize'))
   }, [collapsed])
 
+  // Close mobile sidebar on route change is handled by parent via mobileOpen prop
   const roleLabels = { admin: 'Super Admin', org: 'Organization', user: 'User' }
-  const roleColors = { 
-    admin: 'text-danger-600', 
-    org:   'text-info-600', 
-    user:  'text-primary-500' 
+  const roleColors = {
+    admin: 'text-danger-600',
+    org:   'text-info-600',
+    user:  'text-primary-500'
   }
 
   return (
     <aside
-      className={`flex-shrink-0 bg-surface-950 border-r border-surface-800 flex flex-col h-screen sticky top-0 transition-all duration-250 z-40 select-none ${
-        collapsed ? 'w-16' : 'w-64'
-      }`}
+      className={`
+        bg-surface-950 border-r border-surface-800 flex flex-col h-screen select-none transition-all duration-250 z-40
+        fixed inset-y-0 left-0 md:sticky md:top-0 md:flex-shrink-0
+        ${mobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+        ${collapsed ? 'w-64 md:w-16' : 'w-64'}
+      `}
     >
       {/* Logo Area */}
       <div className="flex items-center gap-3 px-4 py-4 border-b border-surface-800 min-h-[57px]">
@@ -124,16 +126,22 @@ export default function Sidebar({ navItems, role }) {
             <line x1="14" y1="21" x2="20" y2="21" stroke="currentColor" strokeWidth="1.5"/>
           </svg>
         </div>
-        {!collapsed && (
-          <div className="min-w-0">
-            <p className="text-sm font-bold text-surface-100 leading-none tracking-wide">
-              EMBED<span className="text-primary-500">AI</span>OT
-            </p>
-            <p className="text-[9px] font-semibold tracking-widest text-surface-500 uppercase mt-0.5">
-              Smarter Solutions
-            </p>
-          </div>
-        )}
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-bold text-surface-100 leading-none tracking-wide">
+            EMBED<span className="text-primary-500">AI</span>OT
+          </p>
+          <p className="text-[9px] font-semibold tracking-widest text-surface-500 uppercase mt-0.5">
+            Smarter Solutions
+          </p>
+        </div>
+        {/* Close button — mobile only */}
+        <button
+          type="button"
+          onClick={onMobileClose}
+          className="md:hidden p-1 text-surface-500 hover:text-surface-200 transition-colors"
+        >
+          <X size={18} />
+        </button>
       </div>
 
       {/* Navigation Links */}
@@ -150,7 +158,7 @@ export default function Sidebar({ navItems, role }) {
               <div key={idx} className="border-t border-surface-800/60 my-4" />
             )
           ) : (
-            <SidebarItem key={item.to ?? item.label ?? idx} item={item} collapsed={collapsed} />
+            <SidebarItem key={item.to ?? item.label ?? idx} item={item} collapsed={collapsed} onNavClick={onMobileClose} />
           )
         )}
       </nav>
@@ -174,11 +182,11 @@ export default function Sidebar({ navItems, role }) {
           )}
         </div>
 
-        {/* Collapse Button */}
+        {/* Collapse Button — desktop only */}
         <button
           type="button"
           onClick={() => setCollapsed(c => !c)}
-          className="border-t border-surface-800 py-3 text-surface-500 hover:text-surface-200 flex items-center justify-center transition-colors duration-150"
+          className="hidden md:flex border-t border-surface-800 py-3 text-surface-500 hover:text-surface-200 items-center justify-center transition-colors duration-150"
           title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           {collapsed ? <PanelLeft size={16} /> : <PanelLeftClose size={16} />}

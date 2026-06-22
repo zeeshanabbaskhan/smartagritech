@@ -113,13 +113,13 @@ export default function OrgGateways() {
           }
         >
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <TextInput label="Gateway Name" required placeholder="e.g. DELI-GW-002"
                 value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
               <TextInput label="Serial Number" required placeholder="e.g. SN-10030"
                 value={form.serial} onChange={(e) => setForm((f) => ({ ...f, serial: e.target.value }))} />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <SelectInput label="Model" value={form.model}
                 onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))}
                 options={['CF-G100', 'CF-G200', 'CF-G300']} />

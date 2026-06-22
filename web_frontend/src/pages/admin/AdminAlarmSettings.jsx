@@ -154,7 +154,7 @@ export default function AdminAlarmSettings() {
           }
         >
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <TextInput label="Setting Name" required placeholder="e.g. Overvoltage Alert"
                 value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
               <SelectInput label="Organization" required placeholder="Select organization"
@@ -164,7 +164,7 @@ export default function AdminAlarmSettings() {
                 }}
                 options={(meta?.organizations ?? []).map((o) => ({ value: o.id, label: o.name }))} />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <SelectInput label="Template Trigger" required placeholder="Select trigger"
                 value={form.templateTriggerId} onChange={(e) => setForm((f) => ({ ...f, templateTriggerId: e.target.value }))}
                 options={(meta?.triggers ?? []).map((t) => ({ value: t.id, label: t.name }))} />
@@ -172,7 +172,7 @@ export default function AdminAlarmSettings() {
                 onChange={(e) => setForm((f) => ({ ...f, pushType: e.target.value }))}
                 options={['Template Trigger', 'Custom']} />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <SelectInput label="Push Method" value={form.pushMethod}
                 onChange={(e) => setForm((f) => ({ ...f, pushMethod: e.target.value }))}
                 options={['Email', 'SMS', 'WhatsApp', 'All']} />

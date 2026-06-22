@@ -118,7 +118,7 @@ export default function UserAlarmTemplate() {
               <label className="label">Trigger Name</label>
               <input className="input" value={form.name || ''} onChange={(e) => setField('name', e.target.value)} />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="label">Threshold Value</label>
                 <input className="input" value={form.threshold || ''} onChange={(e) => setField('threshold', e.target.value)} />

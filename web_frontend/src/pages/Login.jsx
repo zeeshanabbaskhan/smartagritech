@@ -124,8 +124,8 @@ export default function Login() {
 
         {/* Right Panel: Sign-In Form */}
         <div
-          className={`w-full lg:w-1/2 flex flex-col bg-white dark:bg-surface-900 px-6 py-12 md:px-16 lg:px-24 relative ${
-            isTransitioning ? 'fixed inset-0 z-[9999] p-6 md:p-12' : ''
+          className={`w-full lg:w-1/2 flex flex-col bg-white dark:bg-surface-900 px-4 py-8 sm:px-6 sm:py-12 md:px-16 lg:px-24 relative ${
+            isTransitioning ? 'fixed inset-0 z-[9999] p-4 sm:p-6 md:p-12' : ''
           }`}
         >
           <div

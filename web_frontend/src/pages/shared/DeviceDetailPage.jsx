@@ -151,7 +151,7 @@ export default function DeviceDetailPage({ basePath }) {
               </div>
               <div className="card p-5">
                 <h3 className="text-sm font-bold mb-3">KPIs (24h)</h3>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {[
                     ['totalPowerConsumption', 'Consumption'],
                     ['powerFactor', 'Power Factor'],

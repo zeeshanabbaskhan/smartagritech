@@ -97,8 +97,8 @@
   }
 
   /* ── Page headers ── */
-  .page-header  { @apply flex items-center justify-between mb-6; }
-  .page-title   { @apply text-lg font-bold text-surface-900 dark:text-surface-100 tracking-tight; }
+  .page-header  { @apply flex flex-wrap items-start sm:items-center justify-between gap-3 mb-4 sm:mb-6; }
+  .page-title   { @apply text-base sm:text-lg font-bold text-surface-900 dark:text-surface-100 tracking-tight; }
   .breadcrumb   { @apply flex items-center gap-1.5 text-xs text-surface-400 dark:text-surface-500 mt-0.5 uppercase tracking-widest; }
 
   /* ── Modals ── */
@@ -107,7 +107,7 @@
   }
   .modal {
     @apply bg-white dark:bg-surface-900 border border-surface-200 dark:border-surface-800 rounded-2xl shadow-elevated w-full max-w-lg
-           max-h-[90vh] overflow-y-auto animate-modal-entry transition-colors duration-200;
+           max-h-[90vh] overflow-y-auto animate-modal-entry transition-colors duration-200 mx-2 sm:mx-0;
   }
   .modal-header {
     @apply flex items-center justify-between p-5 border-b border-surface-100 dark:border-surface-800;

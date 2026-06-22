@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
-import { Bell, ChevronDown, LogOut, User, Settings, Search, Sun, Moon } from 'lucide-react'
+import { Bell, ChevronDown, LogOut, User, Settings, Search, Sun, Moon, Menu, X } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useTheme } from '../../context/ThemeContext'
 import { useNavigate, useLocation } from 'react-router-dom'
 import emsApi, { list } from '../../api/emsApi'
 import { mapNotification } from '../../utils/mappers'
 
-export default function Topbar({ title }) {
+export default function Topbar({ title, onMenuClick }) {
   const { user, logout } = useAuth()
   const { theme, toggleTheme } = useTheme()
   const navigate = useNavigate()
@@ -187,23 +187,43 @@ export default function Topbar({ title }) {
 
   const searchCategories = Array.from(new Set(searchResults.map(r => r.category)))
 
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
+
   return (
-    <header className="h-14 bg-white dark:bg-surface-900 border-b border-surface-200 dark:border-surface-800 flex items-center justify-between px-6 sticky top-0 z-30 shadow-sm select-none transition-colors duration-200">
-      {/* Title & Breadcrumbs */}
-      <div className="min-w-0 flex items-center gap-3">
-        <div>
+    <>
+    <header className="h-14 bg-white dark:bg-surface-900 border-b border-surface-200 dark:border-surface-800 flex items-center justify-between px-3 sm:px-6 sticky top-0 z-30 shadow-sm select-none transition-colors duration-200">
+      {/* Left: Hamburger (mobile) + Title & Breadcrumbs */}
+      <div className="min-w-0 flex items-center gap-2 sm:gap-3">
+        {/* Hamburger — mobile only */}
+        <button
+          type="button"
+          onClick={onMenuClick}
+          className="md:hidden p-2 -ml-1 text-surface-500 hover:text-surface-900 dark:hover:text-surface-100 rounded-lg hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors"
+        >
+          <Menu size={20} />
+        </button>
+        <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <h1 className="text-sm font-bold text-surface-900 dark:text-surface-100 tracking-tight leading-none">{title}</h1>
-            {user?.role && roleBadges[user.role]}
+            <h1 className="text-sm font-bold text-surface-900 dark:text-surface-100 tracking-tight leading-none truncate max-w-[120px] sm:max-w-none">{title}</h1>
+            <span className="hidden sm:inline">{user?.role && roleBadges[user.role]}</span>
           </div>
-          <p className="breadcrumb text-[10px] text-surface-400 mt-0.5 tracking-wider uppercase font-semibold">
+          <p className="breadcrumb text-[10px] text-surface-400 mt-0.5 tracking-wider uppercase font-semibold hidden sm:block">
             {breadcrumbText || 'EMS'}
           </p>
         </div>
       </div>
 
       {/* Toolbar actions */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-1 sm:gap-4">
+        {/* Mobile search toggle */}
+        <button
+          type="button"
+          className="md:hidden btn-ghost p-2 text-surface-500 hover:text-surface-900 dark:hover:text-surface-100 rounded-full"
+          onClick={() => { setMobileSearchOpen(o => !o); setDropOpen(false); setNotifOpen(false) }}
+        >
+          {mobileSearchOpen ? <X size={16} /> : <Search size={16} />}
+        </button>
+
         {/* Global Search Bar */}
         <div className="relative w-64 hidden md:block" ref={searchRef}>
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400" />
@@ -277,7 +297,7 @@ export default function Topbar({ title }) {
             )}
           </button>
           {notifOpen && (
-            <div className="absolute right-0 top-full mt-2 w-80 bg-white dark:bg-surface-900 border border-surface-200 dark:border-surface-800 rounded-xl shadow-floating z-50 animate-modal-entry">
+            <div className="absolute right-0 top-full mt-2 w-[calc(100vw-2rem)] sm:w-80 max-w-sm bg-white dark:bg-surface-900 border border-surface-200 dark:border-surface-800 rounded-xl shadow-floating z-50 animate-modal-entry">
               <div className="flex items-center justify-between px-4 py-3 border-b border-surface-100 dark:border-surface-800">
                 <p className="text-sm font-bold text-surface-900 dark:text-surface-100">Notifications</p>
                 <button type="button" className="text-xs text-primary-600 hover:text-primary-700 font-bold" onClick={markAllRead}>
@@ -359,5 +379,48 @@ export default function Topbar({ title }) {
         </div>
       </div>
     </header>
+
+    {/* Mobile search panel — slides in below header */}
+    {mobileSearchOpen && (
+      <div className="md:hidden bg-white dark:bg-surface-900 border-b border-surface-200 dark:border-surface-800 px-4 py-3 z-20 shadow-sm" ref={searchRef}>
+        <div className="relative">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400" />
+          <input
+            className="input pl-9 py-2 text-xs bg-surface-50 dark:bg-surface-950 border-surface-200 dark:border-surface-800 focus:bg-white focus:dark:bg-surface-900 w-full"
+            placeholder="Search anything..."
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            onFocus={() => setSearchOpen(true)}
+            ref={searchInputRef}
+            autoFocus
+          />
+        </div>
+        {searchOpen && query && (
+          <div className="mt-2 bg-white dark:bg-surface-900 border border-surface-200 dark:border-surface-800 rounded-xl shadow-floating py-2 max-h-64 overflow-y-auto animate-modal-entry">
+            {searchResults.length === 0 ? (
+              <div className="px-4 py-3 text-center text-xs text-surface-400">No results matching "{query}"</div>
+            ) : searchCategories.map(cat => (
+              <div key={cat} className="px-2 mb-2 last:mb-0">
+                <h5 className="text-[9px] font-bold text-surface-400 uppercase tracking-wider px-2 py-1">{cat}</h5>
+                <div className="space-y-0.5">
+                  {searchResults.filter(r => r.category === cat).map(r => (
+                    <button
+                      type="button"
+                      key={r.title + r.path}
+                      onClick={() => { navigate(r.path); setSearchOpen(false); setQuery(''); setMobileSearchOpen(false) }}
+                      className="w-full text-left px-3 py-1.5 text-xs text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-800 hover:text-surface-950 dark:hover:text-surface-100 rounded-lg font-medium flex items-center justify-between cursor-pointer"
+                    >
+                      <span>{r.title}</span>
+                      <span className="text-[9px] text-surface-400 bg-surface-100 dark:bg-surface-800 dark:text-surface-500 px-1 py-0.5 rounded uppercase font-semibold">Go</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    )}
+  </>
   )
 }

@@ -101,7 +101,7 @@ export default function AdminOrganizations() {
           }
         >
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <TextInput label="Organization Name" required placeholder="e.g. CF Smart Technology" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
               <SelectInput label="Status" required value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))} options={['Active', 'Inactive']} />
             </div>

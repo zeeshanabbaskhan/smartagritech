@@ -49,8 +49,8 @@ export default function DataTable({
     <div className="table-container">
       {/* SaaS Toolbar */}
       {searchable && (
-        <div className="p-4 border-b border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 flex items-center justify-between gap-4 flex-wrap">
-          <div className="relative w-full max-w-[280px]">
+        <div className="p-3 sm:p-4 border-b border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+          <div className="relative w-full sm:max-w-[280px]">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400" />
             <input
               className="input pl-9 py-1.5 text-xs bg-surface-50 dark:bg-surface-950 border-surface-200 dark:border-surface-800 focus:bg-white focus:dark:bg-surface-900"
@@ -59,12 +59,12 @@ export default function DataTable({
               onChange={handleSearch}
             />
           </div>
-          <div className="flex items-center gap-2">
-            <button type="button" className="btn-secondary py-1.5 px-3 text-xs flex items-center gap-1.5">
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button type="button" className="btn-secondary py-1.5 px-3 text-xs flex items-center gap-1.5 flex-1 sm:flex-none justify-center">
               <SlidersHorizontal size={12} />
               Columns
             </button>
-            <button type="button" className="btn-secondary py-1.5 px-3 text-xs flex items-center gap-1.5">
+            <button type="button" className="btn-secondary py-1.5 px-3 text-xs flex items-center gap-1.5 flex-1 sm:flex-none justify-center">
               <Download size={12} />
               Export
             </button>
@@ -153,11 +153,11 @@ export default function DataTable({
 
       {/* Pagination Footer */}
       {!loading && totalPages > 1 && (
-        <div className="flex items-center justify-between px-4 py-3 border-t border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900">
-          <span className="text-xs text-surface-500">
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-2 px-4 py-3 border-t border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900">
+          <span className="text-xs text-surface-500 order-2 sm:order-1">
             Showing {startIdx}–{endIdx} of {sorted.length} results
           </span>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 order-1 sm:order-2">
             <button
               type="button"
               className="btn-ghost p-1.5 text-surface-500 disabled:opacity-40"

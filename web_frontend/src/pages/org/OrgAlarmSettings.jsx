@@ -104,11 +104,11 @@ export default function OrgAlarmSettings({ pageTitle = 'Alarm Settings', breadcr
           title={modal === 'add' ? 'Add Alarm Configuration' : 'Edit Alarm Configuration'}
           footer={<><button type="button" className="btn-secondary" onClick={close}>Cancel</button><button type="button" className="btn-primary" onClick={handleSave} disabled={saving}>{saving ? 'Saving...' : modal === 'add' ? 'Create' : 'Save Changes'}</button></>}>
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <TextInput label="Configuration Name" required value={form.name} onChange={f('name')} />
               <SelectInput label="Push Type" value={form.pushType} onChange={f('pushType')} options={['Template Trigger']} />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <SelectInput label="Push Method" value={form.pushMethod} onChange={f('pushMethod')} options={['Email', 'SMS', 'WhatsApp']} />
               <SelectInput label="Pushing Mechanism" value={form.mechanism} onChange={f('mechanism')} options={['Instant', 'Delayed']} />
             </div>

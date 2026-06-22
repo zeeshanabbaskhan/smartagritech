@@ -141,7 +141,7 @@ export default function OrgTemplateTriggers() {
           }
         >
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <TextInput label="Trigger Name" required placeholder="e.g. High Voltage Alert" value={form.name} onChange={f('name')} />
               <SelectInput label="Template" required value={form.deviceTemplateId} onChange={f('deviceTemplateId')}
                 placeholder="Select template"
@@ -149,7 +149,7 @@ export default function OrgTemplateTriggers() {
             </div>
             <TextInput label="Template Variable ID" required placeholder="UUID of watched variable"
               value={form.templateVariableId} onChange={f('templateVariableId')} />
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <SelectInput label="Operator" value={form.operator} onChange={f('operator')} options={OPERATORS} />
               <TextInput label="Threshold" placeholder="e.g. 240" type="number" value={form.threshold} onChange={f('threshold')} />
             </div>

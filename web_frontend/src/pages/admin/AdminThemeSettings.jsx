@@ -133,7 +133,7 @@ export default function AdminThemeSettings() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="label">Primary Color</label>
                 <div className="flex items-center gap-2">

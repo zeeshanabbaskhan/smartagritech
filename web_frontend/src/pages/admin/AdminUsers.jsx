@@ -138,7 +138,7 @@ export default function AdminUsers() {
           }
         >
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <TextInput label="Full Name" required placeholder="e.g. Miss Maryam"
                 value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
               <TextInput label="Phone Number" placeholder="+92-300-0000000"
@@ -155,7 +155,7 @@ export default function AdminUsers() {
               value={form.organizationId} onChange={(e) => setForm((f) => ({ ...f, organizationId: e.target.value }))}
               placeholder="Select organization"
               options={orgs.map((o) => ({ value: o.id, label: o.name }))} />
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <SelectInput label="Role" value={form.role}
                 onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
                 options={['Super Admin', 'Org Admin', 'Customer']} />

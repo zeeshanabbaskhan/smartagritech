@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import Topbar from './Topbar'
@@ -56,17 +56,34 @@ export default function DashboardLayout({ navItems, role }) {
   const location = useLocation()
   const title    = pageTitles[location.pathname] ?? 'EMS Platform'
   const mainRef  = useRef(null)
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
 
   useEffect(() => {
     if (mainRef.current) mainRef.current.scrollTop = 0
+    // Close mobile sidebar on route change
+    setMobileSidebarOpen(false)
   }, [location.pathname])
 
   return (
     <div className="flex h-screen overflow-hidden bg-surface-50 dark:bg-surface-950">
-      <Sidebar navItems={navItems} role={role} />
+      {/* Mobile backdrop */}
+      {mobileSidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/60 z-30 md:hidden"
+          onClick={() => setMobileSidebarOpen(false)}
+        />
+      )}
+
+      <Sidebar
+        navItems={navItems}
+        role={role}
+        mobileOpen={mobileSidebarOpen}
+        onMobileClose={() => setMobileSidebarOpen(false)}
+      />
+
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <Topbar title={title} />
-        <main ref={mainRef} className="flex-1 overflow-y-auto p-6 bg-surface-50 dark:bg-surface-950">
+        <Topbar title={title} onMenuClick={() => setMobileSidebarOpen(o => !o)} />
+        <main ref={mainRef} className="flex-1 overflow-y-auto p-3 sm:p-6 bg-surface-50 dark:bg-surface-950">
           <Outlet />
         </main>
       </div>

@@ -189,7 +189,7 @@ export default function AdminTemplateTriggers() {
           }
         >
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <TextInput label="Trigger Name" required placeholder="e.g. Overvoltage Alert"
                 value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
               <SelectInput label="Organization" required placeholder="Select organization"
@@ -199,7 +199,7 @@ export default function AdminTemplateTriggers() {
                 }}
                 options={(meta?.organizations ?? []).map((o) => ({ value: o.id, label: o.name }))} />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <SelectInput label="Device Template" required placeholder="Select template"
                 value={form.deviceTemplateId} onChange={(e) => {
                   const t = meta?.deviceTemplates.find((x) => x.id === e.target.value)
@@ -209,7 +209,7 @@ export default function AdminTemplateTriggers() {
               <TextInput label="Variable Name" placeholder="e.g. Voltage Phase A"
                 value={form.variable} onChange={(e) => setForm((f) => ({ ...f, variable: e.target.value }))} />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <SelectInput label="Condition" value={form.condition}
                 onChange={(e) => setForm((f) => ({ ...f, condition: e.target.value }))}
                 options={CONDITIONS} />

@@ -74,7 +74,7 @@ export default function UserCurrentImbalance() {
           </ResponsiveContainer>
         </div>
 
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {(data?.stats ?? []).map(({ label, value, color }) => (
             <div key={label} className="card p-4 text-center">
               <p className={`text-2xl font-bold ${color}`}>{value}</p>
