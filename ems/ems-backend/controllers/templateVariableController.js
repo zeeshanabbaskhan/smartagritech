@@ -14,6 +14,23 @@ const invalidateTemplateCaches = async (organizationId, templateId) => {
   if (templateId) await refCache.invalidateTemplate(templateId)
 }
 
+// The DataType enum only has FLOAT | INTEGER | BOOLEAN | STRING, but clients send
+// varied spellings (lowercase "float", Modbus types like INT16/FLOAT32). Coerce
+// any input to a valid enum value so a bad spelling never 500s the request.
+const VALID_DATA_TYPES = ['FLOAT', 'INTEGER', 'BOOLEAN', 'STRING']
+const DATA_TYPE_ALIASES = {
+  FLOAT: 'FLOAT', FLOAT32: 'FLOAT', FLOAT64: 'FLOAT', DOUBLE: 'FLOAT', REAL: 'FLOAT',
+  INT: 'INTEGER', INTEGER: 'INTEGER', INT16: 'INTEGER', UINT16: 'INTEGER',
+  INT32: 'INTEGER', UINT32: 'INTEGER', LONG: 'INTEGER',
+  BOOL: 'BOOLEAN', BOOLEAN: 'BOOLEAN',
+  STR: 'STRING', STRING: 'STRING', TEXT: 'STRING',
+}
+const normalizeDataType = (raw) => {
+  if (raw == null || raw === '') return 'FLOAT'
+  const key = String(raw).trim().toUpperCase()
+  return DATA_TYPE_ALIASES[key] || (VALID_DATA_TYPES.includes(key) ? key : 'FLOAT')
+}
+
 // @desc  List variables for a template slave
 // @access SUPER_ADMIN | ORG_ADMIN
 const getVariables = async (req, res, next) => {
@@ -49,7 +66,8 @@ const createVariable = async (req, res, next) => {
           templateSlaveId: slaveId,
           templateId,
           organizationId:  slave.organizationId,
-          name, displayName, unit, registerAddress, iconId, dataType,
+          name, displayName, unit, registerAddress, iconId,
+          dataType: normalizeDataType(dataType),
         },
       })
       await tx.deviceTemplate.update({ where: { id: templateId }, data: { totalVariables: { increment: 1 } } })
@@ -73,7 +91,10 @@ const updateVariable = async (req, res, next) => {
     const { name, displayName, unit, registerAddress, iconId, dataType, isActive } = req.body
     const data = await prisma.deviceTemplateVariable.update({
       where: { id: variableId },
-      data:  { name, displayName, unit, registerAddress, iconId, dataType, isActive },
+      data:  {
+        name, displayName, unit, registerAddress, iconId, isActive,
+        dataType: dataType === undefined ? undefined : normalizeDataType(dataType),
+      },
     })
     await invalidateTemplateCaches(existing.organizationId, req.params.templateId)
     res.json({ success: true, data })

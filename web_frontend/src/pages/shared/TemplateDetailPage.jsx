@@ -4,7 +4,7 @@ import { ArrowLeft, Plus, Pencil, Trash2 } from 'lucide-react'
 import DataTable from '../../components/ui/DataTable'
 import Modal from '../../components/ui/Modal'
 import PageState from '../../components/ui/PageState'
-import { TextInput, TextareaInput, ToggleInput } from '../../components/ui/FormFields'
+import { TextInput, TextareaInput, ToggleInput, SelectInput } from '../../components/ui/FormFields'
 import { useToast } from '../../context/ToastContext'
 import { useAuth } from '../../context/AuthContext'
 import emsApi, { list, one } from '../../api/emsApi'
@@ -72,8 +72,8 @@ export default function TemplateDetailPage({ basePath }) {
   const openVarModal = (v = null) => {
     setForm(v ? {
       name: v.name, displayName: v.displayName ?? '', unit: v.unit ?? '',
-      registerAddress: v.registerAddress ?? '', dataType: v.dataType ?? 'float',
-    } : { name: '', displayName: '', unit: '', registerAddress: '', dataType: 'float' })
+      registerAddress: v.registerAddress ?? '', dataType: v.dataType ?? 'FLOAT',
+    } : { name: '', displayName: '', unit: '', registerAddress: '', dataType: 'FLOAT' })
     setModal(v ? { type: 'editVar', id: v.id } : { type: 'addVar' })
   }
 
@@ -221,7 +221,9 @@ export default function TemplateDetailPage({ basePath }) {
               <TextInput label="Display Name" value={form.displayName ?? ''} onChange={(e) => setForm((f) => ({ ...f, displayName: e.target.value }))} />
               <TextInput label="Unit" value={form.unit ?? ''} onChange={(e) => setForm((f) => ({ ...f, unit: e.target.value }))} />
               <TextInput label="Register Address" value={form.registerAddress ?? ''} onChange={(e) => setForm((f) => ({ ...f, registerAddress: e.target.value }))} />
-              <TextInput label="Data Type" value={form.dataType ?? ''} onChange={(e) => setForm((f) => ({ ...f, dataType: e.target.value }))} />
+              <SelectInput label="Data Type" value={form.dataType ?? 'FLOAT'}
+                onChange={(e) => setForm((f) => ({ ...f, dataType: e.target.value }))}
+                options={['FLOAT', 'INTEGER', 'BOOLEAN', 'STRING']} />
             </div>
           )}
         </Modal>

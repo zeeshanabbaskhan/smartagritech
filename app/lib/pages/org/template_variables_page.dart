@@ -244,7 +244,7 @@ class _VariableFormModalState extends State<_VariableFormModal> {
   late final TextEditingController _dataAddress;
   late final TextEditingController _scalingFactor;
   late final TextEditingController _unit;
-  String _dataType = 'INT16';
+  String _dataType = 'FLOAT';
   bool _isDefault = false;
 
   @override
