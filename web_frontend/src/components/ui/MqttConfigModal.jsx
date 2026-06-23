@@ -1,6 +1,7 @@
 import { Copy, CopyCheck, AlertTriangle, TerminalSquare } from 'lucide-react'
 import { useState } from 'react'
 import Modal from './Modal'
+import { TextInput } from './FormFields'
 import { useToast } from '../../context/ToastContext'
 
 const MQTT_DEFAULTS = {
@@ -11,20 +12,27 @@ const MQTT_DEFAULTS = {
 
 // Shown once right after a device is created so the operator can configure
 // the local machine that runs script.py. The ingest key is never retrievable
-// again — it must be copied now (or regenerated later).
+// again — it must be copied now (or regenerated later). The MQTT broker fields
+// are operator-supplied (defaults shown) and editable before copying.
 export default function MqttConfigModal({ open, onClose, deviceId, ingestApiKey }) {
   const { showToast } = useToast()
   const [copiedKey, setCopiedKey] = useState(null)
+  const [mqtt, setMqtt] = useState(MQTT_DEFAULTS)
 
-  const rows = [
+  // Read-only credentials issued by the backend.
+  const credentials = [
     ['EMS_DEVICE_ID', deviceId || ''],
     ['EMS_INGEST_API_KEY', ingestApiKey || ''],
-    ['MQTT_BROKER_IP', MQTT_DEFAULTS.MQTT_BROKER_IP],
-    ['MQTT_BROKER_PORT', MQTT_DEFAULTS.MQTT_BROKER_PORT],
-    ['MQTT_TOPIC', MQTT_DEFAULTS.MQTT_TOPIC],
   ]
 
-  const allEnv = rows.map(([k, v]) => `${k}=${v}`).join('\n')
+  const allEnv = [
+    ...credentials,
+    ['MQTT_BROKER_IP', mqtt.MQTT_BROKER_IP],
+    ['MQTT_BROKER_PORT', mqtt.MQTT_BROKER_PORT],
+    ['MQTT_TOPIC', mqtt.MQTT_TOPIC],
+  ]
+    .map(([k, v]) => `${k}=${v}`)
+    .join('\n')
 
   const copy = async (text, label) => {
     try {
@@ -35,6 +43,8 @@ export default function MqttConfigModal({ open, onClose, deviceId, ingestApiKey 
       showToast('Copy failed — copy manually', 'error')
     }
   }
+
+  const setField = (key) => (e) => setMqtt((m) => ({ ...m, [key]: e.target.value }))
 
   return (
     <Modal
@@ -48,7 +58,7 @@ export default function MqttConfigModal({ open, onClose, deviceId, ingestApiKey 
       footer={
         <>
           <button type="button" className="btn-secondary" onClick={() => copy(allEnv, '__all__')}>
-            {copiedKey === '__all__' ? <CopyCheck size={14} /> : <Copy size={14} />} Copy All
+            {copiedKey === '__all__' ? <CopyCheck size={14} /> : <Copy size={14} />} Copy .env
           </button>
           <button type="button" className="btn-primary" onClick={onClose}>Done</button>
         </>
@@ -65,12 +75,13 @@ export default function MqttConfigModal({ open, onClose, deviceId, ingestApiKey 
           running <code className="text-surface-700">script.py</code>.
         </p>
 
+        {/* Backend-issued credentials (read-only) */}
         <div className="space-y-2">
-          {rows.map(([key, value]) => (
-            <div key={key} className="flex items-center gap-2 rounded-lg bg-surface-50 px-3 py-2">
+          {credentials.map(([key, value]) => (
+            <div key={key} className="flex items-center gap-2 rounded-lg border border-surface-200 bg-surface-50 px-3 py-2">
               <div className="min-w-0 flex-1">
-                <div className="text-[10px] font-semibold uppercase tracking-wide text-surface-400">{key}</div>
-                <div className="truncate font-mono text-xs text-surface-800">{value}</div>
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-surface-500">{key}</div>
+                <div className="truncate font-mono text-xs font-medium text-surface-900">{value}</div>
               </div>
               <button
                 type="button"
@@ -82,6 +93,19 @@ export default function MqttConfigModal({ open, onClose, deviceId, ingestApiKey 
               </button>
             </div>
           ))}
+        </div>
+
+        {/* Operator-supplied MQTT broker settings (editable) */}
+        <div>
+          <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-surface-400">MQTT Broker</p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <TextInput label="Broker IP / Host" value={mqtt.MQTT_BROKER_IP}
+              onChange={setField('MQTT_BROKER_IP')} placeholder="10.3.20.218" />
+            <TextInput label="Broker Port" value={mqtt.MQTT_BROKER_PORT}
+              onChange={setField('MQTT_BROKER_PORT')} placeholder="1883" inputMode="numeric" />
+          </div>
+          <TextInput label="Topic" className="mt-3" value={mqtt.MQTT_TOPIC}
+            onChange={setField('MQTT_TOPIC')} placeholder="SMM/Soil_Data" />
         </div>
       </div>
     </Modal>

@@ -72,9 +72,15 @@ export default function AdminDeviceTemplates() {
     if (!confirm(`Delete template "${row.name}"?`)) return
     try {
       await emsApi.deleteDeviceTemplate(row.id)
-      reload()
+      showToast('Template deleted', 'success')
     } catch (e) {
-      showToast(e.message || 'Delete failed', 'error')
+      // 404 = the template was already removed on the server; the list is just
+      // stale. Show an informational note instead of an error and let the
+      // reload below drop the ghost row.
+      if (e.status === 404) showToast('Template was already deleted', 'info')
+      else showToast(e.message || 'Delete failed', 'error')
+    } finally {
+      reload()
     }
   }
 
