@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import '../../app_theme.dart';
 import '../../services/api_client.dart';
 import '../../services/auth_service.dart';
@@ -225,8 +226,13 @@ class _DevicesPageState extends State<DevicesPage> {
         title: 'Add Device',
         onSaved: () {
           _load();
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Device created'), backgroundColor: kGreen),
+        },
+        onMqttConfig: (config) {
+          _load();
+          showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (_) => _MqttConfigDialog(config: config),
           );
         },
       ),
@@ -630,10 +636,16 @@ class _SummaryChip extends StatelessWidget {
 
 // ── Add / Edit Device Modal ────────────────────────────────────────────────────
 class _DeviceFormModal extends StatefulWidget {
-  const _DeviceFormModal({required this.title, this.device, required this.onSaved});
+  const _DeviceFormModal({
+    required this.title,
+    this.device,
+    required this.onSaved,
+    this.onMqttConfig,
+  });
   final String title;
   final Map<String, dynamic>? device;
   final VoidCallback onSaved;
+  final void Function(Map<String, dynamic>)? onMqttConfig;
 
   @override
   State<_DeviceFormModal> createState() => _DeviceFormModalState();
@@ -695,13 +707,23 @@ class _DeviceFormModalState extends State<_DeviceFormModal> {
         'status': _status,
       };
       if (widget.device == null) {
-        await EmsApi.instance.createDevice(body);
+        final res = await EmsApi.instance.createDevice(body);
+        if (mounted) {
+          Navigator.pop(context);
+          final deviceId = (res['data'] as Map?)?['id'] as String? ?? '';
+          final ingestApiKey = res['ingestApiKey'] as String? ?? '';
+          if (widget.onMqttConfig != null) {
+            widget.onMqttConfig!({'deviceId': deviceId, 'ingestApiKey': ingestApiKey});
+          } else {
+            widget.onSaved();
+          }
+        }
       } else {
         await EmsApi.instance.updateDevice(widget.device!['id'] as String, body);
-      }
-      if (mounted) {
-        Navigator.pop(context);
-        widget.onSaved();
+        if (mounted) {
+          Navigator.pop(context);
+          widget.onSaved();
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -974,6 +996,147 @@ class _DropdownFormField extends StatelessWidget {
               .toList(),
         ),
       ],
+    );
+  }
+}
+
+// ── MQTT Config Dialog ────────────────────────────────────────────────────────
+class _MqttConfigDialog extends StatelessWidget {
+  const _MqttConfigDialog({required this.config});
+  final Map<String, dynamic> config;
+
+  String get _allEnv => [
+        'EMS_DEVICE_ID=${config['deviceId']}',
+        'EMS_INGEST_API_KEY=${config['ingestApiKey']}',
+        'MQTT_BROKER_IP=10.3.20.218',
+        'MQTT_BROKER_PORT=1883',
+        'MQTT_TOPIC=SMM/Soil_Data',
+      ].join('\n');
+
+  void _copy(BuildContext context, String text, String label) {
+    Clipboard.setData(ClipboardData(text: text));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('$label copied'), backgroundColor: kGreen, duration: const Duration(seconds: 2)),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final rows = [
+      ('EMS_DEVICE_ID', config['deviceId'] as String),
+      ('EMS_INGEST_API_KEY', config['ingestApiKey'] as String),
+      ('MQTT_BROKER_IP', '10.3.20.218'),
+      ('MQTT_BROKER_PORT', '1883'),
+      ('MQTT_TOPIC', 'SMM/Soil_Data'),
+    ];
+
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(color: kNavy.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(8)),
+            child: const Icon(Icons.terminal_outlined, color: kNavy, size: 18),
+          ),
+          const SizedBox(width: 10),
+          const Expanded(
+            child: Text('MQTT Script Config', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: kNavy)),
+          ),
+        ],
+      ),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: kOrange.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: kOrange.withValues(alpha: 0.3)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.warning_amber_rounded, size: 16, color: kOrange),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'API key shown once — copy it now.',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: kOrange),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+            ...rows.map((r) => _EnvRow(
+                  name: r.$1,
+                  value: r.$2,
+                  onCopy: () => _copy(context, r.$2, r.$1),
+                )),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton.icon(
+          onPressed: () => _copy(context, _allEnv, 'All env vars'),
+          icon: const Icon(Icons.copy_all_outlined, size: 16),
+          label: const Text('Copy All'),
+          style: TextButton.styleFrom(foregroundColor: kNavy),
+        ),
+        ElevatedButton(
+          onPressed: () => Navigator.pop(context),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: kNavy,
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+          child: const Text('Done'),
+        ),
+      ],
+    );
+  }
+}
+
+class _EnvRow extends StatelessWidget {
+  const _EnvRow({required this.name, required this.value, required this.onCopy});
+  final String name;
+  final String value;
+  final VoidCallback onCopy;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(color: kBg, borderRadius: BorderRadius.circular(8)),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(name, style: TextStyle(fontSize: 10, color: Colors.grey.shade500, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 2),
+                  Text(
+                    value,
+                    style: const TextStyle(fontSize: 12, color: kNavy, fontFamily: 'monospace'),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            GestureDetector(
+              onTap: onCopy,
+              child: Icon(Icons.copy_outlined, size: 16, color: Colors.grey.shade400),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

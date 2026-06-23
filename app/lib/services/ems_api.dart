@@ -87,9 +87,8 @@ class EmsApi {
   }
 
   Future<Map<String, dynamic>> createDevice(Map<String, dynamic> body) async {
-    return Map<String, dynamic>.from(
-      (_obj(await _api.post('/devices', body: body)) ?? {}),
-    );
+    // Return full response so caller can read ingestApiKey (shown only once)
+    return Map<String, dynamic>.from(await _api.post('/devices', body: body));
   }
 
   Future<Map<String, dynamic>> updateDevice(String id, Map<String, dynamic> body) async {

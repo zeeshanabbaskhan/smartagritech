@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import DataTable from '../../components/ui/DataTable'
 import Modal from '../../components/ui/Modal'
+import MqttConfigModal from '../../components/ui/MqttConfigModal'
 import PageState, { useFetch } from '../../components/ui/PageState'
 import { TextInput, SelectInput, ToggleInput } from '../../components/ui/FormFields'
 import { Plus, Pencil, Trash2, Eye, BarChart2 } from 'lucide-react'
@@ -31,6 +32,7 @@ export default function OrgDevices() {
   const [selected, setSelected] = useState(null)
   const [form, setForm] = useState(blank)
   const [saving, setSaving] = useState(false)
+  const [mqttConfig, setMqttConfig] = useState(null)
 
   const rows = data?.rows ?? []
   const gateways = data?.gateways ?? []
@@ -49,14 +51,17 @@ export default function OrgDevices() {
     setSaving(true)
     try {
       if (modal === 'add') {
-        await emsApi.createDevice({ name: form.name, gatewayId: form.gatewayId, templateId: form.templateId })
-      } else {
-        await emsApi.updateDevice(selected.id, {
-          name: form.name,
-          gatewayId: form.gatewayId,
-          switchState: form.switchOn ? 'ON' : 'OFF',
-        })
+        const res = await emsApi.createDevice({ name: form.name, gatewayId: form.gatewayId, templateId: form.templateId })
+        close()
+        reload()
+        setMqttConfig({ deviceId: res?.data?.id, ingestApiKey: res?.ingestApiKey })
+        return
       }
+      await emsApi.updateDevice(selected.id, {
+        name: form.name,
+        gatewayId: form.gatewayId,
+        switchState: form.switchOn ? 'ON' : 'OFF',
+      })
       close()
       reload()
     } catch (e) {
@@ -151,6 +156,13 @@ export default function OrgDevices() {
             </div>
           )}
         </Modal>
+
+        <MqttConfigModal
+          open={!!mqttConfig}
+          onClose={() => setMqttConfig(null)}
+          deviceId={mqttConfig?.deviceId}
+          ingestApiKey={mqttConfig?.ingestApiKey}
+        />
       </div>
     </PageState>
   )

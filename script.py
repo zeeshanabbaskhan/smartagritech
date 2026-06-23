@@ -11,7 +11,7 @@ BROKER_PORT = int(os.getenv("MQTT_BROKER_PORT", "1883"))
 TOPIC = os.getenv("MQTT_TOPIC", "SMM/Soil_Data")
 
 # EMS ingest settings (set these in environment for production use)
-EMS_BASE_URL = os.getenv("EMS_BASE_URL", "http://localhost:5000/api")
+EMS_BASE_URL = os.getenv("EMS_BASE_URL", "https://iotbackend.zeeshan-abbas.tech/api")
 EMS_INGEST_API_KEY = os.getenv("EMS_INGEST_API_KEY", "")
 EMS_DEVICE_ID = os.getenv("EMS_DEVICE_ID", "")
 EMS_SLAVE_ID = os.getenv("EMS_SLAVE_ID", "")

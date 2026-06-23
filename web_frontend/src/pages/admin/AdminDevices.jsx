@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import DataTable from '../../components/ui/DataTable'
 import Modal from '../../components/ui/Modal'
+import MqttConfigModal from '../../components/ui/MqttConfigModal'
 import PageState, { useFetch } from '../../components/ui/PageState'
 import { TextInput, SelectInput, ToggleInput } from '../../components/ui/FormFields'
 import { Plus, Pencil, Trash2, Eye, BarChart2 } from 'lucide-react'
@@ -39,6 +40,7 @@ export default function AdminDevices() {
   const [selected, setSelected] = useState(null)
   const [form, setForm] = useState(blank)
   const [saving, setSaving] = useState(false)
+  const [mqttConfig, setMqttConfig] = useState(null)
 
   const filteredGateways = form.organizationId
     ? gateways.filter((g) => g.organizationId === form.organizationId)
@@ -63,21 +65,24 @@ export default function AdminDevices() {
     setSaving(true)
     try {
       if (modal === 'add') {
-        await emsApi.createDevice({
+        const res = await emsApi.createDevice({
           name: form.name,
           templateId: form.templateId,
           gatewayId: form.gatewayId,
           organizationId: form.organizationId,
         })
-      } else {
-        const prevSwitch = selected.switchOn
-        await emsApi.updateDevice(selected.id, {
-          name: form.name,
-          gatewayId: form.gatewayId,
-        })
-        if (form.switchOn !== prevSwitch) {
-          await emsApi.switchDevice(selected.id, form.switchOn ? 'ON' : 'OFF')
-        }
+        close()
+        reload()
+        setMqttConfig({ deviceId: res?.data?.id, ingestApiKey: res?.ingestApiKey })
+        return
+      }
+      const prevSwitch = selected.switchOn
+      await emsApi.updateDevice(selected.id, {
+        name: form.name,
+        gatewayId: form.gatewayId,
+      })
+      if (form.switchOn !== prevSwitch) {
+        await emsApi.switchDevice(selected.id, form.switchOn ? 'ON' : 'OFF')
       }
       close()
       reload()
@@ -190,6 +195,13 @@ export default function AdminDevices() {
             </div>
           )}
         </Modal>
+
+        <MqttConfigModal
+          open={!!mqttConfig}
+          onClose={() => setMqttConfig(null)}
+          deviceId={mqttConfig?.deviceId}
+          ingestApiKey={mqttConfig?.ingestApiKey}
+        />
       </div>
     </PageState>
   )
