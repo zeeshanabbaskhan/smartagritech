@@ -3,23 +3,10 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
 import PageState, { useFetch } from '../../components/ui/PageState'
 import { Download } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
-import { mapDevice, mapGateway, VAR_API_NAMES, bucketToChart } from '../../utils/mappers'
+import { mapDevice, mapGateway, bucketToChart } from '../../utils/mappers'
+import { fetchDeviceVariables } from '../../utils/sensorReadings'
 
-const VARIABLES = ['voltageA', 'voltageB', 'voltageC', 'currentA', 'power']
-const VAR_LABELS = {
-  voltageA: 'Voltage A',
-  voltageB: 'Voltage B',
-  voltageC: 'Voltage C',
-  currentA: 'Current A',
-  power: 'Active Power',
-}
-const VAR_COLORS = {
-  voltageA: '#F5A623',
-  voltageB: '#3B82F6',
-  voltageC: '#EF4444',
-  currentA: '#10B981',
-  power: '#06b6d4',
-}
+const CHART_COLORS = ['#F5A623', '#3B82F6', '#EF4444', '#10B981', '#06b6d4', '#8B5CF6']
 const RANGE_MAP = { today: '24h', yesterday: '24h', '7days': '7d', '30days': '30d', custom: '30d' }
 
 export default function OrgHistoricalData() {
@@ -28,23 +15,44 @@ export default function OrgHistoricalData() {
       emsApi.getDevices({ limit: 100 }),
       emsApi.getGateways({ limit: 100 }),
     ])
-    const devices = list(devicesRes).map(mapDevice)
-    const gateways = list(gatewaysRes).map(mapGateway)
-    return { devices, gateways }
+    return {
+      devices: list(devicesRes).map(mapDevice),
+      gateways: list(gatewaysRes).map(mapGateway),
+    }
   }, [])
 
   const [deviceId, setDeviceId] = useState('')
   const [dateRange, setDateRange] = useState('today')
-  const [selectedVars, setSelectedVars] = useState(['voltageA', 'currentA'])
+  const [deviceVariables, setDeviceVariables] = useState([])
+  const [selectedVars, setSelectedVars] = useState([])
   const [chartData, setChartData] = useState([])
   const [chartLoading, setChartLoading] = useState(false)
 
   const devices = lookups?.devices ?? []
-  const gateways = lookups?.gateways ?? []
 
   useEffect(() => {
     if (!deviceId && devices[0]?.id) setDeviceId(devices[0].id)
   }, [devices, deviceId])
+
+  useEffect(() => {
+    if (!deviceId) {
+      setDeviceVariables([])
+      setSelectedVars([])
+      return
+    }
+    fetchDeviceVariables(deviceId).then((vars) => {
+      const names = vars.map((v) => v.name).filter(Boolean)
+      setDeviceVariables(vars)
+      setSelectedVars((prev) => {
+        const kept = prev.filter((n) => names.includes(n))
+        if (kept.length) return kept
+        return names.slice(0, 2)
+      })
+    }).catch(() => {
+      setDeviceVariables([])
+      setSelectedVars([])
+    })
+  }, [deviceId])
 
   const loadChart = useCallback(async () => {
     if (!deviceId || selectedVars.length === 0) {
@@ -55,14 +63,10 @@ export default function OrgHistoricalData() {
     try {
       const timeRange = RANGE_MAP[dateRange] ?? '24h'
       const series = await Promise.all(
-        selectedVars.map(async (v) => {
-          const res = await emsApi.getSensorAggregate({
-            deviceId,
-            variableName: VAR_API_NAMES[v],
-            timeRange,
-          })
-          return { key: v, points: bucketToChart(res?.data ?? [], v) }
-        })
+        selectedVars.map(async (variableName) => {
+          const res = await emsApi.getSensorAggregate({ deviceId, variableName, timeRange })
+          return { key: variableName, points: bucketToChart(res?.data ?? [], variableName) }
+        }),
       )
       const maxLen = Math.max(...series.map((s) => s.points.length), 0)
       const merged = Array.from({ length: maxLen }, (_, i) => {
@@ -80,20 +84,21 @@ export default function OrgHistoricalData() {
 
   useEffect(() => { loadChart() }, [loadChart])
 
-  const toggleVar = (v) => {
-    setSelectedVars((prev) => (prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v]))
+  const toggleVar = (name) => {
+    setSelectedVars((prev) => (prev.includes(name) ? prev.filter((x) => x !== name) : [...prev, name]))
   }
 
-  const deviceName = devices.find((d) => d.id === deviceId)?.name ?? gateways.find((g) => g.id === deviceId)?.name ?? ''
+  const deviceName = devices.find((d) => d.id === deviceId)?.name ?? ''
   const tableColumns = ['Variable Name', 'Min', 'Max', 'Average', 'Last Value']
-  const tableData = selectedVars.map((v) => {
-    const values = chartData.map((d) => d[v]).filter((x) => x != null)
-    if (!values.length) return { key: v, label: VAR_LABELS[v], min: '—', max: '—', avg: '—', last: '—' }
-    const min = Math.min(...values).toFixed(1)
-    const max = Math.max(...values).toFixed(1)
-    const avg = (values.reduce((a, b) => a + b, 0) / values.length).toFixed(1)
+  const tableData = selectedVars.map((name) => {
+    const values = chartData.map((d) => d[name]).filter((x) => x != null)
+    const meta = deviceVariables.find((v) => v.name === name)
+    if (!values.length) return { key: name, label: name, unit: meta?.unit ?? '', min: '—', max: '—', avg: '—', last: '—' }
+    const min = Math.min(...values).toFixed(2)
+    const max = Math.max(...values).toFixed(2)
+    const avg = (values.reduce((a, b) => a + b, 0) / values.length).toFixed(2)
     const last = values[values.length - 1]
-    return { key: v, label: VAR_LABELS[v], min, max, avg, last }
+    return { key: name, label: name, unit: meta?.unit ?? '', min, max, avg, last }
   })
 
   return (
@@ -114,7 +119,6 @@ export default function OrgHistoricalData() {
               <select className="select" value={deviceId} onChange={(e) => setDeviceId(e.target.value)}>
                 <option value="">Select Device</option>
                 {devices.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-                {gateways.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
               </select>
             </div>
             <div className="flex-1 min-w-40">
@@ -130,18 +134,20 @@ export default function OrgHistoricalData() {
             <div className="flex-1 min-w-40">
               <label className="label">Variables</label>
               <div className="flex flex-wrap gap-2">
-                {VARIABLES.map((v) => (
+                {deviceVariables.length === 0 ? (
+                  <span className="text-xs text-surface-500">Select a device with configured variables</span>
+                ) : deviceVariables.map((v, i) => (
                   <button
-                    key={v}
+                    key={v.name}
                     type="button"
-                    onClick={() => toggleVar(v)}
+                    onClick={() => toggleVar(v.name)}
                     className={`text-xs px-2.5 py-1 rounded-md border transition-colors ${
-                      selectedVars.includes(v)
+                      selectedVars.includes(v.name)
                         ? 'border-primary-500 bg-primary-600/20 text-primary-800 font-bold'
                         : 'border-surface-200 text-surface-600 hover:border-surface-500'
                     }`}
                   >
-                    {VAR_LABELS[v]}
+                    {v.name}
                   </button>
                 ))}
               </div>
@@ -158,6 +164,10 @@ export default function OrgHistoricalData() {
             <div className="h-64 flex items-center justify-center text-surface-500 text-sm">
               Select at least one variable to display the chart
             </div>
+          ) : chartData.length === 0 && !chartLoading ? (
+            <div className="h-64 flex items-center justify-center text-surface-500 text-sm">
+              No historical data for selected variables in this period
+            </div>
           ) : (
             <ResponsiveContainer width="100%" height={280}>
               <LineChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
@@ -166,8 +176,8 @@ export default function OrgHistoricalData() {
                 <YAxis tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
                 <Tooltip contentStyle={{ background: '#ffffff', border: '1px solid #ECEEE6', borderRadius: 8, fontSize: 12 }} />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
-                {selectedVars.map((v) => (
-                  <Line key={v} type="monotone" dataKey={v} name={VAR_LABELS[v]} stroke={VAR_COLORS[v]} strokeWidth={2} dot={false} />
+                {selectedVars.map((name, i) => (
+                  <Line key={name} type="monotone" dataKey={name} name={name} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} dot={false} />
                 ))}
               </LineChart>
             </ResponsiveContainer>
@@ -188,7 +198,7 @@ export default function OrgHistoricalData() {
                   <tr><td colSpan={5} className="text-center py-10 text-surface-500">Select variables to see summary</td></tr>
                 ) : tableData.map((row) => (
                   <tr key={row.key}>
-                    <td className="font-medium text-surface-800">{row.label}</td>
+                    <td className="font-medium text-surface-800">{row.label}{row.unit ? ` (${row.unit})` : ''}</td>
                     <td className="text-danger-600">{row.min}</td>
                     <td className="text-success-600">{row.max}</td>
                     <td className="text-primary-600">{row.avg}</td>

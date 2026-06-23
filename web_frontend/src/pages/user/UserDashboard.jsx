@@ -14,9 +14,9 @@ import { useDevices } from '../../context/DeviceContext'
 export default function UserDashboard() {
   const { user } = useAuth()
   const navigate = useNavigate()
-  const { selectedDeviceId } = useDevices()
+  const { selectedDeviceId, selectedSlaveId } = useDevices()
   const [activeTab, setActiveTab] = useState('Today')
-  const [chartData, setChartData] = useState([])
+  const [chartBundle, setChartBundle] = useState({ power: [], multi: [], lines: [] })
 
   const { data: stats, loading, error, reload } = useFetch(
     () => fetchUserStats(user),
@@ -26,9 +26,12 @@ export default function UserDashboard() {
   const timeRangeMap = { Today: '24h', Week: '7d', Month: '30d' }
 
   useEffect(() => {
-    if (!selectedDeviceId) return
-    fetchDashboardChart(selectedDeviceId, timeRangeMap[activeTab] ?? '24h').then(setChartData)
-  }, [stats, activeTab, selectedDeviceId])
+    if (!selectedDeviceId) {
+      setChartBundle({ power: [], multi: [], lines: [] })
+      return
+    }
+    fetchDashboardChart(selectedDeviceId, timeRangeMap[activeTab] ?? '24h', selectedSlaveId).then(setChartBundle)
+  }, [activeTab, selectedDeviceId, selectedSlaveId])
 
   const getGreeting = () => {
     const hr = new Date().getHours()
@@ -89,7 +92,11 @@ export default function UserDashboard() {
             <div className="flex items-start justify-between gap-4 mb-4 flex-wrap">
               <div>
                 <h3 className="text-sm font-bold text-surface-900 leading-none">Live Readings</h3>
-                <p className="text-xs text-surface-400 mt-1">Voltage (V) logged across all three phases</p>
+                <p className="text-xs text-surface-400 mt-1">
+                  {chartBundle.lines.length
+                    ? chartBundle.lines.map((l) => l.label).join(', ')
+                    : 'Select a device with ingested data'}
+                </p>
               </div>
               <div className="flex bg-surface-100 p-0.5 rounded-lg border border-surface-200">
                 {['Today', 'Week', 'Month'].map((tab) => (
@@ -100,18 +107,24 @@ export default function UserDashboard() {
                 ))}
               </div>
             </div>
-            <ResponsiveContainer width="100%" height={240}>
-              <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
-                <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
-                <YAxis domain={['auto', 'auto']} tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
-                <Tooltip content={<CustomTooltip />} />
-                <Legend verticalAlign="bottom" height={36} wrapperStyle={{ fontSize: 11, paddingTop: 10 }} />
-                <Line type="monotone" dataKey="voltageA" stroke="#F5A623" dot={false} strokeWidth={2} name="Phase A" unit="V" />
-                <Line type="monotone" dataKey="voltageB" stroke="#3B82F6" dot={false} strokeWidth={2} name="Phase B" unit="V" />
-                <Line type="monotone" dataKey="voltageC" stroke="#EF4444" dot={false} strokeWidth={2} name="Phase C" unit="V" />
-              </LineChart>
-            </ResponsiveContainer>
+            {(chartBundle.multi.length > 0 || chartBundle.power.length > 0) ? (
+              <ResponsiveContainer width="100%" height={240}>
+                <LineChart data={chartBundle.multi.length ? chartBundle.multi : chartBundle.power}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
+                  <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
+                  <YAxis domain={['auto', 'auto']} tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Legend verticalAlign="bottom" height={36} wrapperStyle={{ fontSize: 11, paddingTop: 10 }} />
+                  {chartBundle.multi.length > 0 ? chartBundle.lines.map((line) => (
+                    <Line key={line.key} type="monotone" dataKey={line.key} stroke={line.color} dot={false} strokeWidth={2} name={line.label} unit={line.unit} />
+                  )) : (
+                    <Line type="monotone" dataKey="power" stroke="#F5A623" dot={false} strokeWidth={2} name="Power" unit="kW" />
+                  )}
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-60 flex items-center justify-center text-xs text-surface-500">No chart data for selected device in this period.</div>
+            )}
           </div>
 
           <div className="card flex flex-col">

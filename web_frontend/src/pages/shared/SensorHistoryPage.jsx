@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Download, RefreshCw } from 'lucide-react'
 import DataTable from '../../components/ui/DataTable'
 import PageState from '../../components/ui/PageState'
@@ -7,67 +7,55 @@ import TimeRangeChips from '../../components/shared/TimeRangeChips'
 import { useDevices } from '../../context/DeviceContext'
 import { useToast } from '../../context/ToastContext'
 import emsApi, { list } from '../../api/emsApi'
-
-function flattenReadings(rows) {
-  const out = []
-  for (const row of rows) {
-    const ts = row.timestamp ?? row.createdAt
-    const readings = row.readings ?? []
-    if (Array.isArray(readings) && readings.length) {
-      readings.forEach((r) => {
-        out.push({
-          id: `${ts}-${r.variableName}`,
-          timestamp: ts,
-          variableName: r.variableName,
-          value: r.value,
-          unit: r.unit ?? '—',
-        })
-      })
-    }
-  }
-  return out
-}
+import { flattenSensorRows } from '../../utils/sensorReadings'
 
 export default function SensorHistoryPage({ title = 'Sensor History', breadcrumb = 'Raw sensor data' }) {
-  const { selectedDeviceId, selectedSlaveId } = useDevices()
+  const { selectedDeviceId, selectedSlaveId, selectedDevice } = useDevices()
   const { showToast } = useToast()
   const [timeRange, setTimeRange] = useState('24h')
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
-  const [page, setPage] = useState(1)
   const [hasMore, setHasMore] = useState(false)
+  const pageRef = useRef(1)
 
   const load = useCallback(async (reset = true) => {
-    if (!selectedDeviceId) return
-    const p = reset ? 1 : page
+    if (!selectedDeviceId) {
+      setRows([])
+      setHasMore(false)
+      return
+    }
+    const page = reset ? 1 : pageRef.current
     setLoading(true)
     setError(null)
     try {
-      const q = { deviceId: selectedDeviceId, timeRange, page: p, limit: 50 }
-      if (selectedSlaveId) q.slaveId = selectedSlaveId
+      const q = { deviceId: selectedDeviceId, timeRange, page, limit: 50 }
+      // Do not filter by slave — many ingests store rows with null deviceConfigSlaveId
       const res = await emsApi.getSensorReadings(q)
-      const batch = flattenReadings(list(res))
+      const batch = flattenSensorRows(list(res))
       setRows((prev) => (reset ? batch : [...prev, ...batch]))
-      setPage(p + 1)
-      setHasMore(batch.length >= 50)
+      const nextPage = page + 1
+      pageRef.current = nextPage
+      setHasMore(res?.hasMore ?? batch.length >= 50)
     } catch (e) {
       setError(e.message || 'Failed to load history')
     } finally {
       setLoading(false)
     }
-  }, [selectedDeviceId, selectedSlaveId, timeRange, page])
+  }, [selectedDeviceId, timeRange])
 
   useEffect(() => {
-    setPage(1)
+    pageRef.current = 1
     load(true)
-  }, [selectedDeviceId, selectedSlaveId, timeRange]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedDeviceId, timeRange, load])
 
   const handleDownload = async () => {
     if (!selectedDeviceId) return
     try {
-      const q = { deviceId: selectedDeviceId, timeRange, variableName: 'PowerConsumption' }
-      if (selectedSlaveId) q.slaveId = selectedSlaveId
+      const q = { deviceId: selectedDeviceId, timeRange }
+      const vars = rows[0]?.variableName
+      if (vars) q.variableName = vars
+      else q.variableName = 'PowerConsumption'
       await emsApi.downloadSensorCsv(q)
       showToast('CSV download started', 'success')
     } catch (e) {
@@ -87,7 +75,10 @@ export default function SensorHistoryPage({ title = 'Sensor History', breadcrumb
       <div className="page-header">
         <div>
           <h2 className="page-title">{title}</h2>
-          <p className="breadcrumb">{breadcrumb}</p>
+          <p className="breadcrumb">
+            {breadcrumb}
+            {selectedDevice?.name ? ` · ${selectedDevice.name}` : ''}
+          </p>
         </div>
         <div className="flex gap-2">
           <button type="button" className="btn-secondary text-xs" onClick={() => load(true)} disabled={loading}>
@@ -104,6 +95,11 @@ export default function SensorHistoryPage({ title = 'Sensor History', breadcrumb
 
       <PageState loading={loading && !rows.length} error={error} onRetry={() => load(true)} empty={!selectedDeviceId} emptyMessage="Select a device to view sensor history.">
         <DataTable columns={columns} data={rows} searchPlaceholder="Search variables..." />
+        {!loading && selectedDeviceId && rows.length === 0 && (
+          <div className="card p-6 mt-4 text-center text-sm text-surface-500">
+            No sensor history in this time range for the selected device.
+          </div>
+        )}
         {hasMore && (
           <div className="text-center mt-4">
             <button type="button" className="btn-secondary text-xs" onClick={() => load(false)} disabled={loading}>

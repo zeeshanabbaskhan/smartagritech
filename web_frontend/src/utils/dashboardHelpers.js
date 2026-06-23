@@ -1,5 +1,6 @@
 import emsApi, { list } from '../api/emsApi'
 import { mapDevice } from './mappers'
+import { fetchDeviceDashboardCharts } from './sensorReadings'
 
 /** Aggregate list totals from paginated API responses */
 export async function fetchListTotal(fetcher, params = {}) {
@@ -80,19 +81,6 @@ export async function fetchFirstDeviceId() {
   return devices[0]?.id ?? null
 }
 
-export async function fetchDashboardChart(deviceId, timeRange = '24h') {
-  if (!deviceId) return []
-  try {
-    const res = await emsApi.getDashboardSummary({ deviceId, timeRange })
-    const chart = res?.data?.totalPowerConsumption?.chartData ?? []
-    return chart.map((p) => ({
-      time: new Date(p.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      power: p.value,
-      voltageA: p.value,
-      voltageB: p.value * 0.98,
-      voltageC: p.value * 1.02,
-    }))
-  } catch {
-    return []
-  }
+export async function fetchDashboardChart(deviceId, timeRange = '24h', slaveId = null) {
+  return fetchDeviceDashboardCharts(deviceId, timeRange, slaveId)
 }

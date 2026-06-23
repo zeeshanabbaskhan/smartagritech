@@ -2,20 +2,25 @@ import { useState } from 'react'
 import DataTable from '../../components/ui/DataTable'
 import PageState, { useFetch } from '../../components/ui/PageState'
 import Modal from '../../components/ui/Modal'
+import DeviceSlaveSelector from '../../components/shared/DeviceSlaveSelector'
 import { Eye, CheckCircle } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
 import { mapVariableAlarm, mapLinkageRecord } from '../../utils/mappers'
 import { useToast } from '../../context/ToastContext'
+import { useDevices } from '../../context/DeviceContext'
 
 export default function AlarmHistoryPage({ title = 'Alarm History', breadcrumb = 'Variable alarms & linkage records' }) {
   const { showToast } = useToast()
+  const { selectedDeviceId, selectedDevice } = useDevices()
   const [tab, setTab] = useState('variable')
   const [selected, setSelected] = useState(null)
 
   const { data, loading, error, reload } = useFetch(async () => {
+    const params = { limit: 100 }
+    if (selectedDeviceId) params.deviceId = selectedDeviceId
     const [varRes, linkRes, devicesRes] = await Promise.all([
-      emsApi.getVariableAlarmHistory({ limit: 100 }),
-      emsApi.getLinkageHistory({ limit: 100 }),
+      emsApi.getVariableAlarmHistory(params),
+      emsApi.getLinkageHistory(params),
       emsApi.getDevices({ limit: 100 }),
     ])
     const deviceMap = Object.fromEntries(list(devicesRes).map((d) => [d.id, d.name]))
@@ -23,7 +28,7 @@ export default function AlarmHistoryPage({ title = 'Alarm History', breadcrumb =
       variable: list(varRes).map((a) => mapVariableAlarm(a, deviceMap[a.deviceId])),
       linkage: list(linkRes).map((r) => mapLinkageRecord(r, deviceMap[r.deviceId])),
     }
-  }, [])
+  }, [selectedDeviceId])
 
   const resolveAlarm = async (row) => {
     try {
@@ -61,9 +66,14 @@ export default function AlarmHistoryPage({ title = 'Alarm History', breadcrumb =
         <div className="page-header">
           <div>
             <h2 className="page-title">{title}</h2>
-            <p className="breadcrumb">{breadcrumb}</p>
+            <p className="breadcrumb">
+              {breadcrumb}
+              {selectedDevice?.name ? ` · ${selectedDevice.name}` : ''}
+            </p>
           </div>
         </div>
+
+        <DeviceSlaveSelector onChange={reload} />
 
         <div className="flex gap-2 border-b border-surface-200 dark:border-surface-800">
           {[
@@ -100,6 +110,12 @@ export default function AlarmHistoryPage({ title = 'Alarm History', breadcrumb =
             <button type="button" className="btn-ghost p-1.5" onClick={() => setSelected(row)} title="View"><Eye size={14} /></button>
           )}
         />
+
+        {!loading && rows.length === 0 && (
+          <div className="card p-6 text-center text-sm text-surface-500">
+            {selectedDeviceId ? 'No alarm history for the selected device.' : 'Select a device to view alarm history.'}
+          </div>
+        )}
 
         <Modal open={!!selected} onClose={() => setSelected(null)} title="Record Details">
           {selected && (

@@ -1,16 +1,11 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import DataTable from '../../components/ui/DataTable'
 import PageState, { useFetch } from '../../components/ui/PageState'
 import emsApi, { list } from '../../api/emsApi'
 import { mapOrganization, mapDevice } from '../../utils/mappers'
 import { useToast } from '../../context/ToastContext'
-
-const VARIABLES = [
-  { value: 'VoltageA', label: 'Voltage Phase A', unit: 'V', color: '#F5A623' },
-  { value: 'CurrentA', label: 'Current Phase A', unit: 'A', color: '#3B82F6' },
-  { value: 'PowerConsumption', label: 'Active Power', unit: 'kWh', color: '#10B981' },
-]
+import { fetchDeviceVariables } from '../../utils/sensorReadings'
 
 const tableColumns = [
   { key: 'time', label: 'Time' },
@@ -35,7 +30,8 @@ export default function AdminHistoricalData() {
 
   const [orgFilter, setOrgFilter] = useState('')
   const [deviceFilter, setDeviceFilter] = useState('')
-  const [variableKey, setVariableKey] = useState('VoltageA')
+  const [variableKey, setVariableKey] = useState('')
+  const [deviceVariables, setDeviceVariables] = useState([])
   const [dateFrom, setDateFrom] = useState(today())
   const [dateTo, setDateTo] = useState(today())
   const [chartData, setChartData] = useState([])
@@ -44,14 +40,34 @@ export default function AdminHistoricalData() {
   const [error, setError] = useState(null)
   const [loaded, setLoaded] = useState(false)
 
-  const varMeta = VARIABLES.find((v) => v.value === variableKey)
   const filteredDevices = orgFilter
     ? (filters?.devices ?? []).filter((d) => d.organizationId === orgFilter)
     : (filters?.devices ?? [])
 
+  useEffect(() => {
+    if (!deviceFilter) {
+      setDeviceVariables([])
+      setVariableKey('')
+      return
+    }
+    fetchDeviceVariables(deviceFilter).then((vars) => {
+      setDeviceVariables(vars)
+      setVariableKey((prev) => (prev && vars.some((v) => v.name === prev) ? prev : vars[0]?.name ?? ''))
+    }).catch(() => {
+      setDeviceVariables([])
+      setVariableKey('')
+    })
+  }, [deviceFilter])
+
+  const varMeta = deviceVariables.find((v) => v.name === variableKey)
+
   const loadData = async () => {
     if (!deviceFilter) {
       showToast('Please select a device', 'warning')
+      return
+    }
+    if (!variableKey) {
+      showToast('Please select a variable', 'warning')
       return
     }
     setLoading(true)
@@ -114,8 +130,9 @@ export default function AdminHistoricalData() {
             </div>
             <div className="flex-1 min-w-32">
               <label className="label">Variable</label>
-              <select className="select" value={variableKey} onChange={(e) => setVariableKey(e.target.value)}>
-                {VARIABLES.map((v) => <option key={v.value} value={v.value}>{v.label}</option>)}
+              <select className="select" value={variableKey} onChange={(e) => setVariableKey(e.target.value)} disabled={!deviceVariables.length}>
+                {!deviceVariables.length && <option value="">Select device first</option>}
+                {deviceVariables.map((v) => <option key={v.name} value={v.name}>{v.name}{v.unit ? ` (${v.unit})` : ''}</option>)}
               </select>
             </div>
             <div className="flex-1 min-w-28">
@@ -139,7 +156,7 @@ export default function AdminHistoricalData() {
         {loaded && (
           <div className="card p-5 mb-5">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold text-surface-800">{varMeta.label} — {dateFrom} to {dateTo}</h3>
+              <h3 className="text-sm font-semibold text-surface-800">{variableKey || 'Variable'} — {dateFrom} to {dateTo}</h3>
               <span className="text-xs text-surface-500">{selectedDeviceName}</span>
             </div>
             <ResponsiveContainer width="100%" height={300}>
@@ -156,10 +173,10 @@ export default function AdminHistoricalData() {
                 <Line
                   type="monotone"
                   dataKey="value"
-                  name={varMeta.label}
-                  stroke={varMeta.color}
+                  name={variableKey}
+                  stroke="#F5A623"
                   strokeWidth={2}
-                  dot={{ fill: varMeta.color, r: 3 }}
+                  dot={{ fill: '#F5A623', r: 3 }}
                   activeDot={{ r: 5 }}
                 />
               </LineChart>

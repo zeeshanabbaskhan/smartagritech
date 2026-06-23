@@ -12,8 +12,8 @@ import emsApi from '../../api/emsApi'
 
 export default function OrgDashboard() {
   const { user } = useAuth()
-  const { selectedDeviceId } = useDevices()
-  const [chartData, setChartData] = useState([])
+  const { selectedDeviceId, selectedSlaveId } = useDevices()
+  const [chartBundle, setChartBundle] = useState({ power: [], multi: [], lines: [] })
 
   const { data: stats, loading, error, reload } = useFetch(async () => {
     const orgStats = await fetchOrgStats()
@@ -34,9 +34,9 @@ export default function OrgDashboard() {
   }, [selectedDeviceId])
 
   useEffect(() => {
-    if (!selectedDeviceId) { setChartData([]); return }
-    fetchDashboardChart(selectedDeviceId, '24h').then(setChartData)
-  }, [selectedDeviceId])
+    if (!selectedDeviceId) { setChartBundle({ power: [], multi: [], lines: [] }); return }
+    fetchDashboardChart(selectedDeviceId, '24h', selectedSlaveId).then(setChartBundle)
+  }, [selectedDeviceId, selectedSlaveId])
 
   const orgName = user?.organization?.name ?? 'your organization'
   const devices = stats?.devices ?? []
@@ -78,7 +78,7 @@ export default function OrgDashboard() {
               <p className="text-xs text-surface-400 mt-1 mb-4">Real-time load in kW logged at {orgName}</p>
             </div>
             <ResponsiveContainer width="100%" height={220}>
-              <AreaChart data={chartData}>
+              <AreaChart data={chartBundle.power}>
                 <defs>
                   <linearGradient id="orgPowerGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#F5A623" stopOpacity={0.35} />

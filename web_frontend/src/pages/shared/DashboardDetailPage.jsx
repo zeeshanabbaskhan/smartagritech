@@ -3,29 +3,22 @@ import PageState from '../../components/ui/PageState'
 import DeviceSlaveSelector from '../../components/shared/DeviceSlaveSelector'
 import TimeRangeChips from '../../components/shared/TimeRangeChips'
 import { useDevices } from '../../context/DeviceContext'
-import emsApi, { one } from '../../api/emsApi'
+import emsApi from '../../api/emsApi'
 import { onSocketEvent, subscribeDevice } from '../../services/socketService'
-
-const READING_KEYS = [
-  ['VoltageA', 'V'], ['VoltageB', 'V'], ['VoltageC', 'V'],
-  ['CurrentA', 'A'], ['CurrentB', 'A'], ['CurrentC', 'A'],
-  ['ActivePower', 'kW'], ['ReactivePower', 'kVar'], ['ApparentPower', 'kVA'],
-  ['PowerConsumption', 'kWh'], ['ExportPower', 'kWh'], ['PowerFactor', ''],
-  ['Frequency', 'Hz'], ['THD_V', '%'], ['THD_I', '%'],
-]
+import { latestToReadings, SUMMARY_CARDS } from '../../utils/sensorReadings'
 
 export default function DashboardDetailPage({ title = 'Dashboard Detail', breadcrumb = 'Live sensor readings' }) {
-  const { selectedDeviceId, selectedSlaveId } = useDevices()
+  const { selectedDeviceId, selectedSlaveId, selectedDevice } = useDevices()
   const [timeRange, setTimeRange] = useState('24h')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [latest, setLatest] = useState({})
+  const [readings, setReadings] = useState([])
   const [summary, setSummary] = useState(null)
 
   const load = useCallback(async () => {
     if (!selectedDeviceId) {
       setLoading(false)
-      setLatest({})
+      setReadings([])
       setSummary(null)
       return
     }
@@ -39,7 +32,7 @@ export default function DashboardDetailPage({ title = 'Dashboard Detail', breadc
         emsApi.getLatestReadings(q),
         emsApi.getDashboardSummary(q),
       ])
-      setLatest(one(latestRes) ?? latestRes?.data ?? {})
+      setReadings(latestToReadings(latestRes))
       setSummary(summaryRes?.data ?? null)
     } catch (e) {
       setError(e.message || 'Failed to load readings')
@@ -56,24 +49,19 @@ export default function DashboardDetailPage({ title = 'Dashboard Detail', breadc
     })
   }, [selectedDeviceId, load])
 
-  const valueFor = (key) => {
-    const readings = latest.readings ?? latest.values ?? []
-    if (Array.isArray(readings)) {
-      const hit = readings.find((r) => r.variableName === key)
-      if (hit) return `${hit.value}${hit.unit ? ` ${hit.unit}` : ''}`
-    }
-    if (latest[key] != null) return String(latest[key])
-    const block = summary?.[key === 'PowerConsumption' ? 'totalPowerConsumption' : key]
-    if (block?.value != null) return String(block.value)
-    return '—'
-  }
+  const summaryCards = SUMMARY_CARDS
+    .map(([key, label]) => ({ key, label, block: summary?.[key] }))
+    .filter(({ block }) => block?.value != null)
 
   return (
     <div className="space-y-6">
       <div className="page-header">
         <div>
           <h2 className="page-title">{title}</h2>
-          <p className="breadcrumb">{breadcrumb}</p>
+          <p className="breadcrumb">
+            {breadcrumb}
+            {selectedDevice?.name ? ` · ${selectedDevice.name}` : ''}
+          </p>
         </div>
         <TimeRangeChips value={timeRange} onChange={setTimeRange} />
       </div>
@@ -81,28 +69,30 @@ export default function DashboardDetailPage({ title = 'Dashboard Detail', breadc
       <DeviceSlaveSelector onChange={load} />
 
       <PageState loading={loading} error={error} onRetry={load} empty={!selectedDeviceId} emptyMessage="No device assigned. Add or select a device first.">
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-          {READING_KEYS.map(([key, unit]) => (
-            <div key={key} className="card p-4">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-surface-400">{key}</p>
-              <p className="text-lg font-bold text-surface-900 dark:text-surface-100 mt-1 tabular-nums">
-                {valueFor(key)}
-                {!valueFor(key).includes(' ') && unit ? <span className="text-xs text-surface-400 ml-1">{unit}</span> : null}
-              </p>
-            </div>
-          ))}
-        </div>
+        {readings.length === 0 ? (
+          <div className="card p-8 text-center text-sm text-surface-500">
+            No live readings for this device yet. Ingest data to see configured variables here.
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+            {readings.map(({ variableName, value, unit }) => (
+              <div key={variableName} className="card p-4">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-surface-400">{variableName}</p>
+                <p className="text-lg font-bold text-surface-900 dark:text-surface-100 mt-1 tabular-nums">
+                  {value ?? '—'}
+                  {unit ? <span className="text-xs text-surface-400 ml-1">{unit}</span> : null}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
 
-        {summary && (
+        {summaryCards.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
-            {[
-              ['totalPowerConsumption', 'Total Consumption'],
-              ['powerFactor', 'Power Factor'],
-              ['voltageImbalance', 'Voltage Imbalance'],
-            ].map(([k, label]) => (
-              <div key={k} className="card p-4">
+            {summaryCards.map(({ key, label, block }) => (
+              <div key={key} className="card p-4">
                 <p className="text-xs text-surface-500">{label}</p>
-                <p className="text-xl font-bold mt-1">{summary[k]?.value ?? '—'}</p>
+                <p className="text-xl font-bold mt-1">{block?.value ?? '—'}</p>
               </div>
             ))}
           </div>

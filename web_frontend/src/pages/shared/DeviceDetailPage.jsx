@@ -9,6 +9,7 @@ import { useToast } from '../../context/ToastContext'
 import emsApi, { list, one } from '../../api/emsApi'
 import { mapDevice, mapScheduledTask, mapUser } from '../../utils/mappers'
 import { subscribeDevice } from '../../services/socketService'
+import { latestToReadings } from '../../utils/sensorReadings'
 
 const TABS = ['Overview', 'Metrics', 'Schedule', 'Users']
 
@@ -92,12 +93,7 @@ export default function DeviceDetailPage({ basePath }) {
     }
   }
 
-  // /sensor-data/latest returns `data` as an object keyed by variable name:
-  // { SoilMoisture: { value, unit, lastUpdatedAt }, ... }. Flatten it to a list
-  // of the device's actual configured variables (works for any template).
-  const readings = Object.entries(latest)
-    .filter(([, v]) => v && typeof v === 'object' && 'value' in v)
-    .map(([variableName, v]) => ({ variableName, value: v.value, unit: v.unit }))
+  const readings = latestToReadings({ data: latest })
 
   return (
     <PageState loading={loading} error={error} onRetry={load}>

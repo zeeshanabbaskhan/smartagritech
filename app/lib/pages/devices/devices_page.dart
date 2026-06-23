@@ -20,6 +20,10 @@ class _DevicesPageState extends State<DevicesPage> {
   bool _loading = true;
   Object? _error;
   List<Map<String, dynamic>> _devices = [];
+  // Device deletes are processed asynchronously (queued) on the server, so a row
+  // can still be present on the immediate reload. Track deleted ids and hide them
+  // locally so they don't reappear before the background purge finishes.
+  final Set<String> _removedIds = {};
 
   bool get _canManage => AuthService.instance.user?.canManageOrg == true;
 
@@ -45,6 +49,7 @@ class _DevicesPageState extends State<DevicesPage> {
 
   List<Map<String, dynamic>> get _filtered {
     return _devices.where((d) {
+      if (_removedIds.contains(d['id'])) return false;
       final matchStatus = _filter == 'All' || d['status'] == _filter;
       final matchSearch = _search.isEmpty ||
           (d['name'] as String).toLowerCase().contains(_search.toLowerCase()) ||
@@ -276,6 +281,7 @@ class _DevicesPageState extends State<DevicesPage> {
               Navigator.pop(context);
               try {
                 await EmsApi.instance.deleteDevice(id);
+                if (mounted) setState(() => _removedIds.add(id));
                 await _load();
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -1001,19 +1007,40 @@ class _DropdownFormField extends StatelessWidget {
 }
 
 // ── MQTT Config Dialog ────────────────────────────────────────────────────────
-class _MqttConfigDialog extends StatelessWidget {
+class _MqttConfigDialog extends StatefulWidget {
   const _MqttConfigDialog({required this.config});
   final Map<String, dynamic> config;
 
+  @override
+  State<_MqttConfigDialog> createState() => _MqttConfigDialogState();
+}
+
+class _MqttConfigDialogState extends State<_MqttConfigDialog> {
+  // Broker settings are operator-supplied (defaults shown) and editable before copying.
+  final _brokerIp = TextEditingController(text: '10.3.20.218');
+  final _brokerPort = TextEditingController(text: '1883');
+  final _topic = TextEditingController(text: 'SMM/Soil_Data');
+
+  String get _deviceId => widget.config['deviceId'] as String? ?? '';
+  String get _ingestApiKey => widget.config['ingestApiKey'] as String? ?? '';
+
   String get _allEnv => [
-        'EMS_DEVICE_ID=${config['deviceId']}',
-        'EMS_INGEST_API_KEY=${config['ingestApiKey']}',
-        'MQTT_BROKER_IP=10.3.20.218',
-        'MQTT_BROKER_PORT=1883',
-        'MQTT_TOPIC=SMM/Soil_Data',
+        'EMS_DEVICE_ID=$_deviceId',
+        'EMS_INGEST_API_KEY=$_ingestApiKey',
+        'MQTT_BROKER_IP=${_brokerIp.text}',
+        'MQTT_BROKER_PORT=${_brokerPort.text}',
+        'MQTT_TOPIC=${_topic.text}',
       ].join('\n');
 
-  void _copy(BuildContext context, String text, String label) {
+  @override
+  void dispose() {
+    _brokerIp.dispose();
+    _brokerPort.dispose();
+    _topic.dispose();
+    super.dispose();
+  }
+
+  void _copy(String text, String label) {
     Clipboard.setData(ClipboardData(text: text));
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('$label copied'), backgroundColor: kGreen, duration: const Duration(seconds: 2)),
@@ -1022,14 +1049,6 @@ class _MqttConfigDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final rows = [
-      ('EMS_DEVICE_ID', config['deviceId'] as String),
-      ('EMS_INGEST_API_KEY', config['ingestApiKey'] as String),
-      ('MQTT_BROKER_IP', '10.3.20.218'),
-      ('MQTT_BROKER_PORT', '1883'),
-      ('MQTT_TOPIC', 'SMM/Soil_Data'),
-    ];
-
     return AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       title: Row(
@@ -1047,44 +1066,52 @@ class _MqttConfigDialog extends StatelessWidget {
       ),
       content: SizedBox(
         width: double.maxFinite,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: kOrange.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: kOrange.withValues(alpha: 0.3)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.warning_amber_rounded, size: 16, color: kOrange),
-                  const SizedBox(width: 8),
-                  const Expanded(
-                    child: Text(
-                      'API key shown once — copy it now.',
-                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: kOrange),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: kOrange.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: kOrange.withValues(alpha: 0.3)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.warning_amber_rounded, size: 16, color: kOrange),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'API key shown once — copy it now.',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: kOrange),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 14),
-            ...rows.map((r) => _EnvRow(
-                  name: r.$1,
-                  value: r.$2,
-                  onCopy: () => _copy(context, r.$2, r.$1),
-                )),
-          ],
+              const SizedBox(height: 14),
+              // Backend-issued credentials (read-only)
+              _EnvRow(name: 'EMS_DEVICE_ID', value: _deviceId, onCopy: () => _copy(_deviceId, 'EMS_DEVICE_ID')),
+              _EnvRow(name: 'EMS_INGEST_API_KEY', value: _ingestApiKey, onCopy: () => _copy(_ingestApiKey, 'EMS_INGEST_API_KEY')),
+              const SizedBox(height: 6),
+              Text('MQTT BROKER', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.grey.shade500, letterSpacing: 0.5)),
+              const SizedBox(height: 8),
+              _BrokerField(label: 'Broker IP / Host', controller: _brokerIp),
+              const SizedBox(height: 10),
+              _BrokerField(label: 'Broker Port', controller: _brokerPort, keyboardType: TextInputType.number),
+              const SizedBox(height: 10),
+              _BrokerField(label: 'Topic', controller: _topic),
+            ],
+          ),
         ),
       ),
       actions: [
         TextButton.icon(
-          onPressed: () => _copy(context, _allEnv, 'All env vars'),
+          onPressed: () => _copy(_allEnv, 'All env vars'),
           icon: const Icon(Icons.copy_all_outlined, size: 16),
-          label: const Text('Copy All'),
+          label: const Text('Copy .env'),
           style: TextButton.styleFrom(foregroundColor: kNavy),
         ),
         ElevatedButton(
@@ -1095,6 +1122,40 @@ class _MqttConfigDialog extends StatelessWidget {
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           ),
           child: const Text('Done'),
+        ),
+      ],
+    );
+  }
+}
+
+class _BrokerField extends StatelessWidget {
+  const _BrokerField({required this.label, required this.controller, this.keyboardType});
+  final String label;
+  final TextEditingController controller;
+  final TextInputType? keyboardType;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: kNavy)),
+        const SizedBox(height: 6),
+        TextField(
+          controller: controller,
+          keyboardType: keyboardType,
+          style: const TextStyle(fontSize: 13, color: kNavy),
+          decoration: InputDecoration(
+            isDense: true,
+            filled: true,
+            fillColor: kBg,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: kNavy, width: 1.5),
+            ),
+          ),
         ),
       ],
     );

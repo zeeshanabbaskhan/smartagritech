@@ -6,7 +6,6 @@ import '../../services/auth_service.dart';
 import '../../services/ems_api.dart';
 import '../../utils/api_mappers.dart';
 import '../../widgets/api_state_views.dart';
-import '../../widgets/chart_painters.dart';
 import '../../widgets/metric_card.dart';
 import '../ai_analytics/voltage_imbalance_page.dart';
 import '../ai_analytics/current_imbalance_page.dart';
@@ -260,21 +259,6 @@ class _OverviewTab extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Quick stats
-          if (isOnline) ...[
-            Row(
-              children: [
-                _StatCard('Power', '${(device['powerKwh'] as num?)?.toStringAsFixed(2) ?? '0'} kWh', Icons.bolt_outlined, kBlue),
-                const SizedBox(width: 10),
-                _StatCard('Power Factor', '${device['powerFactor']}', Icons.electric_bolt_outlined, kGreen),
-                const SizedBox(width: 10),
-                _StatCard('Anomalies', '${device['anomalies'] ?? 0}', Icons.warning_amber_outlined,
-                    ((device['anomalies'] as num?) ?? 0) > 0 ? kOrange : kGreen),
-              ],
-            ),
-            const SizedBox(height: 16),
-          ],
-
           // Device info card
           _SectionCard(
             title: 'Device Information',
@@ -338,42 +322,6 @@ class _OverviewTab extends StatelessWidget {
           ],
           const SizedBox(height: 20),
         ],
-      ),
-    );
-  }
-}
-
-class _StatCard extends StatelessWidget {
-  const _StatCard(this.label, this.value, this.icon, this.color);
-  final String label;
-  final String value;
-  final IconData icon;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(color: kNavy.withValues(alpha: 0.05), blurRadius: 6, offset: const Offset(0, 2))
-          ],
-        ),
-        child: Column(
-          children: [
-            Icon(icon, color: color, size: 20),
-            const SizedBox(height: 6),
-            Text(value,
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: color),
-                overflow: TextOverflow.ellipsis),
-            Text(label,
-                style: TextStyle(fontSize: 10, color: Colors.grey.shade500),
-                textAlign: TextAlign.center),
-          ],
-        ),
       ),
     );
   }
@@ -496,7 +444,6 @@ class _MetricsTab extends StatefulWidget {
 class _MetricsTabState extends State<_MetricsTab> {
   bool _loading = true;
   Object? _error;
-  Map<String, dynamic>? _summary;
   Map<String, dynamic> _latest = {};
 
   @override
@@ -512,10 +459,8 @@ class _MetricsTabState extends State<_MetricsTab> {
     }
     setState(() { _loading = true; _error = null; });
     try {
-      final summaryRes = await EmsApi.instance.getDashboardSummary(deviceId: widget.deviceId!);
       final latestRes = await EmsApi.instance.getLatestSensorData(deviceId: widget.deviceId!);
       setState(() {
-        _summary = Map<String, dynamic>.from(summaryRes['data'] as Map? ?? {});
         _latest = Map<String, dynamic>.from(latestRes['data'] as Map? ?? {});
       });
     } catch (e) {
@@ -525,88 +470,73 @@ class _MetricsTabState extends State<_MetricsTab> {
     }
   }
 
-  double _metric(String key) {
-    final block = _summary?[key];
-    if (block is Map && block['value'] != null) {
-      return double.tryParse(block['value'].toString()) ?? 0;
-    }
-    return 0;
-  }
+  // /sensor-data/latest returns `data` keyed by variable name:
+  // { SoilMoisture: { value, unit, lastUpdatedAt }, ... }. Build a generic list
+  // of the device's actual configured variables (works for any template).
+  List<Map<String, String>> get _readings => _latest.entries
+      .where((e) => e.value is Map && (e.value as Map)['value'] != null)
+      .map((e) {
+        final m = e.value as Map;
+        return {
+          'name': e.key,
+          'value': _fmt(m['value'].toString()),
+          'unit': (m['unit'] ?? '').toString(),
+        };
+      })
+      .toList();
 
-  List<double> _chart(String key) {
-    final block = _summary?[key];
-    if (block is! Map) return [];
-    return ApiMappers.chartValues(block['chartData'] as List?);
+  String _fmt(String raw) {
+    final v = double.tryParse(raw);
+    if (v == null) return raw;
+    return v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(2);
   }
-
-  String _reading(String key, {int decimals = 2}) =>
-      ApiMappers.latestReading(_latest, key, decimals: decimals);
 
   @override
   Widget build(BuildContext context) {
     if (_loading) return const LoadingView();
     if (_error != null) return ErrorView.fromError(_error!, onRetry: _load);
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        children: [
-          MetricCard(
-            title: '⚡ Total Power Consumption',
-            value: _metric('totalPowerConsumption').toStringAsFixed(2),
-            unit: 'kWh',
-            chart: MiniBarChart(data: _chart('totalPowerConsumption'), color: kBlue, height: 75),
-          ),
-          const SizedBox(height: 12),
-          MetricCard(
-            title: '⚡ Voltage Imbalance (%)',
-            value: _metric('voltageImbalance').toStringAsFixed(2),
-            unit: '',
-            chart: MiniLineChart(data: _chart('voltageImbalance'), color: kOrange, height: 75),
-          ),
-          const SizedBox(height: 12),
-          MetricCard(
-            title: '⚖ Current Imbalance',
-            value: _metric('currentImbalance').toStringAsFixed(2),
-            unit: '',
-            chart: MiniLineChart(data: _chart('currentImbalance'), color: kGreen, height: 75),
-          ),
-          const SizedBox(height: 12),
-          MetricCard(
-            title: '🔋 Power Factor',
-            value: _metric('powerFactor').toStringAsFixed(2),
-            unit: '',
-            chart: MiniLineChart(data: _chart('powerFactor'), color: kBlue, height: 75),
-          ),
-          const SizedBox(height: 12),
-          _SectionCard(
-            title: 'Live Readings',
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-              child: GridView.count(
-                crossAxisCount: 2,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                crossAxisSpacing: 10,
-                mainAxisSpacing: 10,
-                childAspectRatio: 2.4,
-                children: [
-                  DetailTile(title: 'Voltage A', value: _reading('VoltageA', decimals: 1), unit: 'V'),
-                  DetailTile(title: 'Voltage B', value: _reading('VoltageB', decimals: 1), unit: 'V'),
-                  DetailTile(title: 'Voltage C', value: _reading('VoltageC', decimals: 1), unit: 'V'),
-                  DetailTile(title: 'Current A', value: _reading('CurrentA'), unit: 'A'),
-                  DetailTile(title: 'Current B', value: _reading('CurrentB'), unit: 'A'),
-                  DetailTile(title: 'Current C', value: _reading('CurrentC'), unit: 'A'),
-                  DetailTile(title: 'Active Power', value: _reading('ActivePower'), unit: 'kW'),
-                  DetailTile(title: 'Power Factor', value: _reading('PowerFactor'), unit: ''),
-                  DetailTile(title: 'Frequency', value: _reading('Frequency'), unit: 'Hz'),
-                  DetailTile(title: 'THD-V A', value: _reading('THD_V', decimals: 1), unit: '%'),
-                ],
+    final readings = _readings;
+
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            _SectionCard(
+              title: 'Live Readings',
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                child: readings.isEmpty
+                    ? Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        child: Text(
+                          'No readings yet. Send data to this device to see its variables here.',
+                          style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
+                        ),
+                      )
+                    : GridView.count(
+                        crossAxisCount: 2,
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        crossAxisSpacing: 10,
+                        mainAxisSpacing: 10,
+                        childAspectRatio: 2.4,
+                        children: readings
+                            .map((r) => DetailTile(
+                                  title: r['name']!,
+                                  value: r['value']!,
+                                  unit: r['unit']!,
+                                ))
+                            .toList(),
+                      ),
               ),
             ),
-          ),
-          const SizedBox(height: 20),
-        ],
+            const SizedBox(height: 20),
+          ],
+        ),
       ),
     );
   }

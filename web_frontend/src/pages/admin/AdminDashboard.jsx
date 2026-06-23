@@ -23,25 +23,25 @@ const fmtTime = (d) => {
 
 export default function AdminDashboard() {
   const { showToast } = useToast()
-  const { selectedDeviceId } = useDevices()
+  const { selectedDeviceId, selectedSlaveId } = useDevices()
   const { data: stats, loading, error, reload, setData } = useFetch(() => fetchAdminStats(), [])
-  const [chartData, setChartData] = useState([])
+  const [chartBundle, setChartBundle] = useState({ power: [], multi: [], lines: [] })
   const [chartLoading, setChartLoading] = useState(true)
 
   useEffect(() => {
     if (!selectedDeviceId) {
-      setChartData([])
+      setChartBundle({ power: [], multi: [], lines: [] })
       setChartLoading(false)
       return
     }
     let cancelled = false
     setChartLoading(true)
-    fetchDashboardChart(selectedDeviceId, '24h')
-      .then((chart) => { if (!cancelled) setChartData(chart) })
-      .catch(() => { if (!cancelled) setChartData([]) })
+    fetchDashboardChart(selectedDeviceId, '24h', selectedSlaveId)
+      .then((chart) => { if (!cancelled) setChartBundle(chart) })
+      .catch(() => { if (!cancelled) setChartBundle({ power: [], multi: [], lines: [] }) })
       .finally(() => { if (!cancelled) setChartLoading(false) })
     return () => { cancelled = true }
-  }, [selectedDeviceId])
+  }, [selectedDeviceId, selectedSlaveId])
 
   const alarms = (stats?.anomalies ?? []).slice(0, 5).map((a) => {
     const m = mapAnomaly(a)
@@ -138,7 +138,7 @@ export default function AdminDashboard() {
                 <p className="text-xs text-surface-400 mt-1 mb-4">Total load in kW across all organizations</p>
               </div>
               <ResponsiveContainer width="100%" height={200}>
-                <AreaChart data={chartData}>
+                <AreaChart data={chartBundle.power}>
                   <defs>
                     <linearGradient id="powerGrad" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#F5A623" stopOpacity={0.35} />
@@ -156,21 +156,29 @@ export default function AdminDashboard() {
 
             <div className="card p-5 flex flex-col justify-between">
               <div>
-                <h3 className="text-sm font-bold text-surface-900 leading-none">Voltage Phases — Today</h3>
-                <p className="text-xs text-surface-400 mt-1 mb-4">Mean voltage levels in volts across phases</p>
+                <h3 className="text-sm font-bold text-surface-900 leading-none">Device Variables — Today</h3>
+                <p className="text-xs text-surface-400 mt-1 mb-4">
+                  {chartBundle.lines.length
+                    ? chartBundle.lines.map((l) => l.label).join(', ')
+                    : 'Select a device with sensor data'}
+                </p>
               </div>
+              {chartBundle.multi.length > 0 ? (
               <ResponsiveContainer width="100%" height={200}>
-                <BarChart data={chartData.filter((_, i) => i % 3 === 0)} barSize={6}>
+                <BarChart data={chartBundle.multi.filter((_, i) => i % 3 === 0)} barSize={6}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
                   <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
-                  <YAxis domain={[200, 240]} tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
+                  <YAxis domain={['auto', 'auto']} tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
                   <Tooltip content={<CustomTooltip />} />
                   <Legend verticalAlign="bottom" height={36} wrapperStyle={{ fontSize: 11, paddingTop: 10 }} />
-                  <Bar dataKey="voltageA" fill="#F5A623" radius={[2, 2, 0, 0]} name="Phase A" unit="V" />
-                  <Bar dataKey="voltageB" fill="#3B82F6" radius={[2, 2, 0, 0]} name="Phase B" unit="V" />
-                  <Bar dataKey="voltageC" fill="#EF4444" radius={[2, 2, 0, 0]} name="Phase C" unit="V" />
+                  {chartBundle.lines.map((line) => (
+                    <Bar key={line.key} dataKey={line.key} fill={line.color} radius={[2, 2, 0, 0]} name={line.label} unit={line.unit} />
+                  ))}
                 </BarChart>
               </ResponsiveContainer>
+              ) : (
+                <div className="h-[200px] flex items-center justify-center text-xs text-surface-500">No variable history for selected device.</div>
+              )}
             </div>
 
             <div className="card p-5 flex flex-col justify-between">
