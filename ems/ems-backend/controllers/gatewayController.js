@@ -4,6 +4,13 @@ const { AppError } = require('../middleware/errorHandler')
 const { orgScope, paginate } = require('../utils/helpers')
 const refCache = require('../utils/referenceCache')
 
+// The gateways list is cached per org bucket (see getGateways). Any create /
+// update / delete must clear that org's cache so the next fetch is fresh —
+// otherwise a deleted gateway keeps reappearing until the TTL expires.
+const invalidateGatewayCaches = async (organizationId) => {
+  if (organizationId) await refCache.invalidateOrg(organizationId)
+}
+
 // @desc  List gateways; response headers carry online/offline counts
 // @access SUPER_ADMIN | ORG_ADMIN
 const getGateways = async (req, res, next) => {
@@ -66,6 +73,7 @@ const createGateway = async (req, res, next) => {
     const { name, serialNumber, model, status, organizationId } = req.body
     const orgId = req.user.role === 'SUPER_ADMIN' ? organizationId : req.user.organizationId
     const data  = await prisma.gateway.create({ data: { name, serialNumber, model, status, organizationId: orgId } })
+    await invalidateGatewayCaches(orgId)
     res.status(201).json({ success: true, data })
   } catch (err) { next(err) }
 }
@@ -80,6 +88,7 @@ const updateGateway = async (req, res, next) => {
 
     const { name, serialNumber, model, status } = req.body
     const data = await prisma.gateway.update({ where: { id: req.params.id }, data: { name, serialNumber, model, status } })
+    await invalidateGatewayCaches(existing.organizationId)
     res.json({ success: true, data })
   } catch (err) { next(err) }
 }
@@ -96,6 +105,7 @@ const deleteGateway = async (req, res, next) => {
     if (count) return next(new AppError('Cannot delete: gateway has devices attached.', 400))
 
     await prisma.gateway.delete({ where: { id: req.params.id } })
+    await invalidateGatewayCaches(existing.organizationId)
     res.json({ success: true, message: 'Gateway deleted' })
   } catch (err) { next(err) }
 }

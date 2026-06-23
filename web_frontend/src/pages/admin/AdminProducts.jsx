@@ -71,9 +71,12 @@ export default function AdminProducts() {
     if (!confirm(`Delete product "${row.name}"?`)) return
     try {
       await emsApi.deleteProduct(row.id)
-      reload()
+      showToast('Product deleted', 'success')
     } catch (e) {
-      showToast(e.message || 'Delete failed', 'error')
+      if (e.status === 404) showToast('Product was already deleted', 'info')
+      else showToast(e.message || 'Delete failed', 'error')
+    } finally {
+      reload()
     }
   }
 

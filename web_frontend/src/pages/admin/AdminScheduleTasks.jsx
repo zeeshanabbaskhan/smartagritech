@@ -99,9 +99,11 @@ export default function AdminScheduleTasks() {
     try {
       await emsApi.deleteScheduledTask(row.id)
       showToast('Task deleted', 'success')
-      reload()
     } catch (e) {
-      showToast(e.message || 'Delete failed', 'error')
+      if (e.status === 404) showToast('Task was already deleted', 'info')
+      else showToast(e.message || 'Delete failed', 'error')
+    } finally {
+      reload()
     }
   }
 

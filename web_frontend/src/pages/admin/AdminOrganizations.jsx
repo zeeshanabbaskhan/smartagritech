@@ -48,9 +48,12 @@ export default function AdminOrganizations() {
     if (!confirm(`Delete organization "${row.name}"?`)) return
     try {
       await emsApi.deleteOrganization(row.id)
-      reload()
+      showToast('Organization deleted', 'success')
     } catch (e) {
-      showToast(e.message || 'Delete failed', 'error')
+      if (e.status === 404) showToast('Organization was already deleted', 'info')
+      else showToast(e.message || 'Delete failed', 'error')
+    } finally {
+      reload()
     }
   }
 

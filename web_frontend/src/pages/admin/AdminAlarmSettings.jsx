@@ -98,9 +98,11 @@ export default function AdminAlarmSettings() {
     try {
       await emsApi.deleteAlarmSetting(row.id)
       showToast('Alarm setting deleted', 'success')
-      reload()
     } catch (e) {
-      showToast(e.message || 'Delete failed', 'error')
+      if (e.status === 404) showToast('Alarm setting was already deleted', 'info')
+      else showToast(e.message || 'Delete failed', 'error')
+    } finally {
+      reload()
     }
   }
 

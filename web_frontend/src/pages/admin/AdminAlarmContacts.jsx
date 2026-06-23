@@ -83,9 +83,11 @@ export default function AdminAlarmContacts() {
     try {
       await emsApi.deleteAlarmContact(row.id)
       showToast('Contact deleted', 'success')
-      reload()
     } catch (e) {
-      showToast(e.message || 'Delete failed', 'error')
+      if (e.status === 404) showToast('Contact was already deleted', 'info')
+      else showToast(e.message || 'Delete failed', 'error')
+    } finally {
+      reload()
     }
   }
 

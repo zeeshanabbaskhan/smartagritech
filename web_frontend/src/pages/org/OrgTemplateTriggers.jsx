@@ -87,9 +87,12 @@ export default function OrgTemplateTriggers() {
     if (!confirm(`Delete trigger "${row.name}"?`)) return
     try {
       await emsApi.deleteAlarmTemplate(row.id)
-      reload()
+      showToast('Trigger deleted', 'success')
     } catch (e) {
-      showToast(e.message || 'Delete failed', 'error')
+      if (e.status === 404) showToast('Trigger was already deleted', 'info')
+      else showToast(e.message || 'Delete failed', 'error')
+    } finally {
+      reload()
     }
   }
 

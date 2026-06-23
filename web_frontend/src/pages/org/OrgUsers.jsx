@@ -66,9 +66,12 @@ export default function OrgUsers() {
     if (!confirm(`Deactivate user "${row.name}"?`)) return
     try {
       await emsApi.updateUserStatus(row.id, 'DELETED')
-      reload()
+      showToast('User deactivated', 'success')
     } catch (e) {
-      showToast(e.message || 'Delete failed', 'error')
+      if (e.status === 404) showToast('User was already removed', 'info')
+      else showToast(e.message || 'Delete failed', 'error')
+    } finally {
+      reload()
     }
   }
 

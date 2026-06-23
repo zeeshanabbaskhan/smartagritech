@@ -62,9 +62,12 @@ export default function OrgAlarmSettings({ pageTitle = 'Alarm Settings', breadcr
     if (!confirm(`Delete alarm setting "${row.name}"?`)) return
     try {
       await emsApi.deleteAlarmSetting(row.id)
-      reload()
+      showToast('Alarm setting deleted', 'success')
     } catch (e) {
-      showToast(e.message || 'Delete failed', 'error')
+      if (e.status === 404) showToast('Alarm setting was already deleted', 'info')
+      else showToast(e.message || 'Delete failed', 'error')
+    } finally {
+      reload()
     }
   }
 
