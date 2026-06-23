@@ -18,6 +18,10 @@ const logger = require('./utils/logger');
 const app = express();
 const server = http.createServer(app);
 
+// Behind a reverse proxy (CapRover/Nginx), so trust the first hop. Without this,
+// req.ip is the proxy and express-rate-limit throws ERR_ERL_UNEXPECTED_X_FORWARDED_FOR.
+app.set('trust proxy', 1);
+
 app.use(helmet());
 app.use(compression());
 const corsOrigins = process.env.CLIENT_URL

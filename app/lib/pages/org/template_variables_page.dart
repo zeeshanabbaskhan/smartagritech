@@ -255,8 +255,8 @@ class _VariableFormModalState extends State<_VariableFormModal> {
     _scalingFactor = TextEditingController(
         text: '${widget.item?['scalingFactor'] ?? 1.0}');
     _unit = TextEditingController(text: widget.item?['unit'] as String? ?? '');
-    _dataType = widget.item?['dataType'] as String? ?? 'INT16';
-    if (!['INT16', 'UINT16', 'INT32', 'FLOAT32'].contains(_dataType)) _dataType = 'INT16';
+    _dataType = widget.item?['dataType'] as String? ?? 'FLOAT';
+    if (!['FLOAT', 'INTEGER', 'BOOLEAN', 'STRING'].contains(_dataType)) _dataType = 'FLOAT';
     _isDefault = widget.item?['isDefault'] == true;
   }
 
@@ -286,7 +286,7 @@ class _VariableFormModalState extends State<_VariableFormModal> {
               validator: (v) => int.tryParse(v ?? '') == null ? 'Enter a number' : null),
           const SizedBox(height: 14),
           ModalDropdown('Data Type', _dataType,
-              ['INT16', 'UINT16', 'INT32', 'FLOAT32'],
+              ['FLOAT', 'INTEGER', 'BOOLEAN', 'STRING'],
               (v) => setState(() => _dataType = v!)),
           const SizedBox(height: 14),
           ModalField('Scaling Factor', _scalingFactor,

@@ -12,8 +12,8 @@ TOPIC = os.getenv("MQTT_TOPIC", "SMM/Soil_Data")
 
 # EMS ingest settings (set these in environment for production use)
 EMS_BASE_URL = os.getenv("EMS_BASE_URL", "https://iotbackend.zeeshan-abbas.tech/api")
-EMS_INGEST_API_KEY = os.getenv("EMS_INGEST_API_KEY", "9b4c6a9ed10da6556b3fdc52da19439182e80d542347a85f")
-EMS_DEVICE_ID = os.getenv("EMS_DEVICE_ID", "abb8d295-acea-4fad-9909-48583728d760")
+EMS_INGEST_API_KEY = os.getenv("EMS_INGEST_API_KEY", "fd83f7fe08d35df42102a3b135537d976301c141fef0dfc7")
+EMS_DEVICE_ID = os.getenv("EMS_DEVICE_ID", "d8a819d7-4f4d-47e2-b43c-f1949ca85b8a")
 EMS_SLAVE_ID = os.getenv("EMS_SLAVE_ID", "")
 
 

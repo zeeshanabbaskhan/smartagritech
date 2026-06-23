@@ -740,14 +740,14 @@ const seedDummyData = async () => {
   console.log('\n✓ Seed complete.')
 }
 
-const SEED_MARKER_DEVICE_NAME = 'Energy Meter 01'
-
+// "Seeded" = the DB has been initialized at least once. Use the presence of ANY
+// user row as the marker. Users are soft-deleted (status DELETED) rather than
+// removed, so this survives normal admin deletes and we never re-run the seed —
+// which would otherwise resurrect a device/template the user intentionally
+// deleted just because a seeded business entity was removed.
 const isDatabaseSeeded = async () => {
-  const device = await prisma.device.findFirst({
-    where: { name: SEED_MARKER_DEVICE_NAME },
-    select: { id: true },
-  })
-  return Boolean(device)
+  const user = await prisma.user.findFirst({ select: { id: true } })
+  return Boolean(user)
 }
 
 /** Run seed once; skip if marker user already exists. */
