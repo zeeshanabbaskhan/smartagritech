@@ -92,7 +92,12 @@ export default function DeviceDetailPage({ basePath }) {
     }
   }
 
-  const readings = Array.isArray(latest.readings) ? latest.readings : []
+  // /sensor-data/latest returns `data` as an object keyed by variable name:
+  // { SoilMoisture: { value, unit, lastUpdatedAt }, ... }. Flatten it to a list
+  // of the device's actual configured variables (works for any template).
+  const readings = Object.entries(latest)
+    .filter(([, v]) => v && typeof v === 'object' && 'value' in v)
+    .map(([variableName, v]) => ({ variableName, value: v.value, unit: v.unit }))
 
   return (
     <PageState loading={loading} error={error} onRetry={load}>
@@ -150,20 +155,19 @@ export default function DeviceDetailPage({ basePath }) {
                 )}
               </div>
               <div className="card p-5">
-                <h3 className="text-sm font-bold mb-3">KPIs (24h)</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {[
-                    ['totalPowerConsumption', 'Consumption'],
-                    ['powerFactor', 'Power Factor'],
-                    ['voltageImbalance', 'V. Imbalance'],
-                    ['currentImbalance', 'C. Imbalance'],
-                  ].map(([k, label]) => (
-                    <div key={k} className="bg-surface-50 dark:bg-surface-950 rounded-lg p-3">
-                      <p className="text-[10px] text-surface-400 uppercase">{label}</p>
-                      <p className="text-lg font-bold">{summary?.[k]?.value ?? '—'}</p>
-                    </div>
-                  ))}
-                </div>
+                <h3 className="text-sm font-bold mb-3">Latest Readings</h3>
+                {readings.length ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {readings.slice(0, 6).map((r) => (
+                      <div key={r.variableName} className="bg-surface-50 dark:bg-surface-950 rounded-lg p-3">
+                        <p className="text-[10px] text-surface-400 uppercase">{r.variableName}</p>
+                        <p className="text-lg font-bold">{r.value ?? '—'} <span className="text-xs text-surface-400">{r.unit}</span></p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-surface-500">No readings yet. Send data to this device to see its variables here.</p>
+                )}
               </div>
             </div>
           )}
