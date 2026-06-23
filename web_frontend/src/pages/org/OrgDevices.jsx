@@ -33,8 +33,12 @@ export default function OrgDevices() {
   const [form, setForm] = useState(blank)
   const [saving, setSaving] = useState(false)
   const [mqttConfig, setMqttConfig] = useState(null)
+  // Device deletes are processed asynchronously (queued) on the server, so a row
+  // can still be present on the immediate reload. Track deleted ids and hide them
+  // locally so they don't "come back" before the background purge finishes.
+  const [removedIds, setRemovedIds] = useState(() => new Set())
 
-  const rows = data?.rows ?? []
+  const rows = (data?.rows ?? []).filter((r) => !removedIds.has(r.id))
   const gateways = data?.gateways ?? []
   const templates = data?.templates ?? []
 
@@ -75,10 +79,11 @@ export default function OrgDevices() {
     if (!confirm(`Delete device "${row.name}"?`)) return
     try {
       await emsApi.deleteDevice(row.id)
+      setRemovedIds((prev) => new Set(prev).add(row.id))
       showToast('Device deleted', 'success')
     } catch (e) {
       // 404 = already removed on the server; reload below drops the stale row.
-      if (e.status === 404) showToast('Device was already deleted', 'info')
+      if (e.status === 404) { setRemovedIds((prev) => new Set(prev).add(row.id)); showToast('Device was already deleted', 'info') }
       else showToast(e.message || 'Delete failed', 'error')
     } finally {
       reload()
