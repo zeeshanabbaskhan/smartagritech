@@ -4,6 +4,15 @@
 const prisma      = require('../config/database')
 const { AppError } = require('../middleware/errorHandler')
 const { paginate } = require('../utils/helpers')
+const refCache = require('../utils/referenceCache')
+
+// Variables change the template's totalVariables count shown in the cached
+// templates list — clear both viewer-org buckets + the single-template cache.
+const invalidateTemplateCaches = async (organizationId, templateId) => {
+  await refCache.invalidateOrg('all')
+  if (organizationId) await refCache.invalidateOrg(organizationId)
+  if (templateId) await refCache.invalidateTemplate(templateId)
+}
 
 // @desc  List variables for a template slave
 // @access SUPER_ADMIN | ORG_ADMIN
@@ -47,6 +56,7 @@ const createVariable = async (req, res, next) => {
       return variable
     })
 
+    await invalidateTemplateCaches(slave.organizationId, templateId)
     res.status(201).json({ success: true, data })
   } catch (err) { next(err) }
 }
@@ -65,6 +75,7 @@ const updateVariable = async (req, res, next) => {
       where: { id: variableId },
       data:  { name, displayName, unit, registerAddress, iconId, dataType, isActive },
     })
+    await invalidateTemplateCaches(existing.organizationId, req.params.templateId)
     res.json({ success: true, data })
   } catch (err) { next(err) }
 }
@@ -86,6 +97,7 @@ const deleteVariable = async (req, res, next) => {
       prisma.deviceTemplate.update({ where: { id: templateId }, data: { totalVariables: { decrement: 1 } } }),
     ])
 
+    await invalidateTemplateCaches(existing.organizationId, templateId)
     res.json({ success: true, message: 'Variable deleted' })
   } catch (err) { next(err) }
 }

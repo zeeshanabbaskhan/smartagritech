@@ -4,6 +4,15 @@
 const prisma      = require('../config/database')
 const { AppError } = require('../middleware/errorHandler')
 const { paginate } = require('../utils/helpers')
+const refCache = require('../utils/referenceCache')
+
+// Slaves change the template's totalSlaves/totalVariables counts, which the
+// cached templates list reflects — clear both viewer-org buckets + the template.
+const invalidateTemplateCaches = async (organizationId, templateId) => {
+  await refCache.invalidateOrg('all')
+  if (organizationId) await refCache.invalidateOrg(organizationId)
+  if (templateId) await refCache.invalidateTemplate(templateId)
+}
 
 // @desc  List slaves for a template
 // @access SUPER_ADMIN | ORG_ADMIN
@@ -45,6 +54,7 @@ const createSlave = async (req, res, next) => {
       return slave
     })
 
+    await invalidateTemplateCaches(template.organizationId, templateId)
     res.status(201).json({ success: true, data })
   } catch (err) { next(err) }
 }
@@ -69,6 +79,7 @@ const updateSlave = async (req, res, next) => {
       return tx.deviceTemplateSlave.update({ where: { id: slaveId }, data: { name, description, isDefault } })
     })
 
+    await invalidateTemplateCaches(existing.organizationId, templateId)
     res.json({ success: true, data })
   } catch (err) { next(err) }
 }
@@ -90,6 +101,7 @@ const deleteSlave = async (req, res, next) => {
       prisma.deviceTemplate.update({ where: { id: templateId }, data: { totalSlaves: { decrement: 1 } } }),
     ])
 
+    await invalidateTemplateCaches(existing.organizationId, templateId)
     res.json({ success: true, message: 'Slave deleted' })
   } catch (err) { next(err) }
 }

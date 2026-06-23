@@ -5,6 +5,14 @@ const { AppError } = require('../middleware/errorHandler')
 const { orgScope, paginate } = require('../utils/helpers')
 const { hashKey, generateDeviceIngestKey } = require('../utils/ingestAuth')
 const { isDeleteQueueEnabled, enqueueDeviceDelete } = require('../workers/jobQueues')
+const refCache = require('../utils/referenceCache')
+
+// Creating / deleting a device changes the owning template's cached devices
+// count in the templates list — clear both viewer-org buckets so it stays right.
+const invalidateTemplateCaches = async (organizationId) => {
+  await refCache.invalidateOrg('all')
+  if (organizationId) await refCache.invalidateOrg(organizationId)
+}
 
 const attachLatestMetrics = async (devices) => {
   const c = redis.getClient()
@@ -116,6 +124,8 @@ const createDevice = async (req, res, next) => {
       return device
     })
 
+    await invalidateTemplateCaches(orgId)
+
     res.status(201).json({
       success: true,
       data:    result,
@@ -165,10 +175,12 @@ const deleteDevice = async (req, res, next) => {
 
     if (isDeleteQueueEnabled()) {
       await enqueueDeviceDelete(id)
+      await invalidateTemplateCaches(existing.organizationId)
       return res.status(202).json({ success: true, queued: true, deviceId: id, message: 'Device deletion queued' })
     }
 
     await purgeDeviceSync(id)
+    await invalidateTemplateCaches(existing.organizationId)
     res.json({ success: true, message: 'Device deleted' })
   } catch (err) { next(err) }
 }

@@ -7,6 +7,16 @@ const { AppError }   = require('../middleware/errorHandler')
 const { orgScope, paginate } = require('../utils/helpers')
 const refCache = require('../utils/referenceCache')
 
+// The templates list is cached per viewer-org bucket: SUPER_ADMIN reads land in
+// the 'all' bucket, ORG_ADMIN reads in their own org bucket. Any create / update /
+// delete / clone must clear BOTH so the next fetch is fresh (otherwise a deleted
+// template keeps reappearing from cache until the TTL expires).
+const invalidateTemplateCaches = async (organizationId, templateId) => {
+  await refCache.invalidateOrg('all')
+  if (organizationId) await refCache.invalidateOrg(organizationId)
+  if (templateId) await refCache.invalidateTemplate(templateId)
+}
+
 // @desc  List device templates; includes per-template totalVariables count
 // @access SUPER_ADMIN | ORG_ADMIN
 const getDeviceTemplates = async (req, res, next) => {
@@ -70,6 +80,7 @@ const createDeviceTemplate = async (req, res, next) => {
     const { name, organizationId, acquisitionMethod } = req.body
     const orgId = req.user.role === 'SUPER_ADMIN' ? organizationId : req.user.organizationId
     const data  = await prisma.deviceTemplate.create({ data: { name, organizationId: orgId, acquisitionMethod } })
+    await invalidateTemplateCaches(orgId)
     res.status(201).json({ success: true, data })
   } catch (err) { next(err) }
 }
@@ -87,6 +98,7 @@ const updateDeviceTemplate = async (req, res, next) => {
       where: { id: req.params.id },
       data:  { name, acquisitionMethod },
     })
+    await invalidateTemplateCaches(existing.organizationId, req.params.id)
     res.json({ success: true, data })
   } catch (err) { next(err) }
 }
@@ -104,6 +116,7 @@ const deleteDeviceTemplate = async (req, res, next) => {
     if (deviceCount) return next(new AppError('Cannot delete: template is used by devices.', 400))
 
     await prisma.deviceTemplate.delete({ where: { id: req.params.id } })
+    await invalidateTemplateCaches(existing.organizationId, req.params.id)
     res.json({ success: true, message: 'Template deleted' })
   } catch (err) { next(err) }
 }
@@ -174,6 +187,7 @@ const cloneDeviceTemplate = async (req, res, next) => {
       })
     })
 
+    await invalidateTemplateCaches(original.organizationId)
     res.status(201).json({ success: true, data: result })
   } catch (err) { next(err) }
 }

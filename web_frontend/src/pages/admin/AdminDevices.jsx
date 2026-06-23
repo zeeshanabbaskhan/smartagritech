@@ -97,9 +97,13 @@ export default function AdminDevices() {
     if (!confirm(`Delete device "${row.name}"?`)) return
     try {
       await emsApi.deleteDevice(row.id)
-      reload()
+      showToast('Device deleted', 'success')
     } catch (e) {
-      showToast(e.message || 'Delete failed', 'error')
+      // 404 = already removed on the server; reload below drops the stale row.
+      if (e.status === 404) showToast('Device was already deleted', 'info')
+      else showToast(e.message || 'Delete failed', 'error')
+    } finally {
+      reload()
     }
   }
 
