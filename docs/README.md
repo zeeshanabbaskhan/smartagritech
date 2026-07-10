@@ -13,6 +13,7 @@ Energy & IoT Management System (EMS) for organizations that monitor field device
 | 5 | [Backend](./05-backend.md) | API, services, workers, database, ingest pipeline |
 | 6 | [Web frontend](./06-web-frontend.md) | Routes, pages, state, real-time UI flows |
 | 7 | [Deployment guide](./07-deployment-guide.md) | CapRover, VPS options, pricing, CI/CD |
+| 8 | [Database architecture](./08-database-architecture.md) | ER diagrams, all tables, keys, indexes, Redis, data flows |
 
 ## Repository layout
 
