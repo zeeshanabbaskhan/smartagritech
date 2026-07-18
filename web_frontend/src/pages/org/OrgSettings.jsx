@@ -1,9 +1,12 @@
 import { useState, useEffect } from 'react'
 import PageState, { useFetch } from '../../components/ui/PageState'
-import { TextInput, SelectInput, TextareaInput } from '../../components/ui/FormFields'
+import { TextInput, SelectInput, TextareaInput, ToggleInput } from '../../components/ui/FormFields'
+import HierarchyEditor from '../../components/facility/HierarchyEditor'
+import FacilityDeviceLinker from '../../components/facility/FacilityDeviceLinker'
 import { Save, CheckCircle } from 'lucide-react'
 import emsApi, { one } from '../../api/emsApi'
 import { mapOrganization } from '../../utils/mappers'
+import { mapTreeFromApi, flattenTreeForApi } from '../../data/facilitiesHierarchy'
 import { useToast } from '../../context/ToastContext'
 import { loadOrgPrefs, saveOrgPrefs, useOrgId } from '../../utils/orgPrefs'
 
@@ -38,11 +41,13 @@ export default function OrgSettings() {
     return mapOrganization(one(res))
   }, [])
 
-  const [saved, setSaved] = useState({ profile: false, notifications: false, display: false })
+  const [saved, setSaved] = useState({ profile: false, notifications: false, display: false, facilities: false })
   const [saving, setSaving] = useState(false)
   const [profile, setProfile] = useState({ name: '', description: '', email: '', phone: '', address: '', industry: 'Manufacturing' })
   const [notifications, setNotifications] = useState(defaultNotifications)
   const [display, setDisplay] = useState(defaultDisplay)
+  const [facilityTree, setFacilityTree] = useState([])
+  const [facilityLoading, setFacilityLoading] = useState(false)
 
   useEffect(() => {
     if (!org) return
@@ -55,6 +60,23 @@ export default function OrgSettings() {
     if (prefs?.notifications) setNotifications({ ...defaultNotifications, ...prefs.notifications })
     if (prefs?.display) setDisplay({ ...defaultDisplay, ...prefs.display })
     if (prefs?.profile) setProfile((p) => ({ ...p, ...prefs.profile }))
+  }, [orgId])
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadFacilities() {
+      setFacilityLoading(true)
+      try {
+        const res = await emsApi.getFacilityTree()
+        if (!cancelled) setFacilityTree(mapTreeFromApi(Array.isArray(res?.data) ? res.data : []))
+      } catch (_) {
+        if (!cancelled) setFacilityTree([])
+      } finally {
+        if (!cancelled) setFacilityLoading(false)
+      }
+    }
+    loadFacilities()
+    return () => { cancelled = true }
   }, [orgId])
 
   const triggerSave = (section) => {
@@ -87,6 +109,21 @@ export default function OrgSettings() {
     if (orgId) saveOrgPrefs(orgId, { notifications, display, profile: { email: profile.email, phone: profile.phone, address: profile.address, industry: profile.industry } })
     triggerSave('display')
     showToast('Display preferences saved locally', 'success')
+  }
+
+  const saveFacilities = async () => {
+    setSaving(true)
+    try {
+      const nodes = flattenTreeForApi(facilityTree)
+      const res = await emsApi.replaceFacilityTree({ nodes })
+      setFacilityTree(mapTreeFromApi(Array.isArray(res?.data) ? res.data : []))
+      triggerSave('facilities')
+      showToast('Facility hierarchy saved', 'success')
+    } catch (e) {
+      showToast(e.message || 'Failed to save facility hierarchy', 'error')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const pf = (k) => (e) => setProfile((p) => ({ ...p, [k]: e.target.value }))
@@ -134,6 +171,30 @@ export default function OrgSettings() {
             <SelectInput label="Energy Unit" value={display.energyUnit} onChange={df('energyUnit')} options={['kWh', 'MWh']} />
             <SelectInput label="Currency" value={display.currency} onChange={df('currency')} options={['PKR', 'USD', 'AED']} />
           </div>
+        </SectionCard>
+
+        <SectionCard
+          title="Facility Hierarchy"
+          description="Define buildings, floors, and departments used by custom dashboard filters"
+          onSave={saveFacilities}
+          saved={saved.facilities}
+          saving={saving || facilityLoading}
+        >
+          {facilityLoading ? (
+            <p className="text-xs text-surface-400">Loading hierarchy…</p>
+          ) : (
+            <div className="space-y-6">
+              <HierarchyEditor
+                buildings={facilityTree}
+                orgName={profile.name || org?.name}
+                onChange={setFacilityTree}
+              />
+              <div className="pt-4 border-t border-surface-200">
+                <h4 className="text-xs font-bold text-surface-700 uppercase tracking-wide mb-3">Link devices to facilities</h4>
+                <FacilityDeviceLinker tree={facilityTree} onChange={setFacilityTree} />
+              </div>
+            </div>
+          )}
         </SectionCard>
       </div>
     </PageState>
