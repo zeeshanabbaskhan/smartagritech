@@ -40,6 +40,29 @@ Regenerate after editing Markdown:
 cd docs && npm install && node convert-to-pdf.js
 ```
 
+## PDF exports
+
+Formatted PDFs (A4, headers/footers, Mermaid diagrams rendered) live in [`pdf/`](./pdf/):
+
+| PDF | Source |
+|-----|--------|
+| [README.pdf](./pdf/README.pdf) | Index |
+| [01-system-overview-and-flows.pdf](./pdf/01-system-overview-and-flows.pdf) | Flows |
+| [02-architecture.pdf](./pdf/02-architecture.pdf) | Architecture |
+| [03-tech-stack.pdf](./pdf/03-tech-stack.pdf) | Tech stack |
+| [04-application-functionality.pdf](./pdf/04-application-functionality.pdf) | Functionality |
+| [05-backend.pdf](./pdf/05-backend.pdf) | Backend |
+| [06-web-frontend.pdf](./pdf/06-web-frontend.pdf) | Web frontend |
+| [07-deployment-guide.pdf](./pdf/07-deployment-guide.pdf) | Deployment |
+| [08-database-architecture.pdf](./pdf/08-database-architecture.pdf) | Database |
+| [OPTIMIZATION_GUIDE.pdf](./pdf/OPTIMIZATION_GUIDE.pdf) | Root `OPTIMIZATION_GUIDE.md` |
+
+Regenerate after editing Markdown:
+
+```bash
+cd docs && npm install && node convert-to-pdf.js
+```
+
 ## Repository layout
 
 ```
