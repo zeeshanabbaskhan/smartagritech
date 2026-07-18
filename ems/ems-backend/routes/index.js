@@ -36,6 +36,10 @@ router.use('/scheduled-tasks',   require('./scheduledTasks'));
 
 // ─── Widget Templates ─────────────────────────────────────────────────────────
 router.use('/widget-templates',  require('./widgetTemplates'));
+router.use('/access-groups',     require('./accessGroups'));
+router.use('/device-groups',     require('./deviceGroups'));
+router.use('/facilities',        require('./facilities'));
+router.use('/custom-dashboards', require('./customDashboards'));
 
 // ─── List types (new two-table system) + legacy list-items ───────────────────
 router.use('/list-types',        require('./listTypes'));
