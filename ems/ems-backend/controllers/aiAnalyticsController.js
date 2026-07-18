@@ -4,6 +4,7 @@ const { AppError } = require('../middleware/errorHandler')
 const { orgScope, TIME_RANGE_MS, BUCKET_MS } = require('../utils/helpers')
 const { bucketVariable, sumVariable } = require('../utils/sensorAggregation')
 const { cached } = require('../utils/responseCache')
+const { assertDeviceAccess } = require('../utils/deviceAccess')
 
 const buildVoltageAnalysis = async (deviceId, slaveId, timeRange) => {
   const startDate = new Date(Date.now() - (TIME_RANGE_MS[timeRange] || TIME_RANGE_MS['24h']))
@@ -44,6 +45,7 @@ const getVoltageAnalysis = async (req, res, next) => {
   try {
     const { deviceId, slaveId, timeRange = '24h' } = req.query
     if (!deviceId) return next(new AppError('deviceId is required', 400))
+    await assertDeviceAccess(deviceId, req.user)
 
     const cacheKey = `ai:voltage:${deviceId}:${slaveId || 'all'}:${timeRange}`
     const data = await cached(cacheKey, 45, () => buildVoltageAnalysis(deviceId, slaveId, timeRange))
@@ -84,6 +86,7 @@ const getCurrentAnalysis = async (req, res, next) => {
   try {
     const { deviceId, slaveId, timeRange = '24h' } = req.query
     if (!deviceId) return next(new AppError('deviceId is required', 400))
+    await assertDeviceAccess(deviceId, req.user)
 
     const cacheKey = `ai:current:${deviceId}:${slaveId || 'all'}:${timeRange}`
     const data = await cached(cacheKey, 45, () => buildCurrentAnalysis(deviceId, slaveId, timeRange))
@@ -119,6 +122,7 @@ const getPowerFactorAnalysis = async (req, res, next) => {
   try {
     const { deviceId, slaveId, timeRange = '24h' } = req.query
     if (!deviceId) return next(new AppError('deviceId is required', 400))
+    await assertDeviceAccess(deviceId, req.user)
 
     const cacheKey = `ai:pf:${deviceId}:${slaveId || 'all'}:${timeRange}`
     const data = await cached(cacheKey, 45, () => buildPowerFactorAnalysis(deviceId, slaveId, timeRange))
@@ -153,6 +157,7 @@ const getEnergyAnalysis = async (req, res, next) => {
   try {
     const { deviceId, slaveId, timeRange = '24h' } = req.query
     if (!deviceId) return next(new AppError('deviceId is required', 400))
+    await assertDeviceAccess(deviceId, req.user)
 
     const cacheKey = `ai:energy:${deviceId}:${slaveId || 'all'}:${timeRange}`
     const data = await cached(cacheKey, 45, () => buildEnergyAnalysis(deviceId, slaveId, timeRange))
@@ -166,6 +171,7 @@ const getPredictions = async (req, res, next) => {
   try {
     const { deviceId, variableName, horizon, from, to } = req.query
     if (!deviceId || !variableName) return next(new AppError('deviceId and variableName are required', 400))
+    await assertDeviceAccess(deviceId, req.user)
 
     const where = { deviceId, variableName, ...orgScope(req.user) }
     if (horizon) where.horizon = horizon

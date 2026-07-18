@@ -1,7 +1,10 @@
 import 'package:flutter/foundation.dart';
 
+import '../config/app_config.dart';
+import '../data/dummy/dummy_store.dart';
 import '../models/app_user.dart';
 import 'api_client.dart';
+import 'app_state.dart';
 import 'cache_service.dart';
 import 'ems_api.dart';
 import 'socket_service.dart';
@@ -26,10 +29,21 @@ class AuthService extends ChangeNotifier {
     _loading = true;
     notifyListeners();
     try {
+      if (AppConfig.isDummyMode) {
+        DummyStore.instance.ensureSeeded();
+        await CacheService.instance.clear(kDevicesCache);
+      }
       final prefs = CacheService.instance.prefs;
-      final token = prefs.getString(_tokenKey);
+      var token = prefs.getString(_tokenKey);
+      if (AppConfig.isDummyMode && token != null && !token.startsWith('dummy-access-')) {
+        await _clearSession();
+        token = null;
+      }
       if (token != null && token.isNotEmpty) {
         ApiClient.instance.setToken(token);
+        if (AppConfig.isDummyMode) {
+          DummyStore.instance.accessToken = token;
+        }
         final me = await EmsApi.instance.fetchMe();
         if (me.role == 'SUPER_ADMIN') {
           await _clearSession();
@@ -38,6 +52,7 @@ class AuthService extends ChangeNotifier {
           SocketService.instance.connect(token);
         }
       }
+      // Dummy mode: stay on login so user can pick Org Admin or User credentials
     } catch (_) {
       await _clearSession();
     } finally {
@@ -87,6 +102,9 @@ class AuthService extends ChangeNotifier {
     }
 
     ApiClient.instance.setToken(token);
+    if (AppConfig.isDummyMode) {
+      DummyStore.instance.accessToken = token;
+    }
     final prefs = CacheService.instance.prefs;
     await prefs.setString(_tokenKey, token);
     if (refreshToken != null && refreshToken.isNotEmpty) {
@@ -96,6 +114,7 @@ class AuthService extends ChangeNotifier {
     try {
       _user = await EmsApi.instance.fetchMe();
     } catch (_) {}
+    AppState.instance.reset();
     SocketService.instance.connect(token);
     notifyListeners();
   }
@@ -108,6 +127,7 @@ class AuthService extends ChangeNotifier {
       });
     } catch (_) {}
     SocketService.instance.disconnect();
+    AppState.instance.reset();
     await _clearSession();
     notifyListeners();
   }

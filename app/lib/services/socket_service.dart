@@ -1,6 +1,10 @@
+import 'dart:async';
+
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
 import '../config/api_config.dart';
+import '../config/app_config.dart';
+import '../data/dummy/dummy_helpers.dart';
 import 'app_state.dart';
 import 'local_notification_service.dart';
 
@@ -9,12 +13,17 @@ class SocketService {
   static final SocketService instance = SocketService._();
 
   io.Socket? _socket;
+  Timer? _dummyTimer;
 
   String get _serverUrl {
     return ApiConfig.baseUrl.replaceAll('/api', '');
   }
 
   void connect(String token) {
+    if (AppConfig.isDummyMode) {
+      _startDummyLiveUpdates();
+      return;
+    }
     if (_socket != null && _socket!.connected) return;
 
     final transports = ['websocket'];
@@ -89,8 +98,22 @@ class SocketService {
   }
 
   void disconnect() {
+    _dummyTimer?.cancel();
+    _dummyTimer = null;
     _socket?.disconnect();
     _socket?.dispose();
     _socket = null;
+  }
+
+  void _startDummyLiveUpdates() {
+    if (_dummyTimer != null) return;
+    _dummyTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      final deviceId = AppState.instance.selectedDeviceId ?? 'dev-1';
+      AppState.instance.onLiveReading({
+        'deviceId': deviceId,
+        'timestamp': DummyHelpers.iso(),
+        'readings': DummyHelpers.latestReadings(),
+      });
+    });
   }
 }

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../config/app_config.dart';
+import '../data/dummy/dummy_store.dart';
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
 
@@ -20,6 +22,19 @@ class _LoginPageState extends State<LoginPage> {
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
   bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Leave fields empty — user picks Org Admin or User (or types credentials)
+  }
+
+  void _fillDemo(String email, String password) {
+    setState(() {
+      _emailController.text = email;
+      _passwordController.text = password;
+    });
+  }
 
   @override
   void dispose() {
@@ -127,6 +142,80 @@ class _LoginPageState extends State<LoginPage> {
                             },
                           ),
                           const SizedBox(height: 10),
+                          if (AppConfig.isDummyMode) ...[
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: _orange.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: _orange.withValues(alpha: 0.35)),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Text(
+                                    'Demo accounts — tap to fill, then Sign In',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.grey.shade800,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: OutlinedButton(
+                                          onPressed: () => _fillDemo(
+                                            DummyStore.demoOrgAdminEmail,
+                                            DummyStore.demoOrgAdminPassword,
+                                          ),
+                                          style: OutlinedButton.styleFrom(
+                                            foregroundColor: _navy,
+                                            side: const BorderSide(color: _navy),
+                                            padding: const EdgeInsets.symmetric(vertical: 10),
+                                          ),
+                                          child: const Text(
+                                            'Org Admin',
+                                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: OutlinedButton(
+                                          onPressed: () => _fillDemo(
+                                            DummyStore.demoUserEmail,
+                                            DummyStore.demoUserPassword,
+                                          ),
+                                          style: OutlinedButton.styleFrom(
+                                            foregroundColor: _blue,
+                                            side: const BorderSide(color: _blue),
+                                            padding: const EdgeInsets.symmetric(vertical: 10),
+                                          ),
+                                          child: const Text(
+                                            'User',
+                                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    'Org Admin: ${DummyStore.demoOrgAdminEmail} / ${DummyStore.demoOrgAdminPassword}\n'
+                                    'User: ${DummyStore.demoUserEmail} / ${DummyStore.demoUserPassword}',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      height: 1.4,
+                                      color: Colors.grey.shade700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                          ],
                           Align(
                             alignment: Alignment.centerRight,
                             child: TextButton(

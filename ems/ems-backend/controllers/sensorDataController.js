@@ -7,6 +7,7 @@ const { AppError } = require('../middleware/errorHandler')
 const { TIME_RANGE_MS, BUCKET_MS, paginate } = require('../utils/helpers')
 const { bucketVariable, sumVariable } = require('../utils/sensorAggregation')
 const { cached } = require('../utils/responseCache')
+const { assertDeviceAccess } = require('../utils/deviceAccess')
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
@@ -21,14 +22,7 @@ const startOfRange = (timeRange) => {
 }
 
 /** Verify the device exists and belongs to the caller's org (non-SUPER_ADMIN). */
-const authoriseDevice = async (deviceId, user) => {
-  const device = await prisma.device.findUnique({ where: { id: deviceId } })
-  if (!device) throw new AppError('Device not found', 404)
-  if (user.role !== 'SUPER_ADMIN' && device.organizationId !== user.organizationId) {
-    throw new AppError('Access denied', 403)
-  }
-  return device
-}
+const authoriseDevice = (deviceId, user) => assertDeviceAccess(deviceId, user)
 
 /**
  * Group raw SensorReading rows by a fixed bucket width and return avg per bucket.

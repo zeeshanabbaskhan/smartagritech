@@ -58,6 +58,18 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Clear selection when switching accounts / logging out.
+  void reset() {
+    devices = [];
+    selectedDeviceId = null;
+    selectedSlaveId = null;
+    configSlaves = [];
+    liveReadings = {};
+    liveAlarms = [];
+    _notifyDebounce?.cancel();
+    notifyListeners();
+  }
+
   /// P-46: debounce high-frequency socket updates to ~1 rebuild/sec max.
   void _debouncedNotify() {
     _notifyDebounce?.cancel();

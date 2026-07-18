@@ -50,10 +50,11 @@ const buildDateRange = (from, to) => {
 
 /** Duration in ms for each named time window */
 const TIME_RANGE_MS = {
-  '1h':  3_600_000,
-  '24h': 86_400_000,
-  '7d':  604_800_000,
-  '30d': 2_592_000_000,
+  '1h':   3_600_000,
+  '24h':  86_400_000,
+  '7d':   604_800_000,
+  '30d':  2_592_000_000,
+  '365d': 31_536_000_000, // ~365 days for year widgets
 }
 
 /**
@@ -61,10 +62,11 @@ const TIME_RANGE_MS = {
  * Produces ≤ 60 data points per window at these granularities.
  */
 const BUCKET_MS = {
-  '1h':  60_000,       // 1-min buckets  → 60 pts
-  '24h': 3_600_000,    // 1-hr buckets   → 24 pts
-  '7d':  86_400_000,   // 1-day buckets  → 7  pts
-  '30d': 86_400_000,   // 1-day buckets  → 30 pts
+  '1h':   60_000,       // 1-min buckets  → 60 pts
+  '24h':  3_600_000,    // 1-hr buckets   → 24 pts
+  '7d':   86_400_000,   // 1-day buckets  → 7  pts
+  '30d':  86_400_000,   // 1-day buckets  → 30 pts
+  '365d': 604_800_000,  // 1-week buckets → ~52 pts
 }
 
 /**

@@ -3,6 +3,7 @@ const prisma      = require('../config/database')
 const redis       = require('../config/redis')
 const { AppError } = require('../middleware/errorHandler')
 const { orgScope, paginate } = require('../utils/helpers')
+const { deviceWhereForUser } = require('../utils/deviceAccess')
 const { hashKey, generateDeviceIngestKey } = require('../utils/ingestAuth')
 const { isDeleteQueueEnabled, enqueueDeviceDelete } = require('../workers/jobQueues')
 const refCache = require('../utils/referenceCache')
@@ -34,13 +35,10 @@ const getDevices = async (req, res, next) => {
     const { page, limit, skip }    = paginate(req.query)
     const { search, status, gatewayId, withMetrics } = req.query
 
-    const where = { ...orgScope(req.user) }
+    const where = deviceWhereForUser(req.user, { ...orgScope(req.user) })
     if (status)    where.status    = status
     if (gatewayId) where.gatewayId = gatewayId
     if (search)    where.name      = { contains: search, mode: 'insensitive' }
-    if (req.user.role === 'USER') {
-      where.deviceUsers = { some: { userId: req.user.id } }
-    }
 
     let data = await prisma.device.findMany({
       where, skip, take: limit,
@@ -61,8 +59,7 @@ const getDevices = async (req, res, next) => {
 
 const getDevice = async (req, res, next) => {
   try {
-    const where = { id: req.params.id, ...orgScope(req.user) }
-    if (req.user.role === 'USER') where.deviceUsers = { some: { userId: req.user.id } }
+    const where = deviceWhereForUser(req.user, { id: req.params.id, ...orgScope(req.user) })
 
     const data = await prisma.device.findFirst({
       where,

@@ -4,6 +4,7 @@
 const prisma      = require('../config/database')
 const { AppError } = require('../middleware/errorHandler')
 const { orgScope, paginate, buildDateRange } = require('../utils/helpers')
+const { assertDeviceAccess, listAccessibleDeviceIds } = require('../utils/deviceAccess')
 
 // @desc  List anomalies; filterable by device, state and date range
 // @access SUPER_ADMIN | ORG_ADMIN | USER
@@ -13,7 +14,16 @@ const getAnomalies = async (req, res, next) => {
     const { deviceId, alarmState, processState, from, to } = req.query
 
     const where = { ...orgScope(req.user) }
-    if (deviceId)     where.deviceId     = deviceId
+    if (deviceId) {
+      await assertDeviceAccess(deviceId, req.user)
+      where.deviceId = deviceId
+    } else if (req.user.role === 'USER') {
+      const ids = await listAccessibleDeviceIds(req.user)
+      if (!ids.length) {
+        return res.json({ success: true, data: [], total: 0, page, pages: 0 })
+      }
+      where.deviceId = { in: ids }
+    }
     if (alarmState)   where.alarmState   = alarmState
     if (processState) where.processState = processState
     const dateRange = buildDateRange(from, to)
@@ -34,6 +44,7 @@ const getAnomalyTimeline = async (req, res, next) => {
   try {
     const { deviceId, from, to } = req.query
     if (!deviceId) return next(new AppError('deviceId is required', 400))
+    await assertDeviceAccess(deviceId, req.user)
 
     const where = { deviceId, ...orgScope(req.user) }
     const dateRange = buildDateRange(from, to)

@@ -27,6 +27,11 @@ model Organization {
   widgetTemplates     WidgetTemplate[]
   mqttConfigs         MqttConfig[]
   subscriptions       Subscription[]
+  accessGroups        AccessGroup[]
+  deviceGroups        DeviceGroup[]
+  facilityNodes       FacilityNode[]
+  customDashboards    CustomDashboard[]
+  powerFlowConfigs    PowerFlowConfig[]
 
   @@map("organizations")
 }
@@ -61,6 +66,11 @@ model User {
   createdThemes      Theme[]             @relation("ThemeCreator")
   createdMqttConfigs MqttConfig[]        @relation("MqttConfigCreator")
   refreshTokens      RefreshToken[]
+  ownedAccessGroups  AccessGroup[]       @relation("AccessGroupCreator")
+  ownedDeviceGroups  DeviceGroup[]       @relation("DeviceGroupCreator")
+  accessGroupMembers AccessGroupUser[]
+  deviceGroupMembers DeviceGroupUser[]
+  customDashboards   CustomDashboard[]   @relation("DashboardOwner")
 
   @@map("users")
 }
@@ -216,6 +226,9 @@ model Device {
   forecastReadings          AIForecastReading[]
   intervalHistories         IntervalHistory[]
   commands                  DeviceCommand[]
+  accessGroupDevices        AccessGroupDevice[]
+  deviceGroupDevices        DeviceGroupDevice[]
+  facilityNodeDevices       FacilityNodeDevice[]
 
   @@map("devices")
 }
@@ -909,4 +922,178 @@ enum SubscriptionStatus {
   NEW
   CONTACTED
   CLOSED
+}
+
+// ─── Access Groups (devices + users scoped together) ─────────────────────────
+model AccessGroup {
+  id             String   @id @default(uuid())
+  name           String
+  organizationId String
+  createdBy      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  creator      User?              @relation("AccessGroupCreator", fields: [createdBy], references: [id])
+  devices      AccessGroupDevice[]
+  users        AccessGroupUser[]
+
+  @@index([organizationId])
+  @@map("access_groups")
+}
+
+model AccessGroupDevice {
+  accessGroupId String
+  deviceId      String
+
+  accessGroup AccessGroup @relation(fields: [accessGroupId], references: [id], onDelete: Cascade)
+  device      Device      @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@id([accessGroupId, deviceId])
+  @@map("access_group_devices")
+}
+
+model AccessGroupUser {
+  accessGroupId String
+  userId        String
+
+  accessGroup AccessGroup @relation(fields: [accessGroupId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([accessGroupId, userId])
+  @@map("access_group_users")
+}
+
+// ─── Device Groups (named categories for power-flow / org views) ─────────────
+model DeviceGroup {
+  id             String   @id @default(uuid())
+  name           String
+  description    String?
+  organizationId String
+  createdBy      String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  creator      User?               @relation("DeviceGroupCreator", fields: [createdBy], references: [id])
+  devices      DeviceGroupDevice[]
+  users        DeviceGroupUser[]
+
+  @@index([organizationId])
+  @@map("device_groups")
+}
+
+model DeviceGroupDevice {
+  deviceGroupId String
+  deviceId      String
+
+  deviceGroup DeviceGroup @relation(fields: [deviceGroupId], references: [id], onDelete: Cascade)
+  device      Device      @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@id([deviceGroupId, deviceId])
+  @@map("device_group_devices")
+}
+
+model DeviceGroupUser {
+  deviceGroupId String
+  userId        String
+
+  deviceGroup DeviceGroup @relation(fields: [deviceGroupId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([deviceGroupId, userId])
+  @@map("device_group_users")
+}
+
+// ─── Facilities hierarchy (org → building → floor → department …) ────────────
+model FacilityNode {
+  id             String           @id @default(uuid())
+  organizationId String
+  parentId       String?
+  name           String
+  type           FacilityNodeType @default(BUILDING)
+  sortOrder      Int              @default(0)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  parent       FacilityNode? @relation("FacilityTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children     FacilityNode[] @relation("FacilityTree")
+  devices      FacilityNodeDevice[]
+
+  @@index([organizationId])
+  @@index([parentId])
+  @@map("facility_nodes")
+}
+
+model FacilityNodeDevice {
+  facilityNodeId String
+  deviceId       String
+
+  facilityNode FacilityNode @relation(fields: [facilityNodeId], references: [id], onDelete: Cascade)
+  device       Device       @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@id([facilityNodeId, deviceId])
+  @@index([deviceId])
+  @@map("facility_node_devices")
+}
+
+enum FacilityNodeType {
+  ORGANIZATION
+  CAMPUS
+  SITE
+  BUILDING
+  BLOCK
+  WING
+  FLOOR
+  DEPARTMENT
+  SECTION
+  ROOM
+}
+
+// ─── Custom dashboards (drag-drop layouts) ───────────────────────────────────
+model CustomDashboard {
+  id             String              @id @default(uuid())
+  organizationId String
+  ownerUserId    String
+  name           String
+  description    String?
+  visibility     DashboardVisibility @default(PRIVATE)
+  /// { level, buildingId, floorId, departmentId, timeRange }
+  context        Json                @default("{}")
+  /// react-grid-layout items: [{ i, x, y, w, h }]
+  layout         Json                @default("[]")
+  /// widget definitions: [{ id, type, title, metric, ... }]
+  widgets        Json                @default("[]")
+  targetDeviceId String?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  owner        User         @relation("DashboardOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([ownerUserId])
+  @@map("custom_dashboards")
+}
+
+enum DashboardVisibility {
+  PRIVATE
+  SHARED
+}
+
+// ─── Power-flow source config (editable sources on org dashboard) ────────────
+model PowerFlowConfig {
+  id             String   @id @default(uuid())
+  organizationId String   @unique
+  /// [{ id, name, type, valueKw, editable }]
+  sources        Json     @default("[]")
+  /// optional savings snapshot { daily, weekly, monthly, unit }
+  savings        Json     @default("{}")
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("power_flow_configs")
 }
