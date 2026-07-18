@@ -3,15 +3,18 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import StatCard from '../../components/ui/StatCard'
 import PageState, { useFetch } from '../../components/ui/PageState'
 import DeviceSlaveSelector from '../../components/shared/DeviceSlaveSelector'
+import PowerFlowMindMap from '../../components/ui/PowerFlowMindMap'
 import { useDevices } from '../../context/DeviceContext'
 import { Cpu, AlertTriangle, Zap, CheckCircle, Smartphone } from 'lucide-react'
 import { Skeleton } from 'boneyard-js/react'
 import { useAuth } from '../../context/AuthContext'
+import { useToast } from '../../context/ToastContext'
 import { fetchOrgStats, fetchDashboardChart } from '../../utils/dashboardHelpers'
-import emsApi from '../../api/emsApi'
+import emsApi, { one } from '../../api/emsApi'
 
 export default function OrgDashboard() {
   const { user } = useAuth()
+  const { showToast } = useToast()
   const { selectedDeviceId, selectedSlaveId } = useDevices()
   const [chartBundle, setChartBundle] = useState({ power: [], multi: [], lines: [] })
 
@@ -33,6 +36,19 @@ export default function OrgDashboard() {
     return { ...orgStats, activeAlarms, monthlyEnergy }
   }, [selectedDeviceId])
 
+  const { data: powerFlow, reload: reloadPowerFlow } = useFetch(async () => {
+    const res = await emsApi.getPowerFlow()
+    const payload = one(res) || {}
+    const sources = Array.isArray(payload.sources) ? payload.sources : []
+    const groups = (payload.groups || []).map((g) => ({
+      ...g,
+      load: g.loadKw ?? g.load ?? 0,
+      active: (g.devices || []).some((d) => d.status === 'ONLINE' || d.status === 'Online'),
+      deviceCount: g.deviceCount ?? g.deviceIds?.length ?? 0,
+    }))
+    return { sources, savings: payload.savings || null, groups }
+  }, [])
+
   useEffect(() => {
     if (!selectedDeviceId) { setChartBundle({ power: [], multi: [], lines: [] }); return }
     fetchDashboardChart(selectedDeviceId, '24h', selectedSlaveId).then(setChartBundle)
@@ -40,6 +56,15 @@ export default function OrgDashboard() {
 
   const orgName = user?.organization?.name ?? 'your organization'
   const devices = stats?.devices ?? []
+
+  async function handleSourcesChange(sources) {
+    try {
+      await emsApi.updatePowerFlow({ sources, savings: powerFlow?.savings })
+      reloadPowerFlow()
+    } catch (e) {
+      showToast(e.message || 'Failed to update power flow', 'error')
+    }
+  }
 
   const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
@@ -71,6 +96,23 @@ export default function OrgDashboard() {
           </div>
 
           <DeviceSlaveSelector onChange={reload} />
+
+          {powerFlow && (
+            <div className="card p-5">
+              <div className="mb-4">
+                <h3 className="text-sm font-bold text-surface-900">Power Flow</h3>
+                <p className="text-xs text-surface-400 mt-1">Sources → total load → device groups</p>
+              </div>
+              <PowerFlowMindMap
+                sources={powerFlow.sources}
+                savings={powerFlow.savings}
+                groups={powerFlow.groups}
+                orgName={orgName}
+                onSourcesChange={handleSourcesChange}
+                groupsPath="/org/device-groups"
+              />
+            </div>
+          )}
 
           <div className="card p-5 flex flex-col justify-between">
             <div>
