@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../config/api_config.dart';
+import '../config/app_config.dart';
+import '../data/dummy/dummy_api.dart';
 
 class ApiException implements Exception {
   ApiException(this.message, {this.statusCode});
@@ -61,6 +63,9 @@ class ApiClient {
   bool _retryAfterRefresh = false;
 
   Future<Map<String, dynamic>> get(String path, {Map<String, String>? query}) async {
+    if (AppConfig.isDummyMode) {
+      return DummyApi.instance.handle('GET', path, query: query);
+    }
     return _request(() async {
       final res = await http.get(_uri(path, query), headers: _headers()).timeout(_timeout);
       final body = _decode(res);
@@ -70,6 +75,9 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> post(String path, {Map<String, dynamic>? body}) async {
+    if (AppConfig.isDummyMode) {
+      return DummyApi.instance.handle('POST', path, body: body);
+    }
     return _request(() async {
       final res = await http.post(
         _uri(path),
@@ -84,6 +92,9 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> put(String path, {Map<String, dynamic>? body}) async {
+    if (AppConfig.isDummyMode) {
+      return DummyApi.instance.handle('PUT', path, body: body);
+    }
     return _request(() async {
       final res = await http.put(
         _uri(path),
@@ -98,6 +109,9 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> patch(String path, {Map<String, dynamic>? body}) async {
+    if (AppConfig.isDummyMode) {
+      return DummyApi.instance.handle('PATCH', path, body: body);
+    }
     return _request(() async {
       final res = await http.patch(
         _uri(path),
@@ -112,6 +126,9 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> delete(String path, {Map<String, dynamic>? body}) async {
+    if (AppConfig.isDummyMode) {
+      return DummyApi.instance.handle('DELETE', path, body: body);
+    }
     return _request(() async {
       final res = await http.delete(
         _uri(path),
