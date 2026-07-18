@@ -1,5 +1,6 @@
 import '../models/app_user.dart';
 import '../utils/api_mappers.dart';
+import '../config/app_config.dart';
 import 'api_client.dart';
 import 'auth_service.dart';
 import 'cache_service.dart';
@@ -37,7 +38,7 @@ class EmsApi {
       query['status'] = status == 'Online' ? 'ONLINE' : 'OFFLINE';
     }
     // Return cached data if available and no filters applied
-    if (search == null && status == null) {
+    if (!AppConfig.isDummyMode && search == null && status == null) {
       final cached = await CacheService.instance.getList(kDevicesCache);
       if (cached != null && cached.isNotEmpty) {
         // Refresh cache in background
@@ -51,7 +52,7 @@ class EmsApi {
       }
     }
     final result = _list(await _api.get('/devices', query: query));
-    if (search == null && status == null && result.isNotEmpty) {
+    if (!AppConfig.isDummyMode && search == null && status == null && result.isNotEmpty) {
       await CacheService.instance.setList(kDevicesCache, result);
     }
     return result;
