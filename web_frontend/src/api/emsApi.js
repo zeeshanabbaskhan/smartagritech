@@ -193,6 +193,35 @@ const emsApi = {
   updateWidgetTemplate: (id, body) => api.put(`/widget-templates/${id}`, body),
   deleteWidgetTemplate: (id) => api.delete(`/widget-templates/${id}`),
 
+  // ─── Access groups ──────────────────────────────────────────────────────
+  getAccessGroups: (params) => api.get('/access-groups', q(params)),
+  createAccessGroup: (body) => api.post('/access-groups', body),
+  updateAccessGroup: (id, body) => api.put(`/access-groups/${id}`, body),
+  deleteAccessGroup: (id) => api.delete(`/access-groups/${id}`),
+
+  // ─── Device groups ──────────────────────────────────────────────────────
+  getDeviceGroups: (params) => api.get('/device-groups', q(params)),
+  createDeviceGroup: (body) => api.post('/device-groups', body),
+  updateDeviceGroup: (id, body) => api.put(`/device-groups/${id}`, body),
+  deleteDeviceGroup: (id) => api.delete(`/device-groups/${id}`),
+
+  // ─── Facilities ─────────────────────────────────────────────────────────
+  getFacilityTree: (params) => api.get('/facilities', params),
+  createFacilityNode: (body) => api.post('/facilities', body),
+  updateFacilityNode: (id, body) => api.put(`/facilities/${id}`, body),
+  deleteFacilityNode: (id) => api.delete(`/facilities/${id}`),
+  replaceFacilityTree: (body) => api.put('/facilities/replace', body),
+  setFacilityDevices: (id, deviceIds) => api.put(`/facilities/${id}/devices`, { deviceIds }),
+
+  // ─── Custom dashboards ──────────────────────────────────────────────────
+  getCustomDashboards: (params) => api.get('/custom-dashboards', q(params)),
+  getCustomDashboard: (id) => api.get(`/custom-dashboards/${id}`),
+  createCustomDashboard: (body) => api.post('/custom-dashboards', body),
+  updateCustomDashboard: (id, body) => api.put(`/custom-dashboards/${id}`, body),
+  deleteCustomDashboard: (id) => api.delete(`/custom-dashboards/${id}`),
+  getPowerFlow: (params) => api.get('/custom-dashboards/power-flow', params),
+  updatePowerFlow: (body) => api.put('/custom-dashboards/power-flow', body),
+
   downloadSensorCsv: (params) => api.download('/sensor-data/download', params, 'sensor-data.csv'),
 }
 
