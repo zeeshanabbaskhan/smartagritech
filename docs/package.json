@@ -1,0 +1,17 @@
+{
+  "name": "docs",
+  "version": "1.0.0",
+  "description": "Energy & IoT Management System (EMS) for organizations that monitor field devices, gateways, sensor telemetry, alarms, and analytics.",
+  "main": "index.js",
+  "scripts": {
+    "pdf": "node convert-to-pdf.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "marked": "^18.0.6",
+    "md-to-pdf": "^5.2.5"
+  }
+}
