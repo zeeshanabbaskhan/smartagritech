@@ -65,11 +65,17 @@ import DashboardDetailPage    from './pages/shared/DashboardDetailPage'
 import SensorHistoryPage      from './pages/shared/SensorHistoryPage'
 import AlarmHistoryPage       from './pages/shared/AlarmHistoryPage'
 import DeviceDetailPage       from './pages/shared/DeviceDetailPage'
+import DashboardList          from './pages/shared/DashboardList'
+import DashboardEditor        from './pages/shared/DashboardEditor'
 
 import OrgUsers               from './pages/org/OrgUsers'
 import OrgWidgetTemplates     from './pages/org/OrgWidgetTemplates'
 import OrgDeviceTimestamps    from './pages/org/OrgDeviceTimestamps'
 import TemplateDetailPage     from './pages/shared/TemplateDetailPage'
+import AdminAccessGroups      from './pages/admin/AdminAccessGroups'
+import AdminDeviceGroups      from './pages/admin/AdminDeviceGroups'
+import OrgAccessGroups        from './pages/org/OrgAccessGroups'
+import OrgDeviceGroups        from './pages/org/OrgDeviceGroups'
 
 function ProtectedRoute({ children, requiredRole }) {
   const { user } = useAuth()
@@ -108,10 +114,14 @@ function AppRoutes() {
         <Route path="devices/:deviceId" element={<DeviceDetailPage basePath="/admin" />} />
         <Route path="device-templates"  element={<AdminDeviceTemplates />} />
         <Route path="device-templates/:templateId" element={<TemplateDetailPage basePath="/admin" />} />
+        <Route path="access-groups"     element={<AdminAccessGroups />} />
+        <Route path="device-groups"     element={<AdminDeviceGroups />} />
         <Route path="icons"             element={<AdminManageIcons />} />
         <Route path="products"          element={<AdminProducts />} />
         <Route path="data-center"       element={<AdminDataCenter />} />
         <Route path="dashboard-detail"  element={<DashboardDetailPage title="Dashboard Detail" breadcrumb="Admin / Dashboard Detail" />} />
+        <Route path="custom-dashboard"  element={<DashboardList />} />
+        <Route path="custom-dashboard/:id" element={<DashboardEditor />} />
         <Route path="sensor-history"    element={<SensorHistoryPage title="Sensor History" breadcrumb="Admin / Sensor History" />} />
         <Route path="historical-data"   element={<AdminHistoricalData />} />
         <Route path="variable-alarms"   element={<AdminVariableAlarms />} />
@@ -134,10 +144,14 @@ function AppRoutes() {
       }>
         <Route index                    element={<OrgDashboard />} />
         <Route path="dashboard-detail"  element={<DashboardDetailPage title="Dashboard Detail" breadcrumb="Organization / Dashboard Detail" />} />
+        <Route path="custom-dashboard"  element={<DashboardList />} />
+        <Route path="custom-dashboard/:id" element={<DashboardEditor />} />
         <Route path="users"             element={<OrgUsers />} />
         <Route path="widget-templates"  element={<OrgWidgetTemplates />} />
         <Route path="devices"           element={<OrgDevices />} />
         <Route path="devices/:deviceId" element={<DeviceDetailPage basePath="/org" />} />
+        <Route path="access-groups"     element={<OrgAccessGroups />} />
+        <Route path="device-groups"     element={<OrgDeviceGroups />} />
         <Route path="gateways"          element={<OrgGateways />} />
         <Route path="device-templates"  element={<OrgDeviceTemplates />} />
         <Route path="device-templates/:templateId" element={<TemplateDetailPage basePath="/org" />} />
@@ -160,6 +174,8 @@ function AppRoutes() {
       }>
         <Route index                     element={<UserDashboard />} />
         <Route path="dashboard-detail"  element={<DashboardDetailPage title="Dashboard Detail" breadcrumb="User / Dashboard Detail" />} />
+        <Route path="custom-dashboard"  element={<DashboardList />} />
+        <Route path="custom-dashboard/:id" element={<DashboardEditor />} />
         <Route path="account"           element={<UserAccountSettings />} />
         <Route path="notifications"      element={<UserNotifications />} />
         <Route path="subscription"       element={<UserSubscription />} />
