@@ -2665,8 +2665,8 @@ grep applicationId app/android/app/build.gradle.kts
 | Redis latest + flush | `services/valueFlushService.js`, `config/redis.js` |
 | SQL aggregation | `utils/sensorAggregation.js` |
 | Narrow value table | `scripts/migrate-v3.1.sql`, `services/ingestService.js` |
-| Response / reference cache | `utils/responseCache.js`, `utils/referenceCache.js` |
-| Auth + refresh | `controllers/authController.js`, `utils/ingestAuth.js` |
+| Response q/ reference cache | `utils/responseCache.js`, `utils/referenceCache.js` |
+| Auth + refresh | `controllers/authController.js`, `utils/ingestAuth.js`   |
 | Rate limits | `middleware/rateLimiter.js` |
 | Device commands | `controllers/deviceController.js`, `controllers/ingestController.js` |
 | TimescaleDB setup | `scripts/setup-timescaledb.sql` |
