@@ -74,7 +74,16 @@ const createUser = async (req, res, next) => {
       select: USER_SELECT,
     })
 
-    res.status(201).json({ success: true, data })
+    // Echo plaintext password once so admins can share portal access (never stored).
+    res.status(201).json({
+      success: true,
+      data,
+      credentials: {
+        email: data.email,
+        password,
+        role: data.role,
+      },
+    })
   } catch (err) { next(err) }
 }
 
@@ -136,7 +145,15 @@ const adminResetPassword = async (req, res, next) => {
 
     const passwordHash = await bcrypt.hash(newPassword, 12)
     await prisma.user.update({ where: { id: req.params.id }, data: { passwordHash } })
-    res.json({ success: true, message: 'Password reset successfully' })
+    res.json({
+      success: true,
+      message: 'Password reset successfully',
+      credentials: {
+        email: existing.email,
+        password: newPassword,
+        role: existing.role,
+      },
+    })
   } catch (err) { next(err) }
 }
 

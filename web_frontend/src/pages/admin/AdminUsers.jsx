@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import DataTable from '../../components/ui/DataTable'
 import Modal from '../../components/ui/Modal'
+import CredentialsModal from '../../components/ui/CredentialsModal'
 import PageState, { useFetch } from '../../components/ui/PageState'
 import { TextInput, SelectInput } from '../../components/ui/FormFields'
 import { Plus, Pencil, Trash2, Eye } from 'lucide-react'
@@ -31,6 +32,7 @@ export default function AdminUsers() {
   const [selected, setSelected] = useState(null)
   const [form, setForm] = useState(blank)
   const [saving, setSaving] = useState(false)
+  const [credentials, setCredentials] = useState(null)
 
   const openAdd = () => { setForm(blank); setModal('add') }
   const openEdit = (row) => {
@@ -53,7 +55,7 @@ export default function AdminUsers() {
     setSaving(true)
     try {
       if (modal === 'add') {
-        await emsApi.createUser({
+        const res = await emsApi.createUser({
           fullName: form.name,
           email: form.email,
           password: form.password,
@@ -61,6 +63,14 @@ export default function AdminUsers() {
           organizationId: form.organizationId,
           phone: form.phone || undefined,
         })
+        close()
+        reload()
+        if (res?.credentials) {
+          setCredentials(res.credentials)
+        } else {
+          setCredentials({ email: form.email, password: form.password, role: uiRoleToApi(form.role) })
+        }
+        showToast('User created — share the login credentials', 'success')
       } else {
         await emsApi.updateUser(selected.id, {
           fullName: form.name,
@@ -69,9 +79,10 @@ export default function AdminUsers() {
           status: uiStatusToApi(form.status),
           organizationId: form.organizationId,
         })
+        showToast('User updated', 'success')
+        close()
+        reload()
       }
-      close()
-      reload()
     } catch (e) {
       showToast(e.message || 'Save failed', 'error')
     } finally {
@@ -151,7 +162,7 @@ export default function AdminUsers() {
               value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
               disabled={modal === 'edit'} />
             {modal === 'add' && (
-              <TextInput label="Password" required type="password" placeholder="Minimum 8 characters"
+              <TextInput label="Password" required type="text" placeholder="Minimum 8 characters — shown after create for sharing"
                 value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} />
             )}
             <SelectInput label="Organization" required
@@ -186,9 +197,22 @@ export default function AdminUsers() {
                   <span className="text-xs text-surface-800">{value}</span>
                 </div>
               ))}
+              <p className="text-[11px] text-surface-400 pt-2 border-t border-surface-100">
+                Password is not stored in plaintext. Use password reset if the user needs a new one — credentials are shown once after create/reset.
+              </p>
             </div>
           )}
         </Modal>
+
+        <CredentialsModal
+          open={Boolean(credentials)}
+          onClose={() => setCredentials(null)}
+          title="User portal credentials"
+          subtitle="Give these to the user so they can access their portal. Copy now — the password is not shown again."
+          email={credentials?.email}
+          password={credentials?.password}
+          extraFields={credentials?.role ? [['Role', credentials.role]] : []}
+        />
       </div>
     </PageState>
   )

@@ -1,10 +1,9 @@
 // ─── Organization controller (SUPER_ADMIN) ────────────────────────────────────
-const prisma      = require('../config/database')
+const bcrypt     = require('bcryptjs')
+const prisma     = require('../config/database')
 const { AppError } = require('../middleware/errorHandler')
 const { paginate } = require('../utils/helpers')
 
-// @desc  List all organisations; supports search by name and status filter
-// @access SUPER_ADMIN
 const getOrganizations = async (req, res, next) => {
   try {
     const { page, limit, skip } = paginate(req.query)
@@ -27,31 +26,103 @@ const getOrganizations = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
-// @desc  Get a single organisation by id
-// @access SUPER_ADMIN
 const getOrganization = async (req, res, next) => {
   try {
     const org = await prisma.organization.findUnique({
       where:   { id: req.params.id },
-      include: { theme: { select: { id: true, name: true } } },
+      include: {
+        theme: { select: { id: true, name: true } },
+        users: {
+          where: { status: { not: 'DELETED' }, role: 'ORG_ADMIN' },
+          select: { id: true, fullName: true, email: true, role: true, status: true },
+          take: 5,
+        },
+      },
     })
     if (!org) return next(new AppError('Organization not found', 404))
     res.json({ success: true, data: org })
   } catch (err) { next(err) }
 }
 
-// @desc  Create a new organisation
-// @access SUPER_ADMIN
+/**
+ * Create organisation + optional ORG_ADMIN login.
+ * When adminEmail + adminPassword are provided, creates the admin and returns
+ * credentials once for sharing.
+ */
 const createOrganization = async (req, res, next) => {
   try {
-    const { name, description, status, themeId, logoUrl } = req.body
-    const data = await prisma.organization.create({ data: { name, description, status, themeId, logoUrl } })
-    res.status(201).json({ success: true, data })
+    const {
+      name, description, status, themeId, logoUrl,
+      adminFullName, adminEmail, adminPassword, adminPhone,
+    } = req.body
+
+    if (!name?.trim()) return next(new AppError('name is required', 400))
+
+    const wantsAdmin = Boolean(adminEmail || adminPassword || adminFullName)
+    if (wantsAdmin) {
+      if (!adminEmail?.trim()) return next(new AppError('adminEmail is required to create an org admin', 400))
+      if (!adminPassword) return next(new AppError('adminPassword is required to create an org admin', 400))
+      if (adminPassword.length < 8) return next(new AppError('adminPassword must be at least 8 characters', 400))
+
+      const existing = await prisma.user.findUnique({
+        where: { email: adminEmail.toLowerCase().trim() },
+      })
+      if (existing) return next(new AppError('Admin email already in use', 400))
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const org = await tx.organization.create({
+        data: {
+          name: name.trim(),
+          description,
+          status: status || 'ACTIVE',
+          themeId: themeId || undefined,
+          logoUrl: logoUrl || undefined,
+        },
+      })
+
+      let admin = null
+      if (wantsAdmin) {
+        const passwordHash = await bcrypt.hash(adminPassword, 12)
+        admin = await tx.user.create({
+          data: {
+            fullName: adminFullName?.trim() || `${org.name} Admin`,
+            email: adminEmail.toLowerCase().trim(),
+            passwordHash,
+            role: 'ORG_ADMIN',
+            organizationId: org.id,
+            phone: adminPhone || undefined,
+            status: 'ACTIVE',
+          },
+          select: {
+            id: true, fullName: true, email: true, role: true,
+            organizationId: true, status: true, phone: true,
+            createdAt: true,
+          },
+        })
+      }
+
+      return { org, admin }
+    })
+
+    const payload = {
+      success: true,
+      data: result.org,
+      admin: result.admin,
+    }
+    if (result.admin) {
+      payload.credentials = {
+        email: result.admin.email,
+        password: adminPassword,
+        role: result.admin.role,
+        organizationName: result.org.name,
+      }
+    }
+
+    res.status(201).json(payload)
   } catch (err) { next(err) }
 }
 
-// @desc  Update an organisation's details
-// @access SUPER_ADMIN
 const updateOrganization = async (req, res, next) => {
   try {
     const { name, description, status, themeId, logoUrl } = req.body
@@ -63,9 +134,6 @@ const updateOrganization = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
-// @desc  Soft-delete an organisation (sets status INACTIVE).
-//        Blocked when the org still has active devices, users, or gateways.
-// @access SUPER_ADMIN
 const deleteOrganization = async (req, res, next) => {
   try {
     const [deviceCount, userCount, gatewayCount] = await Promise.all([

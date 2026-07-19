@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import DataTable from '../../components/ui/DataTable'
 import Modal from '../../components/ui/Modal'
+import CredentialsModal from '../../components/ui/CredentialsModal'
 import PageState, { useFetch } from '../../components/ui/PageState'
 import { TextInput, TextareaInput, SelectInput } from '../../components/ui/FormFields'
 import { Plus, Pencil, Trash2, Eye } from 'lucide-react'
@@ -8,6 +9,16 @@ import emsApi, { list } from '../../api/emsApi'
 import { mapOrganization } from '../../utils/mappers'
 import { uiStatusToApi } from '../../utils/apiForm'
 import { useToast } from '../../context/ToastContext'
+
+const blank = {
+  name: '',
+  description: '',
+  status: 'Active',
+  adminFullName: '',
+  adminEmail: '',
+  adminPassword: '',
+  adminPhone: '',
+}
 
 export default function AdminOrganizations() {
   const { showToast } = useToast()
@@ -17,13 +28,14 @@ export default function AdminOrganizations() {
   )
   const [modal, setModal] = useState(null)
   const [selected, setSelected] = useState(null)
-  const [form, setForm] = useState({ name: '', description: '', status: 'Active' })
+  const [form, setForm] = useState(blank)
   const [saving, setSaving] = useState(false)
+  const [credentials, setCredentials] = useState(null)
 
-  const openAdd = () => { setForm({ name: '', description: '', status: 'Active' }); setModal('add') }
+  const openAdd = () => { setForm(blank); setModal('add') }
   const openEdit = (row) => {
     setSelected(row)
-    setForm({ name: row.name, description: row.description, status: row.status })
+    setForm({ ...blank, name: row.name, description: row.description, status: row.status })
     setModal('edit')
   }
   const openView = (row) => { setSelected(row); setModal('view') }
@@ -32,11 +44,37 @@ export default function AdminOrganizations() {
   const handleSave = async () => {
     setSaving(true)
     try {
-      const body = { name: form.name, description: form.description, status: uiStatusToApi(form.status) }
-      if (modal === 'add') await emsApi.createOrganization(body)
-      else await emsApi.updateOrganization(selected.id, body)
-      close()
-      reload()
+      if (modal === 'add') {
+        const body = {
+          name: form.name,
+          description: form.description,
+          status: uiStatusToApi(form.status),
+        }
+        if (form.adminEmail?.trim() || form.adminPassword) {
+          body.adminFullName = form.adminFullName || undefined
+          body.adminEmail = form.adminEmail
+          body.adminPassword = form.adminPassword
+          body.adminPhone = form.adminPhone || undefined
+        }
+        const res = await emsApi.createOrganization(body)
+        close()
+        reload()
+        if (res?.credentials) {
+          setCredentials(res.credentials)
+          showToast('Organization created — share org admin credentials', 'success')
+        } else {
+          showToast('Organization created', 'success')
+        }
+      } else {
+        await emsApi.updateOrganization(selected.id, {
+          name: form.name,
+          description: form.description,
+          status: uiStatusToApi(form.status),
+        })
+        showToast('Organization updated', 'success')
+        close()
+        reload()
+      }
     } catch (e) {
       showToast(e.message || 'Save failed', 'error')
     } finally {
@@ -94,6 +132,7 @@ export default function AdminOrganizations() {
           open={modal === 'add' || modal === 'edit'}
           onClose={close}
           title={modal === 'add' ? 'Add Organization' : 'Edit Organization'}
+          size={modal === 'add' ? 'lg' : 'md'}
           footer={
             <>
               <button type="button" className="btn-secondary" onClick={close}>Cancel</button>
@@ -109,6 +148,45 @@ export default function AdminOrganizations() {
               <SelectInput label="Status" required value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))} options={['Active', 'Inactive']} />
             </div>
             <TextareaInput label="Description" placeholder="Brief description" value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
+
+            {modal === 'add' && (
+              <div className="pt-3 border-t border-surface-200 space-y-3">
+                <div>
+                  <h4 className="text-xs font-bold text-surface-800 uppercase tracking-wide">Org Admin login (optional)</h4>
+                  <p className="text-[11px] text-surface-400 mt-0.5">
+                    Create an Org Admin for this organization. Email and password will be shown once after create so you can hand them over.
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <TextInput
+                    label="Admin full name"
+                    placeholder="e.g. Site Admin"
+                    value={form.adminFullName}
+                    onChange={(e) => setForm((f) => ({ ...f, adminFullName: e.target.value }))}
+                  />
+                  <TextInput
+                    label="Admin phone"
+                    placeholder="+92-300-0000000"
+                    value={form.adminPhone}
+                    onChange={(e) => setForm((f) => ({ ...f, adminPhone: e.target.value }))}
+                  />
+                </div>
+                <TextInput
+                  label="Admin email"
+                  type="email"
+                  placeholder="admin@company.com"
+                  value={form.adminEmail}
+                  onChange={(e) => setForm((f) => ({ ...f, adminEmail: e.target.value }))}
+                />
+                <TextInput
+                  label="Admin password"
+                  type="text"
+                  placeholder="Minimum 8 characters"
+                  value={form.adminPassword}
+                  onChange={(e) => setForm((f) => ({ ...f, adminPassword: e.target.value }))}
+                />
+              </div>
+            )}
           </div>
         </Modal>
 
@@ -121,9 +199,25 @@ export default function AdminOrganizations() {
                   <span className="text-xs text-surface-800">{value}</span>
                 </div>
               ))}
+              <p className="text-[11px] text-surface-400 pt-2 border-t border-surface-100">
+                Org Admin passwords are only shown once at creation. Manage admins under Users if needed.
+              </p>
             </div>
           )}
         </Modal>
+
+        <CredentialsModal
+          open={Boolean(credentials)}
+          onClose={() => setCredentials(null)}
+          title="Organization admin credentials"
+          subtitle="Give these to the organization admin so they can access the Org portal."
+          email={credentials?.email}
+          password={credentials?.password}
+          extraFields={[
+            ...(credentials?.organizationName ? [['Organization', credentials.organizationName]] : []),
+            ...(credentials?.role ? [['Role', credentials.role]] : []),
+          ]}
+        />
       </div>
     </PageState>
   )
