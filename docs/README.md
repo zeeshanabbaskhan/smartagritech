@@ -15,6 +15,7 @@ Energy & IoT Management System (EMS) for organizations that monitor field device
 | 7 | [Deployment guide](./07-deployment-guide.md) | CapRover, VPS options, pricing, CI/CD |
 | 8 | [Database architecture](./08-database-architecture.md) | ER diagrams, all tables, keys, indexes, Redis, data flows |
 | 9 | [CF features implementation](./09-cf-features-implementation.md) | Custom dashboards, access/device groups, facilities, power flow — frontend & backend detail |
+| 10 | [CF features E2E test guide](./10-cf-features-e2e-test-guide.md) | End-to-end manual QA checklist for all CF features |
 
 ## PDF exports
 
@@ -32,29 +33,7 @@ Formatted PDFs (A4, headers/footers, Mermaid diagrams rendered) live in [`pdf/`]
 | [07-deployment-guide.pdf](./pdf/07-deployment-guide.pdf) | Deployment |
 | [08-database-architecture.pdf](./pdf/08-database-architecture.pdf) | Database |
 | [09-cf-features-implementation.pdf](./pdf/09-cf-features-implementation.pdf) | CF features (frontend & backend) |
-| [OPTIMIZATION_GUIDE.pdf](./pdf/OPTIMIZATION_GUIDE.pdf) | Root `OPTIMIZATION_GUIDE.md` |
-
-Regenerate after editing Markdown:
-
-```bash
-cd docs && npm install && node convert-to-pdf.js
-```
-
-## PDF exports
-
-Formatted PDFs (A4, headers/footers, Mermaid diagrams rendered) live in [`pdf/`](./pdf/):
-
-| PDF | Source |
-|-----|--------|
-| [README.pdf](./pdf/README.pdf) | Index |
-| [01-system-overview-and-flows.pdf](./pdf/01-system-overview-and-flows.pdf) | Flows |
-| [02-architecture.pdf](./pdf/02-architecture.pdf) | Architecture |
-| [03-tech-stack.pdf](./pdf/03-tech-stack.pdf) | Tech stack |
-| [04-application-functionality.pdf](./pdf/04-application-functionality.pdf) | Functionality |
-| [05-backend.pdf](./pdf/05-backend.pdf) | Backend |
-| [06-web-frontend.pdf](./pdf/06-web-frontend.pdf) | Web frontend |
-| [07-deployment-guide.pdf](./pdf/07-deployment-guide.pdf) | Deployment |
-| [08-database-architecture.pdf](./pdf/08-database-architecture.pdf) | Database |
+| [10-cf-features-e2e-test-guide.pdf](./pdf/10-cf-features-e2e-test-guide.pdf) | CF features E2E test guide |
 | [OPTIMIZATION_GUIDE.pdf](./pdf/OPTIMIZATION_GUIDE.pdf) | Root `OPTIMIZATION_GUIDE.md` |
 
 Regenerate after editing Markdown:
