@@ -1,6 +1,14 @@
 // ─── Rate limiters (P-23, P-24, P-25, P-26) ────────────────────────────────
+// Controlled by RATE_LIMITING_ENABLED — only when "true" (case-insensitive)
+// do limiters enforce; otherwise requests pass through.
 const { rateLimit, ipKeyGenerator } = require('express-rate-limit')
 const redis     = require('../config/redis')
+
+const rateLimitingEnabled = () =>
+  String(process.env.RATE_LIMITING_ENABLED || '').trim().toLowerCase() === 'true'
+
+/** No-op middleware used when rate limiting is disabled. */
+const passthrough = (req, res, next) => next()
 
 const buildStore = (prefix) => {
   const client = redis.getClient()
@@ -17,6 +25,8 @@ const buildStore = (prefix) => {
 }
 
 const makeLimiter = (prefix, windowMs, max, message, opts = {}) => {
+  if (!rateLimitingEnabled()) return passthrough
+
   const store = buildStore(prefix)
   return rateLimit({
     windowMs,
@@ -56,4 +66,11 @@ const loginLimiter = makeLimiter('login', 15 * 60 * 1000, 5, 'Too many login att
 /** Forgot password — 3 attempts per hour per IP */
 const forgotPasswordLimiter = makeLimiter('forgot', 60 * 60 * 1000, 3, 'Too many password reset requests. Try again later.')
 
-module.exports = { apiLimiter, ingestLimiter, deviceIngestLimiter, loginLimiter, forgotPasswordLimiter }
+module.exports = {
+  apiLimiter,
+  ingestLimiter,
+  deviceIngestLimiter,
+  loginLimiter,
+  forgotPasswordLimiter,
+  rateLimitingEnabled,
+}

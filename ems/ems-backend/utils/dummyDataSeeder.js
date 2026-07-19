@@ -750,6 +750,87 @@ const isDatabaseSeeded = async () => {
   return Boolean(user)
 }
 
+/** Canonical test / demo logins used by local QA and docs. */
+const TEST_CREDENTIALS = [
+  {
+    email: 'superadmin@ems.com',
+    fullName: 'Super Admin',
+    password: 'Admin@123456',
+    role: 'SUPER_ADMIN',
+    needsOrg: false,
+  },
+  {
+    email: 'orgadmin@ems.com',
+    fullName: 'Lab Admin',
+    password: 'Admin@123456',
+    role: 'ORG_ADMIN',
+    needsOrg: true,
+  },
+  {
+    email: 'user@ems.com',
+    fullName: 'Lab User',
+    password: 'User@123456',
+    role: 'USER',
+    needsOrg: true,
+  },
+]
+
+/**
+ * Ensure demo org + test credential users exist.
+ * Creates only missing rows; never overwrites existing passwords.
+ * Safe to run on every server start.
+ */
+const ensureTestCredentials = async () => {
+  const theme = await findOrCreate(
+    'theme',
+    { name: 'Default' },
+    {
+      name: 'Default',
+      headerBgColor: '#1a1a2e',
+      headerFontColor: '#ffffff',
+      bodyBgColor: '#f5f5f5',
+      bodyFontColor: '#333333',
+      status: 'ACTIVE',
+    }
+  )
+
+  const org = await findOrCreate(
+    'organization',
+    { name: 'Smart Agritech Lab' },
+    {
+      name: 'Smart Agritech Lab',
+      description: 'SEECS IoT Research Lab',
+      status: 'ACTIVE',
+      themeId: theme.id,
+    }
+  )
+
+  const created = []
+  for (const cred of TEST_CREDENTIALS) {
+    const existing = await prisma.user.findUnique({ where: { email: cred.email } })
+    if (existing) continue
+
+    await prisma.user.create({
+      data: {
+        fullName: cred.fullName,
+        email: cred.email,
+        passwordHash: await bcrypt.hash(cred.password, 12),
+        role: cred.role,
+        status: 'ACTIVE',
+        ...(cred.needsOrg ? { organizationId: org.id } : {}),
+      },
+    })
+    created.push(cred.email)
+  }
+
+  if (created.length) {
+    console.log('Test credentials created:', created.join(', '))
+  } else {
+    console.log('Test credentials already present')
+  }
+  return { created, orgId: org.id }
+}
+
 /** Run seed once; skip if marker user already exists. */
 const seedIfEmpty = async () => {
   if (await isDatabaseSeeded()) {
@@ -765,6 +846,7 @@ const seedIfEmpty = async () => {
 if (require.main === module) {
   prisma.$connect()
     .then(() => seedIfEmpty())
+    .then(() => ensureTestCredentials())
     .then(async () => { await prisma.$disconnect(); process.exit(0) })
     .catch(async (err) => {
       console.error('Seeder error:', err)
@@ -773,4 +855,11 @@ if (require.main === module) {
     })
 }
 
-module.exports = { seedDummyData, seedIfEmpty, isDatabaseSeeded }
+module.exports = {
+  seedDummyData,
+  seedIfEmpty,
+  isDatabaseSeeded,
+  ensureTestCredentials,
+  TEST_CREDENTIALS,
+}
+

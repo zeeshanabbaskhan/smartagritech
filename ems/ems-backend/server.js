@@ -66,17 +66,25 @@ app.use((req, res) => res.status(404).json({ success: false, message: 'Route not
 app.use(errorHandler);
 
 const runSeedIfEmpty = () => {
-  if (process.env.SEED_ON_START === 'false') return;
+  if (process.env.SEED_ON_START === 'false') return
 
-  const { seedIfEmpty } = require('./utils/dummyDataSeeder');
+  const { seedIfEmpty, ensureTestCredentials } = require('./utils/dummyDataSeeder')
   seedIfEmpty()
     .then((ran) => {
-      if (ran) logger.info('Initial database seed completed');
+      if (ran) logger.info('Initial database seed completed')
+    })
+    .then(() => ensureTestCredentials())
+    .then(({ created }) => {
+      if (created?.length) {
+        logger.info('Test credentials ensured', { created })
+      } else {
+        logger.info('Test credentials already present')
+      }
     })
     .catch((err) => {
-      logger.error('Database seed failed', { message: err.message });
-    });
-};
+      logger.error('Database seed / test credentials failed', { message: err.message })
+    })
+}
 
 const start = async () => {
   await prisma.$connect()
@@ -85,6 +93,11 @@ const start = async () => {
 
   const { initRedis } = require('./config/redis');
   await initRedis();
+
+  const { rateLimitingEnabled } = require('./middleware/rateLimiter');
+  logger.info(rateLimitingEnabled()
+    ? 'Rate limiting: ENABLED (RATE_LIMITING_ENABLED=true)'
+    : 'Rate limiting: DISABLED (set RATE_LIMITING_ENABLED=true to enable)');
 
   const { initAllQueues, isQueueEnabled } = require('./workers/jobQueues');
   initAllQueues();
