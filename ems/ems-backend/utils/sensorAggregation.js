@@ -14,6 +14,33 @@ const slaveClauseValues = (slaveId) =>
 const useHourlyAggregate = (startDate) =>
   startDate && Date.now() - startDate.getTime() > 7 * 24 * 60 * 60 * 1000
 
+/** Cache whether Timescale continuous aggregate exists (avoids noisy prisma:error spam). */
+let hourlyViewAvailable = null // null = unknown, true/false = probed
+
+const probeHourlyView = async (db) => {
+  if (hourlyViewAvailable != null) return hourlyViewAvailable
+  try {
+    const rows = await db.$queryRaw`
+      SELECT 1 AS ok
+      FROM pg_catalog.pg_class c
+      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public'
+        AND c.relname = 'sensor_readings_hourly'
+      LIMIT 1
+    `
+    hourlyViewAvailable = Array.isArray(rows) && rows.length > 0
+  } catch (_) {
+    hourlyViewAvailable = false
+  }
+  if (!hourlyViewAvailable) {
+    console.warn(
+      '[sensorAggregation] sensor_readings_hourly missing — using raw sensor_readings. ' +
+      'Run scripts/setup-timescaledb.sql on the DB if TimescaleDB is installed.'
+    )
+  }
+  return hourlyViewAvailable
+}
+
 const bucketVariableHourly = async (db, { deviceId, variableName, startDate, bucketMs }) => {
   const rows = await db.$queryRaw`
     SELECT
@@ -34,10 +61,12 @@ const bucketVariableHourly = async (db, { deviceId, variableName, startDate, buc
 
 const bucketVariable = async (prisma, opts) => {
   const db = readDb(prisma)
-  if (useHourlyAggregate(opts.startDate)) {
+  if (useHourlyAggregate(opts.startDate) && (await probeHourlyView(db))) {
     try {
       return await bucketVariableHourly(db, opts)
-    } catch (_) { /* fall through if view missing */ }
+    } catch (_) {
+      hourlyViewAvailable = false
+    }
   }
 
   const { deviceId, slaveId, variableName, startDate, bucketMs } = opts

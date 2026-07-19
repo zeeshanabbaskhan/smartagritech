@@ -1,8 +1,15 @@
+-- CF feature tables (access groups, device groups, facilities, custom dashboards, power flow)
+-- Idempotent — safe to re-run on production when tables are missing.
+-- Apply: npx prisma db execute --file prisma/add_cf_features.sql
+-- CapRover one-shot (from ems-backend app): npm run db:ensure-cf
+
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 DO $$ BEGIN CREATE TYPE "FacilityNodeType" AS ENUM ('ORGANIZATION','CAMPUS','SITE','BUILDING','BLOCK','WING','FLOOR','DEPARTMENT','SECTION','ROOM'); EXCEPTION WHEN duplicate_object THEN null; END $$;
 DO $$ BEGIN CREATE TYPE "DashboardVisibility" AS ENUM ('PRIVATE','SHARED'); EXCEPTION WHEN duplicate_object THEN null; END $$;
 
 CREATE TABLE IF NOT EXISTS "access_groups" (
-  "id" TEXT PRIMARY KEY,
+  "id" TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   "name" TEXT NOT NULL,
   "organizationId" TEXT NOT NULL REFERENCES "organizations"("id") ON DELETE CASCADE,
   "createdBy" TEXT REFERENCES "users"("id"),
@@ -24,7 +31,7 @@ CREATE TABLE IF NOT EXISTS "access_group_users" (
 );
 
 CREATE TABLE IF NOT EXISTS "device_groups" (
-  "id" TEXT PRIMARY KEY,
+  "id" TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   "name" TEXT NOT NULL,
   "description" TEXT,
   "organizationId" TEXT NOT NULL REFERENCES "organizations"("id") ON DELETE CASCADE,
@@ -48,7 +55,7 @@ CREATE TABLE IF NOT EXISTS "device_group_users" (
 );
 
 CREATE TABLE IF NOT EXISTS "facility_nodes" (
-  "id" TEXT PRIMARY KEY,
+  "id" TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   "organizationId" TEXT NOT NULL REFERENCES "organizations"("id") ON DELETE CASCADE,
   "parentId" TEXT REFERENCES "facility_nodes"("id") ON DELETE CASCADE,
   "name" TEXT NOT NULL,
@@ -61,7 +68,7 @@ CREATE INDEX IF NOT EXISTS "facility_nodes_organizationId_idx" ON "facility_node
 CREATE INDEX IF NOT EXISTS "facility_nodes_parentId_idx" ON "facility_nodes"("parentId");
 
 CREATE TABLE IF NOT EXISTS "custom_dashboards" (
-  "id" TEXT PRIMARY KEY,
+  "id" TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   "organizationId" TEXT NOT NULL REFERENCES "organizations"("id") ON DELETE CASCADE,
   "ownerUserId" TEXT NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
   "name" TEXT NOT NULL,
@@ -78,7 +85,7 @@ CREATE INDEX IF NOT EXISTS "custom_dashboards_organizationId_idx" ON "custom_das
 CREATE INDEX IF NOT EXISTS "custom_dashboards_ownerUserId_idx" ON "custom_dashboards"("ownerUserId");
 
 CREATE TABLE IF NOT EXISTS "power_flow_configs" (
-  "id" TEXT PRIMARY KEY,
+  "id" TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   "organizationId" TEXT NOT NULL UNIQUE REFERENCES "organizations"("id") ON DELETE CASCADE,
   "sources" JSONB NOT NULL DEFAULT '[]',
   "savings" JSONB NOT NULL DEFAULT '{}',

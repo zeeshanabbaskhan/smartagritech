@@ -91,6 +91,9 @@ const start = async () => {
     .then(() => logger.info('PostgreSQL connected via Prisma'))
     .catch(err => { logger.error('DB connection failed', { message: err.message }); process.exit(1); });
 
+  const { ensureSchemaOnStart } = require('./utils/ensureSchema');
+  await ensureSchemaOnStart();
+
   const { initRedis } = require('./config/redis');
   await initRedis();
 
