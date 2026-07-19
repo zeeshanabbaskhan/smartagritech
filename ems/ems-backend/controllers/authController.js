@@ -49,11 +49,15 @@ const login = async (req, res, next) => {
     const valid = await bcrypt.compare(password, user.passwordHash)
     if (!valid) return next(new AppError('Invalid credentials', 401))
 
+    const userCache = require('../utils/userCache')
+    await userCache.invalidate(user.id)
+
     const token = signAccessToken(user.id)
     const refreshToken = await issueRefreshToken(user.id)
     res.cookie('token', token, cookieOptions)
 
     const { passwordHash: _, ...userData } = user
+    await userCache.set(user.id, userData)
     res.json({ success: true, data: userData, token, refreshToken })
   } catch (err) { next(err) }
 }
@@ -102,6 +106,15 @@ const getMe = async (req, res, next) => {
       },
     })
     if (!user) return next(new AppError('User not found', 404))
+    const userCache = require('../utils/userCache')
+    await userCache.set(user.id, {
+      id: user.id,
+      fullName: user.fullName,
+      email: user.email,
+      role: user.role,
+      organizationId: user.organizationId,
+      status: user.status,
+    })
     res.json({ success: true, data: user })
   } catch (err) { next(err) }
 }

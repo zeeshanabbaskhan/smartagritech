@@ -10,31 +10,39 @@ const extractToken = (req) => {
   return req.cookies?.token
 }
 
+const USER_SELECT = { id: true, fullName: true, email: true, role: true, organizationId: true, status: true }
+
 const protect = async (req, res, next) => {
   try {
     const token = extractToken(req)
     if (!token) return next(new AppError('Not authenticated', 401))
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET)
-
-    const userSelect = { id: true, fullName: true, email: true, role: true, organizationId: true, status: true }
-    let user = await userCache.get(decoded.id)
-    if (!user) {
-      user = await prisma.user.findUnique({ where: { id: decoded.id }, select: userSelect })
-      if (user) await userCache.set(decoded.id, user)
+    let decoded
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET)
+    } catch (_) {
+      return next(new AppError('Invalid or expired token', 401))
     }
+
+    // Always load role from DB for authorize() — stale Redis cache previously made
+    // Org Admin UI call Access/Device Groups with a cached USER role → 403.
+    let user = await prisma.user.findUnique({ where: { id: decoded.id }, select: USER_SELECT })
+    if (user) await userCache.set(decoded.id, user)
+    else user = await userCache.get(decoded.id)
+
     if (!user || user.status === 'DELETED') return next(new AppError('User no longer exists', 401))
     if (user.status === 'INACTIVE')         return next(new AppError('Account inactive', 403))
 
     req.user = user
     next()
   } catch (err) {
-    return next(new AppError('Invalid or expired token', 401))
+    next(err)
   }
 }
 
 const authorize = (...roles) => (req, res, next) => {
-  if (!roles.includes(req.user.role)) {
+  const role = String(req.user?.role || '').trim()
+  if (!roles.includes(role)) {
     return next(new AppError('You do not have permission to perform this action', 403))
   }
   next()

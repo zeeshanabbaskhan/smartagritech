@@ -74,12 +74,10 @@ const runSeedIfEmpty = () => {
       if (ran) logger.info('Initial database seed completed')
     })
     .then(() => ensureTestCredentials())
-    .then(({ created }) => {
-      if (created?.length) {
-        logger.info('Test credentials ensured', { created })
-      } else {
-        logger.info('Test credentials already present')
-      }
+    .then(({ created, repaired }) => {
+      if (created?.length) logger.info('Test credentials ensured', { created })
+      if (repaired?.length) logger.info('Test credentials repaired', { repaired })
+      if (!created?.length && !repaired?.length) logger.info('Test credentials already present')
     })
     .catch((err) => {
       logger.error('Database seed / test credentials failed', { message: err.message })

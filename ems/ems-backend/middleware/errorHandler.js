@@ -21,6 +21,11 @@ const mapPrismaError = (err) => {
       return new AppError('Invalid reference — related record not found', 400)
     case 'P2014':
       return new AppError('Invalid relation — required relation missing', 400)
+    case 'P2021':
+      return new AppError(
+        'Database table missing — restart the backend so schema ensure can run (or npm run db:ensure-cf)',
+        503
+      )
     default:
       return new AppError('Database operation failed', 400)
   }

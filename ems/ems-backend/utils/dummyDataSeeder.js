@@ -805,10 +805,30 @@ const ensureTestCredentials = async () => {
     }
   )
 
+  const userCache = require('./userCache')
   const created = []
+  const repaired = []
   for (const cred of TEST_CREDENTIALS) {
     const existing = await prisma.user.findUnique({ where: { email: cred.email } })
-    if (existing) continue
+    if (existing) {
+      const needsRole = existing.role !== cred.role
+      const needsOrg = cred.needsOrg && !existing.organizationId
+      const needsName = existing.fullName !== cred.fullName
+      if (needsRole || needsOrg || needsName) {
+        await prisma.user.update({
+          where: { id: existing.id },
+          data: {
+            ...(needsRole ? { role: cred.role } : {}),
+            ...(needsOrg ? { organizationId: org.id } : {}),
+            ...(needsName ? { fullName: cred.fullName } : {}),
+            status: 'ACTIVE',
+          },
+        })
+        await userCache.invalidate(existing.id)
+        repaired.push(cred.email)
+      }
+      continue
+    }
 
     await prisma.user.create({
       data: {
@@ -825,10 +845,14 @@ const ensureTestCredentials = async () => {
 
   if (created.length) {
     console.log('Test credentials created:', created.join(', '))
-  } else {
+  }
+  if (repaired.length) {
+    console.log('Test credentials repaired (role/org/name):', repaired.join(', '))
+  }
+  if (!created.length && !repaired.length) {
     console.log('Test credentials already present')
   }
-  return { created, orgId: org.id }
+  return { created, repaired, orgId: org.id }
 }
 
 /** Run seed once; skip if marker user already exists. */
