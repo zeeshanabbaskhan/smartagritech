@@ -138,7 +138,7 @@ export default function UserAlarmTemplate() {
             <h2 className="page-title">Alarm Templates</h2>
             <p className="breadcrumb">User / Alarm Template</p>
           </div>
-          <div className="text-xs text-surface-500 bg-surface-50 border border-surface-200 rounded-lg px-3 py-1.5">
+          <div className="text-xs text-surface-500 inset-panel px-3 py-1.5">
             Device: <span className="text-surface-800 font-medium">{selectedDevice?.name ?? '—'}</span>
           </div>
         </div>
@@ -176,7 +176,7 @@ export default function UserAlarmTemplate() {
             </div>
             <div>
               <label className="label">Variable</label>
-              <input className="input bg-surface-50" value={form.variable || ''} disabled title="Variable is defined by the device template" />
+              <input className="input bg-surface-50 dark:bg-surface-950" value={form.variable || ''} disabled title="Variable is defined by the device template" />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>

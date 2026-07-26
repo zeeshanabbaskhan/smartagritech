@@ -281,7 +281,7 @@ export default function AccessGroupsPage({ scope = 'admin' }) {
                     <span className="ml-1 text-surface-400 font-normal">({form.deviceIds.length})</span>
                   </label>
                   {orgDevices.length === 0 ? (
-                    <p className="text-xs text-surface-400 p-3 bg-surface-50 rounded-lg">No devices found.</p>
+                    <p className="text-xs text-surface-500 p-3 inset-panel">No devices found.</p>
                   ) : (
                     <div className="border border-surface-200 rounded-xl overflow-hidden divide-y divide-surface-100 max-h-48 overflow-y-auto">
                       {orgDevices.map((d) => (
@@ -308,7 +308,7 @@ export default function AccessGroupsPage({ scope = 'admin' }) {
                     <span className="ml-1 text-surface-400 font-normal">({form.userIds.length})</span>
                   </label>
                   {orgUsers.length === 0 ? (
-                    <p className="text-xs text-surface-400 p-3 bg-surface-50 rounded-lg">No users found.</p>
+                    <p className="text-xs text-surface-500 p-3 inset-panel">No users found.</p>
                   ) : (
                     <div className="border border-surface-200 rounded-xl overflow-hidden divide-y divide-surface-100 max-h-48 overflow-y-auto">
                       {orgUsers.map((u) => (

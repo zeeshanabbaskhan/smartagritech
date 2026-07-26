@@ -93,17 +93,17 @@ export default function UserSlabRates() {
         <div className="card p-5">
           <div className="flex items-center gap-2 mb-4"><Receipt size={16} className="text-primary-600" /><h3 className="text-sm font-semibold text-surface-800">Estimated Monthly Bill</h3></div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="bg-surface-50 rounded-lg p-4 text-center">
+            <div className="inset-panel p-4 text-center">
               <div className="flex items-center justify-center gap-1.5 text-surface-500 mb-1"><Zap size={13} /><span className="text-xs uppercase tracking-wide">Total Units</span></div>
               <p className="text-xl font-bold text-surface-900">{totalUnits.toLocaleString()}</p>
               <p className="text-xs text-surface-500 mt-0.5">kWh</p>
             </div>
-            <div className="bg-surface-50 rounded-lg p-4 text-center">
+            <div className="inset-panel p-4 text-center">
               <p className="text-xs uppercase tracking-wide text-surface-500 mb-1">Rate</p>
               <p className="text-xl font-bold text-surface-900">PKR {avgRate.toFixed(0)}</p>
               <p className="text-xs text-surface-500 mt-0.5">per unit</p>
             </div>
-            <div className="bg-success-600/10 border border-success-600/30 rounded-lg p-4 text-center">
+            <div className="bg-success-600/10 border border-success-600/30 rounded-lg p-4 text-center dark:bg-success-600/15 dark:border-success-600/40">
               <div className="flex items-center justify-center gap-1.5 text-success-600 mb-1"><Receipt size={13} /><span className="text-xs uppercase tracking-wide">Estimated Bill</span></div>
               <p className="text-xl font-bold text-success-600">PKR {estimatedBill.toLocaleString()}</p>
             </div>

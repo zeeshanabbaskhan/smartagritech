@@ -62,9 +62,9 @@ export default function CredentialsModal({
         </div>
         <div className="space-y-2">
           {rows.map(([label, value, key]) => (
-            <div key={key} className="flex items-center gap-3 p-2.5 rounded-lg border border-surface-200 bg-surface-50">
+            <div key={key} className="flex items-center gap-3 p-2.5 inset-panel">
               <div className="min-w-0 flex-1">
-                <p className="text-[10px] font-bold uppercase tracking-wide text-surface-400">{label}</p>
+                <p className="text-[10px] font-bold uppercase tracking-wide text-surface-500">{label}</p>
                 <p className="text-sm font-semibold text-surface-900 font-mono break-all">{value || '—'}</p>
               </div>
               <button

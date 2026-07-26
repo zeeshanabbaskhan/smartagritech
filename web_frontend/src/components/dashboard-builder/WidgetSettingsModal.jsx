@@ -355,9 +355,9 @@ export default function WidgetSettingsModal({ open, onClose, widget, hierarchy, 
             <span className="text-xs font-bold text-surface-700 uppercase tracking-wide">Pin this widget to a fixed scope</span>
           </label>
           {form.overrideScope && (
-            <div className="flex flex-wrap gap-3 p-3 bg-surface-50 rounded-lg border border-surface-200">
+            <div className="flex flex-wrap gap-3 p-3 inset-panel">
               {dropdownLevels.map((lvl, index) => (
-                <div key={index} className="flex items-center gap-1.5 text-surface-400">
+                <div key={index} className="flex items-center gap-1.5 text-surface-500">
                   {getNodeIcon(lvl.levelName)}
                   <select
                     className="select text-xs py-1 px-2 w-auto min-w-[7.5rem]"

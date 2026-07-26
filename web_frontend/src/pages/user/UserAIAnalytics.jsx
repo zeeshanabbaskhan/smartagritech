@@ -129,8 +129,8 @@ export default function UserAIAnalytics() {
               <p className="text-xs font-semibold text-surface-500 uppercase tracking-wide mb-3">Quick Stats</p>
               <div className="space-y-3">
                 {stats.map(({ label, value, icon: Icon, color }) => (
-                  <div key={label} className="flex items-center justify-between p-3 bg-surface-50 rounded-lg">
-                    <div className="flex items-center gap-2"><Icon size={14} className={color} /><span className="text-xs text-surface-400">{label}</span></div>
+                  <div key={label} className="flex items-center justify-between p-3 inset-panel">
+                    <div className="flex items-center gap-2"><Icon size={14} className={color} /><span className="text-xs text-surface-500">{label}</span></div>
                     <span className={`text-xs font-semibold ${color}`}>{value}</span>
                   </div>
                 ))}
@@ -140,7 +140,7 @@ export default function UserAIAnalytics() {
               <p className="text-xs font-semibold text-surface-500 uppercase tracking-wide mb-3">Quick Questions</p>
               <div className="space-y-2">
                 {quickQuestions.map((q) => (
-                  <button key={q} type="button" className="w-full text-left text-xs text-surface-700 bg-surface-50 hover:bg-surface-100 border border-surface-200 hover:border-primary-600/40 rounded-lg px-3 py-2.5 transition-colors" onClick={() => sendMessage(q)}>{q}</button>
+                  <button key={q} type="button" className="w-full text-left text-xs text-surface-700 inset-panel hover:bg-surface-200 dark:hover:bg-surface-700 px-3 py-2.5 transition-colors" onClick={() => sendMessage(q)}>{q}</button>
                 ))}
               </div>
             </div>

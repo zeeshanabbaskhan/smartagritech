@@ -73,7 +73,7 @@ export default function StatCard({
                 <TrendIcon size={12} />
                 {Math.abs(trend)}%
               </span>
-              <span className="text-xs text-surface-400">vs last month</span>
+              <span className="text-xs text-surface-500">vs last month</span>
             </div>
           ) : (
             sub && <p className="text-xs text-surface-500 truncate">{sub}</p>

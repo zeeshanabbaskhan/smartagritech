@@ -44,7 +44,7 @@ export default function UserSchedule() {
             <h2 className="page-title">Scheduled Tasks</h2>
             <p className="breadcrumb">User / Schedule</p>
           </div>
-          <div className="text-xs text-surface-500 bg-surface-50 border border-surface-200 rounded-lg px-3 py-1.5">
+          <div className="text-xs text-surface-500 inset-panel px-3 py-1.5">
             Device: <span className="text-surface-800 font-medium">{selectedDevice?.name ?? '—'}</span>
           </div>
         </div>

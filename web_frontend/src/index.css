@@ -147,6 +147,11 @@
     @apply card p-5 hover:shadow-elevated hover:-translate-y-0.5 transition-all duration-200 border-t-2 border-t-primary-500/30 dark:border-t-primary-500/50;
   }
 
+  /* Nested inset panels inside cards — theme-aware so dark-mode text overrides stay readable */
+  .inset-panel {
+    @apply bg-surface-100 dark:bg-surface-800/90 rounded-lg border border-surface-200/70 dark:border-surface-700/80;
+  }
+
   /* ── Tables ── */
   .table-container { @apply card overflow-hidden dark:border-surface-800; }
   .data-table       { @apply w-full text-sm border-collapse; }
@@ -194,7 +199,24 @@
 .dark .text-surface-800 { color: #F7F7EE !important; }
 .dark .text-surface-700 { color: #ECEEE6 !important; }
 .dark .text-surface-600 { color: #D1D5C8 !important; }
-.dark .text-surface-500 { color: #9AA09A !important; }
+.dark .text-surface-500 { color: #B4B8AE !important; }
+.dark .text-surface-400 { color: #9AA09A !important; }
+
+/*
+ * Light fills that lack a paired dark:bg-* stay light under dark mode while the
+ * text overrides above force light ink — unreadable. Darken unpaired bg-surface-50.
+ * Exact token match avoids hover:bg-surface-50 and bg-surface-50/xx variants.
+ */
+.dark [class~="bg-surface-50"]:not([class*="dark:bg-"]) {
+  background-color: #1F2937 !important; /* surface-800 */
+}
+.dark [class~="bg-white"]:not([class*="dark:bg-"]):not(.btn):not(.btn-primary):not(.btn-secondary) {
+  background-color: #141828 !important; /* surface-900 */
+}
+/* Soft light hovers without a dark:hover pair flash white on dark cards */
+.dark [class*="hover:bg-surface-50"]:not([class*="dark:hover:bg-"]):hover {
+  background-color: rgba(31, 41, 55, 0.55) !important;
+}
 
 .dark .border-surface-200 { border-color: #1F2937 !important; }
 .dark .border-surface-150 { border-color: #1F2937 !important; }
