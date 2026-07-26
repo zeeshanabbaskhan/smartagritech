@@ -189,6 +189,7 @@ export default function PowerFlowMindMap({
                       <div>
                         <p className="text-[9px] font-black text-surface-400 uppercase tracking-wider">Weekly</p>
                         <p className="text-base font-black text-primary-600">{formatPKR(savingsView.weekly)}</p>
+                        <p className="text-[9px] text-surface-400 font-semibold">{(savingsView.dailyKWh * 7).toFixed(1)} kWh offset</p>
                       </div>
                       <button
                         type="button"
@@ -207,6 +208,7 @@ export default function PowerFlowMindMap({
                       <div>
                         <p className="text-[9px] font-black text-surface-400 uppercase tracking-wider">Monthly</p>
                         <p className="text-base font-black text-primary-700">{formatPKR(savingsView.monthly)}</p>
+                        <p className="text-[9px] text-surface-400 font-semibold">{(savingsView.dailyKWh * 30).toFixed(1)} kWh offset</p>
                       </div>
                       <button
                         type="button"
@@ -382,6 +384,12 @@ export default function PowerFlowMindMap({
           </div>
         </div>
 
+        {savingsView && savingsView.dailyKWh > 0 && (
+          <p className="text-center text-[10px] font-bold text-surface-400 mt-2">
+            ~{savingsView.dailyKWh.toFixed(1)} kWh/day offset by clean sources · saving {formatPKR(savingsView.daily)} at PKR 28/unit
+          </p>
+        )}
+
         <div className="flex justify-center my-1"><div className="w-px h-6 bg-surface-300" /></div>
 
         <div className="flex justify-center gap-3 flex-wrap">
@@ -402,13 +410,17 @@ export default function PowerFlowMindMap({
                     type="button"
                     key={g.id}
                     onClick={() => onGroupClick?.(g.id)}
-                    className="group relative flex items-center gap-2.5 rounded-2xl px-3.5 py-2.5 bg-white border border-surface-200 shadow-md min-w-[9.5rem] text-left hover:border-primary-300 hover:shadow-lg"
+                    className="group relative flex items-center gap-2.5 rounded-2xl px-3.5 py-2.5 bg-white dark:bg-surface-900 border border-surface-200 dark:border-surface-800 shadow-md min-w-[9.5rem] text-left hover:border-primary-300 hover:shadow-lg"
                   >
-                    <div className="w-8 h-8 rounded-lg bg-primary-50 text-primary-600 flex items-center justify-center">
+                    <span
+                      className={`absolute top-2 right-2 w-2 h-2 rounded-full ${g.active ? 'bg-success-500 animate-pulse' : 'bg-surface-300 dark:bg-surface-600'}`}
+                      title={g.active ? 'Active' : 'Idle'}
+                    />
+                    <div className="w-8 h-8 rounded-lg bg-primary-50 dark:bg-primary-950/20 text-primary-600 flex items-center justify-center">
                       <Icon size={15} />
                     </div>
                     <div className="leading-tight flex-1 min-w-0">
-                      <p className="text-xs font-bold text-surface-800 truncate max-w-[7rem]">{g.name}</p>
+                      <p className="text-xs font-bold text-surface-800 dark:text-surface-100 truncate max-w-[7rem]">{g.name}</p>
                       <p className="text-[11px] font-black text-primary-600">{(g.load ?? 0).toFixed?.(2) ?? g.load ?? '0.00'} kW</p>
                       <p className="text-[9px] text-surface-400 font-semibold">
                         {g.deviceCount ?? g.deviceIds?.length ?? 0} device{(g.deviceCount ?? g.deviceIds?.length ?? 0) !== 1 ? 's' : ''}
