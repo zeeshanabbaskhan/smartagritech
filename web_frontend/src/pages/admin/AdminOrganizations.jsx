@@ -1,14 +1,18 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import DataTable from '../../components/ui/DataTable'
 import Modal from '../../components/ui/Modal'
 import CredentialsModal from '../../components/ui/CredentialsModal'
 import PageState, { useFetch } from '../../components/ui/PageState'
 import { TextInput, TextareaInput, SelectInput } from '../../components/ui/FormFields'
-import { Plus, Pencil, Trash2, Eye } from 'lucide-react'
+import HierarchyEditor from '../../components/facility/HierarchyEditor'
+import { Plus, Pencil, Trash2, Eye, LogIn, ListTree, Building2, Sparkles } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
 import { mapOrganization } from '../../utils/mappers'
+import { mapTreeFromApi, flattenTreeForApi } from '../../data/facilitiesHierarchy'
 import { uiStatusToApi } from '../../utils/apiForm'
 import { useToast } from '../../context/ToastContext'
+import { useAuth } from '../../context/AuthContext'
 
 const blank = {
   name: '',
@@ -22,6 +26,8 @@ const blank = {
 
 export default function AdminOrganizations() {
   const { showToast } = useToast()
+  const { impersonate } = useAuth()
+  const navigate = useNavigate()
   const { data: rows, loading, error, reload } = useFetch(
     async () => list(await emsApi.getOrganizations({ limit: 100 })).map(mapOrganization),
     []
@@ -31,15 +37,60 @@ export default function AdminOrganizations() {
   const [form, setForm] = useState(blank)
   const [saving, setSaving] = useState(false)
   const [credentials, setCredentials] = useState(null)
+  const [impersonatingId, setImpersonatingId] = useState(null)
 
-  const openAdd = () => { setForm(blank); setModal('add') }
-  const openEdit = (row) => {
+  // Facility Structure (per-org) — SUPER_ADMIN can scope by organizationId
+  const [hierarchyMode, setHierarchyMode] = useState('auto') // 'auto' | 'manual'
+  const [hierarchyTree, setHierarchyTree] = useState([])
+  const [hierarchyLoading, setHierarchyLoading] = useState(false)
+
+  const openAdd = () => {
+    setForm(blank)
+    setHierarchyMode('auto')
+    setHierarchyTree([])
+    setModal('add')
+  }
+  const openEdit = async (row) => {
     setSelected(row)
     setForm({ ...blank, name: row.name, description: row.description, status: row.status })
+    setHierarchyMode('auto')
+    setHierarchyTree([])
     setModal('edit')
+    setHierarchyLoading(true)
+    try {
+      const res = await emsApi.getFacilityTree({ organizationId: row.id })
+      const tree = mapTreeFromApi(Array.isArray(res?.data) ? res.data : [])
+      setHierarchyTree(tree)
+      if (tree.length) setHierarchyMode('manual')
+    } catch (_) {
+      setHierarchyTree([])
+    } finally {
+      setHierarchyLoading(false)
+    }
   }
   const openView = (row) => { setSelected(row); setModal('view') }
   const close = () => { setModal(null); setSelected(null) }
+
+  const handleLoginAsOrg = async (row) => {
+    setImpersonatingId(row.id)
+    try {
+      const session = await impersonate({ organizationId: row.id, label: row.name })
+      navigate(session?.role === 'org' ? '/org' : session?.role === 'user' ? '/user' : '/org')
+    } catch (e) {
+      showToast(e.message || 'Could not log in as organization', 'error')
+    } finally {
+      setImpersonatingId(null)
+    }
+  }
+
+  const saveHierarchyFor = async (organizationId) => {
+    if (!organizationId || hierarchyMode !== 'manual') return
+    try {
+      await emsApi.replaceFacilityTree({ organizationId, nodes: flattenTreeForApi(hierarchyTree) })
+    } catch (e) {
+      showToast(e.message || 'Organization saved, but facility structure failed', 'error')
+    }
+  }
 
   const handleSave = async () => {
     setSaving(true)
@@ -57,6 +108,8 @@ export default function AdminOrganizations() {
           body.adminPhone = form.adminPhone || undefined
         }
         const res = await emsApi.createOrganization(body)
+        const newOrgId = res?.data?.id ?? res?.id
+        await saveHierarchyFor(newOrgId)
         close()
         reload()
         if (res?.credentials) {
@@ -71,6 +124,7 @@ export default function AdminOrganizations() {
           description: form.description,
           status: uiStatusToApi(form.status),
         })
+        await saveHierarchyFor(selected.id)
         showToast('Organization updated', 'success')
         close()
         reload()
@@ -123,16 +177,30 @@ export default function AdminOrganizations() {
             <>
               <button type="button" className="btn-ghost p-1.5" onClick={() => openView(row)} title="View"><Eye size={14} /></button>
               <button type="button" className="btn-ghost p-1.5" onClick={() => openEdit(row)} title="Edit"><Pencil size={14} /></button>
+              <button
+                type="button"
+                className="btn-ghost p-1.5 text-primary-600 hover:text-primary-700 disabled:opacity-50"
+                onClick={() => handleLoginAsOrg(row)}
+                disabled={impersonatingId === row.id}
+                title="Login as Organization"
+              >
+                <LogIn size={14} />
+              </button>
               <button type="button" className="btn-danger p-1.5" onClick={() => handleDelete(row)} title="Delete"><Trash2 size={14} /></button>
             </>
           )}
         />
 
+        <p className="text-xs text-surface-500 mt-3 flex items-center gap-1.5">
+          <LogIn size={12} className="text-primary-600" />
+          <span className="text-primary-600 font-semibold">Login as Organization</span> switches your session into that organization's dashboard. A banner lets you exit back to Super Admin.
+        </p>
+
         <Modal
           open={modal === 'add' || modal === 'edit'}
           onClose={close}
           title={modal === 'add' ? 'Add Organization' : 'Edit Organization'}
-          size={modal === 'add' ? 'lg' : 'md'}
+          size="xl"
           footer={
             <>
               <button type="button" className="btn-secondary" onClick={close}>Cancel</button>
@@ -142,7 +210,7 @@ export default function AdminOrganizations() {
             </>
           }
         >
-          <div className="space-y-4">
+          <div className="space-y-4 max-h-[65vh] overflow-y-auto pr-1">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <TextInput label="Organization Name" required placeholder="e.g. CF Smart Technology" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
               <SelectInput label="Status" required value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))} options={['Active', 'Inactive']} />
@@ -187,6 +255,41 @@ export default function AdminOrganizations() {
                 />
               </div>
             )}
+
+            <div className="pt-4 border-t border-surface-200">
+              <div className="flex items-center gap-2 mb-1.5">
+                <ListTree size={14} className="text-primary-600" />
+                <label className="text-xs font-bold text-surface-800 dark:text-surface-200 uppercase tracking-wide">Facility Structure</label>
+              </div>
+              <p className="text-xs text-surface-500 mb-3">
+                Set up buildings, floors, and departments so this organization's Custom Dashboards can drill down building-wise, floor-wise, and department-wise. Choose auto to leave the existing structure untouched.
+              </p>
+
+              <div className="flex items-center gap-2 mb-3">
+                <button
+                  type="button"
+                  onClick={() => setHierarchyMode('auto')}
+                  className={`flex-1 flex items-center gap-2 p-2.5 rounded-lg border text-left ${hierarchyMode === 'auto' ? 'border-primary-500 bg-primary-50 dark:bg-primary-950/30' : 'border-surface-200 dark:border-surface-700 hover:bg-surface-50 dark:hover:bg-surface-800'}`}
+                >
+                  <Sparkles size={14} className={hierarchyMode === 'auto' ? 'text-primary-600' : 'text-surface-400'} />
+                  <span className="text-xs font-bold text-surface-700 dark:text-surface-300">Leave as-is</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setHierarchyMode('manual')}
+                  className={`flex-1 flex items-center gap-2 p-2.5 rounded-lg border text-left ${hierarchyMode === 'manual' ? 'border-primary-500 bg-primary-50 dark:bg-primary-950/30' : 'border-surface-200 dark:border-surface-700 hover:bg-surface-50 dark:hover:bg-surface-800'}`}
+                >
+                  <Building2 size={14} className={hierarchyMode === 'manual' ? 'text-primary-600' : 'text-surface-400'} />
+                  <span className="text-xs font-bold text-surface-700 dark:text-surface-300">Set this up now</span>
+                </button>
+              </div>
+
+              {hierarchyLoading ? (
+                <p className="text-xs text-surface-400">Loading facility structure…</p>
+              ) : hierarchyMode === 'manual' && (
+                <HierarchyEditor buildings={hierarchyTree} onChange={setHierarchyTree} orgName={form.name} />
+              )}
+            </div>
           </div>
         </Modal>
 
