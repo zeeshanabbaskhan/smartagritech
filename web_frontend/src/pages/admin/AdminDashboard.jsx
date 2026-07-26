@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend, PieChart, Pie, Cell } from 'recharts'
 import StatCard from '../../components/ui/StatCard'
 import PageState, { useFetch } from '../../components/ui/PageState'
@@ -6,6 +7,7 @@ import { Building2, Users, Cpu, Wifi, AlertTriangle, Activity, CheckCircle, XCir
 import { Skeleton } from 'boneyard-js/react'
 import emsApi from '../../api/emsApi'
 import DeviceSlaveSelector from '../../components/shared/DeviceSlaveSelector'
+import DashboardTelemetry from '../../components/dashboard/DashboardTelemetry'
 import { useDevices } from '../../context/DeviceContext'
 import { useToast } from '../../context/ToastContext'
 import { fetchAdminStats, fetchDashboardChart } from '../../utils/dashboardHelpers'
@@ -23,6 +25,8 @@ const fmtTime = (d) => {
 
 export default function AdminDashboard() {
   const { showToast } = useToast()
+  const [searchParams] = useSearchParams()
+  const highlightQuery = useMemo(() => searchParams.get('highlight') || '', [searchParams])
   const { selectedDeviceId, selectedSlaveId } = useDevices()
   const { data: stats, loading, error, reload, setData } = useFetch(() => fetchAdminStats(), [])
   const [chartBundle, setChartBundle] = useState({ power: [], multi: [], lines: [] })
@@ -128,6 +132,8 @@ export default function AdminDashboard() {
             <StatCard label="Active Alarms" value={stats?.activeAlarms ?? 0} icon={AlertTriangle} color="warning" />
             <StatCard label="Total Alarms" value={stats?.totalAlarms ?? 0} icon={Activity} color="neutral" />
           </div>
+
+          <DashboardTelemetry panelTitle="Master Executive Device Control" highlightQuery={highlightQuery} />
 
           <DeviceSlaveSelector />
 
