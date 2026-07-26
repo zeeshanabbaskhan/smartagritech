@@ -9,7 +9,7 @@ import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
 import emsApi, { list, one } from '../../api/emsApi'
 import { mapDevice, mapOrganization } from '../../utils/mappers'
-import { buildFromTemplate, mapDashboard } from '../../utils/customDashboardHelpers'
+import { buildFromTemplate, mapDashboard, toggleFavoriteContext } from '../../utils/customDashboardHelpers'
 
 const ROLE_EMPTY_COPY = {
   admin: 'Build a fully customizable view for this organization — pick your widgets, chart types, and drill into buildings, floors, or departments.',
@@ -59,7 +59,7 @@ export default function DashboardList() {
     const devices = list(devRes).map(mapDevice)
     const deviceMap = Object.fromEntries(devices.map((d) => [d.id, d.name]))
     const dashboards = list(dashRes).map((d) => {
-      const mapped = mapDashboard(d)
+      const mapped = mapDashboard(d, user?.id)
       if (mapped.targetDeviceId && deviceMap[mapped.targetDeviceId]) {
         mapped.targetDevice = deviceMap[mapped.targetDeviceId]
       }
@@ -74,7 +74,7 @@ export default function DashboardList() {
       orgId: adminOrgId || orgs[0]?.id || orgId,
       orgName: selectedOrg?.name || user?.organization?.name || 'Organization',
     }
-  }, [isAdmin, adminOrgId, user?.organizationId])
+  }, [isAdmin, adminOrgId, user?.organizationId, user?.id])
 
   const dashboards = data?.dashboards ?? []
   const devices = data?.devices ?? []
@@ -110,7 +110,9 @@ export default function DashboardList() {
     setCreating(true)
     try {
       const body = {
-        ...buildFromTemplate(templateId, name, targetDeviceId),
+        ...buildFromTemplate(templateId, name, targetDeviceId, {
+          visibility: isAdmin ? 'SHARED' : 'PRIVATE',
+        }),
         organizationId: orgId,
       }
       const res = await emsApi.createCustomDashboard(body)
@@ -126,9 +128,10 @@ export default function DashboardList() {
 
   async function toggleFavorite(e, dash) {
     e.stopPropagation()
+    if (!user?.id) return
     try {
       await emsApi.updateCustomDashboard(dash.id, {
-        context: { ...dash.context, favorite: !dash.favorite },
+        context: toggleFavoriteContext(dash.context, user.id, !dash.favorite),
       })
       reload()
     } catch (err) {
