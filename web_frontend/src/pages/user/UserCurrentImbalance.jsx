@@ -1,9 +1,9 @@
 import { useState } from 'react'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import PageState, { useFetch } from '../../components/ui/PageState'
 import { AlertTriangle } from 'lucide-react'
 import emsApi from '../../api/emsApi'
-import { aiPointsToChart } from '../../utils/mappers'
+import { mergeCurrentChart } from '../../utils/mappers'
 import DeviceSlaveSelector from '../../components/shared/DeviceSlaveSelector'
 import { useDevices } from '../../context/DeviceContext'
 
@@ -16,7 +16,7 @@ export default function UserCurrentImbalance() {
     const deviceId = selectedDeviceId
     if (!deviceId) return { chartData: [], events: [], stats: [] }
     const res = await emsApi.getAiCurrent({ deviceId, timeRange: '7d' })
-    const chartData = aiPointsToChart(res?.data?.chartData?.currentA ?? [], 'currentA')
+    const chartData = mergeCurrentChart(res?.data?.chartData ?? {})
     const imbalance = res?.data?.chartData?.currentImbalance ?? []
     const values = imbalance.map((p) => p.value).filter((v) => v != null)
     const maxImb = values.length ? `${Math.max(...values).toFixed(1)}%` : '—'
@@ -61,16 +61,19 @@ export default function UserCurrentImbalance() {
         </div>
 
         <div className="card p-5">
-          <h3 className="text-sm font-semibold text-surface-800 mb-1">Current Phase A — {data?.deviceName}</h3>
-          <p className="text-xs text-surface-500 mb-4">Current (A) per time slot</p>
+          <h3 className="text-sm font-semibold text-surface-800 mb-1">Phase Current Trend — {data?.deviceName}</h3>
+          <p className="text-xs text-surface-500 mb-4">Three-phase current comparison (A)</p>
           <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={data?.chartData ?? []}>
+            <LineChart data={data?.chartData ?? []}>
               <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
               <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
               <YAxis tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
-              <Tooltip formatter={(v) => [`${v} A`, 'Current Phase A']} />
-              <Bar dataKey="currentA" fill="#F5A623" radius={[3, 3, 0, 0]} name="Current A" />
-            </BarChart>
+              <Tooltip />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              <Line type="monotone" dataKey="currentA" stroke="#F5A623" dot={false} strokeWidth={2} name="Phase A" />
+              <Line type="monotone" dataKey="currentB" stroke="#3B82F6" dot={false} strokeWidth={2} name="Phase B" />
+              <Line type="monotone" dataKey="currentC" stroke="#EF4444" dot={false} strokeWidth={2} name="Phase C" />
+            </LineChart>
           </ResponsiveContainer>
         </div>
 
