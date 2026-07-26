@@ -29,12 +29,20 @@ export default function DeviceGroupsPage({ scope = 'admin' }) {
 
   const { data, loading, error, reload } = useFetch(async () => {
     const orgParams = isAdmin && orgFilter ? { organizationId: orgFilter } : {}
-    const [groupsRes, devicesRes, usersRes, orgsRes] = await Promise.all([
+    const [groupsRes, devicesRes, usersRes, orgsRes, accessRes] = await Promise.all([
       emsApi.getDeviceGroups({ limit: 100, ...orgParams }),
       emsApi.getDevices({ limit: 200, ...orgParams }),
       emsApi.getUsers({ limit: 200, ...orgParams }),
       isAdmin ? emsApi.getOrganizations({ limit: 100 }) : Promise.resolve({ data: [] }),
+      isAdmin ? Promise.resolve({ data: [] }) : emsApi.getAccessGroups({ limit: 100 }).catch(() => ({ data: [] })),
     ])
+
+    // Org admins may only group devices the platform admin granted them through
+    // an admin-created access group. No such grant => all org devices allowed.
+    const adminAllowedDeviceIds = new Set()
+    list(accessRes)
+      .filter((g) => g.createdByRole === 'SUPER_ADMIN')
+      .forEach((g) => (g.deviceIds || []).forEach((id) => adminAllowedDeviceIds.add(id)))
     const orgs = list(orgsRes).map(mapOrganization)
     const orgMap = Object.fromEntries(orgs.map((o) => [o.id, o.name]))
     const devices = list(devicesRes).map(mapDevice)
@@ -47,27 +55,36 @@ export default function DeviceGroupsPage({ scope = 'admin' }) {
       org: orgMap[g.organizationId] || g.organization?.name || '—',
       deviceIds: g.deviceIds || [],
       userIds: g.userIds || [],
+      createdBy: g.createdByRole === 'SUPER_ADMIN' ? 'Admin' : g.createdByRole ? 'Organization' : '—',
       createdAt: fmtDate(g.createdAt),
       _raw: g,
     }))
-    return { groups, devices, users, orgs }
+    return { groups, devices, users, orgs, adminAllowedDeviceIds: [...adminAllowedDeviceIds] }
   }, [isAdmin, orgFilter])
 
   const groups = data?.groups ?? []
   const devices = data?.devices ?? []
   const users = data?.users ?? []
   const orgs = data?.orgs ?? []
+  const adminAllowedDeviceIds = data?.adminAllowedDeviceIds ?? []
+  const hasDeviceCeiling = !isAdmin && adminAllowedDeviceIds.length > 0
 
   const [modal, setModal] = useState(null)
   const [selected, setSelected] = useState(null)
   const [form, setForm] = useState(EMPTY)
   const [saving, setSaving] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleting, setDeleting] = useState(false)
 
   const orgDevices = useMemo(() => {
     const oid = form.organizationId || user?.organizationId
-    if (!oid) return devices
-    return devices.filter((d) => d.organizationId === oid)
-  }, [devices, form.organizationId, user?.organizationId])
+    let scoped = oid ? devices.filter((d) => d.organizationId === oid) : devices
+    if (hasDeviceCeiling) {
+      const allowed = new Set(adminAllowedDeviceIds)
+      scoped = scoped.filter((d) => allowed.has(d.id))
+    }
+    return scoped
+  }, [devices, form.organizationId, user?.organizationId, hasDeviceCeiling, adminAllowedDeviceIds])
 
   const orgUsers = useMemo(() => {
     const oid = form.organizationId || user?.organizationId
@@ -144,14 +161,18 @@ export default function DeviceGroupsPage({ scope = 'admin' }) {
     }
   }
 
-  const handleDelete = async (row) => {
-    if (!confirm(`Delete device group "${row.name}"?`)) return
+  const handleDelete = async () => {
+    if (!deleteTarget) return
+    setDeleting(true)
     try {
-      await emsApi.deleteDeviceGroup(row.id)
+      await emsApi.deleteDeviceGroup(deleteTarget.id)
       showToast('Device group deleted', 'success')
+      setDeleteTarget(null)
       reload()
     } catch (e) {
       showToast(e.message || 'Delete failed', 'error')
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -177,6 +198,7 @@ export default function DeviceGroupsPage({ scope = 'admin' }) {
         <span className="badge badge-info">{ids?.length || 0} user{(ids?.length || 0) !== 1 ? 's' : ''}</span>
       ),
     },
+    ...(isAdmin ? [{ key: 'createdBy', label: 'Created By', render: (v) => <span className="badge badge-neutral">{v}</span> }] : []),
     { key: 'createdAt', label: 'Created At' },
   ]
 
@@ -226,7 +248,7 @@ export default function DeviceGroupsPage({ scope = 'admin' }) {
               <button type="button" className="btn-ghost p-1.5" onClick={() => openEdit(row)} title="Edit">
                 <Pencil size={14} />
               </button>
-              <button type="button" className="btn-danger p-1.5" onClick={() => handleDelete(row)} title="Delete">
+              <button type="button" className="btn-danger p-1.5" onClick={() => setDeleteTarget(row)} title="Delete">
                 <Trash2 size={14} />
               </button>
             </>
@@ -286,6 +308,11 @@ export default function DeviceGroupsPage({ scope = 'admin' }) {
                     Add Devices
                     <span className="ml-1 text-surface-400 font-normal">({form.deviceIds.length})</span>
                   </label>
+                  {hasDeviceCeiling && (
+                    <p className="text-[11px] text-surface-400 mb-2">
+                      Limited to the {adminAllowedDeviceIds.length} device{adminAllowedDeviceIds.length !== 1 ? 's' : ''} granted to your organization by the platform admin.
+                    </p>
+                  )}
                   {orgDevices.length === 0 ? (
                     <p className="text-xs text-surface-400 p-3 bg-surface-50 rounded-lg">No devices found.</p>
                   ) : (
@@ -336,6 +363,26 @@ export default function DeviceGroupsPage({ scope = 'admin' }) {
               </>
             )}
           </div>
+        </Modal>
+
+        <Modal
+          open={Boolean(deleteTarget)}
+          onClose={() => setDeleteTarget(null)}
+          size="sm"
+          variant="danger"
+          title="Delete Device Group"
+          footer={
+            <>
+              <button type="button" className="btn-secondary" onClick={() => setDeleteTarget(null)}>Cancel</button>
+              <button type="button" className="btn-danger" onClick={handleDelete} disabled={deleting}>
+                {deleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </>
+          }
+        >
+          <p className="text-sm text-surface-700 dark:text-surface-300">
+            Are you sure you want to delete <span className="font-bold">"{deleteTarget?.name}"</span>? This action cannot be undone.
+          </p>
         </Modal>
       </div>
     </PageState>
