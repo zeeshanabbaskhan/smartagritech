@@ -2,6 +2,7 @@ const prisma = require('../config/database')
 const redis = require('../config/redis')
 const { AppError } = require('../middleware/errorHandler')
 const { orgScope, paginate } = require('../utils/helpers')
+const { listAccessibleDeviceIds } = require('../utils/deviceAccess')
 
 const resolveOrgId = (req, bodyOrgId) => {
   if (req.user.role === 'SUPER_ADMIN') return bodyOrgId || req.query.organizationId
@@ -129,11 +130,15 @@ const createDashboard = async (req, res, next) => {
     if (!orgId) return next(new AppError('organizationId is required', 400))
     if (!name?.trim()) return next(new AppError('name is required', 400))
 
+    let vis = 'PRIVATE'
+    if (visibility === 'SHARED' || visibility === 'PRIVATE') vis = visibility
+    else if (req.user.role === 'SUPER_ADMIN') vis = 'SHARED'
+
     const data = await prisma.customDashboard.create({
       data: {
         name: name.trim(),
         description: description || null,
-        visibility: visibility === 'SHARED' ? 'SHARED' : 'PRIVATE',
+        visibility: vis,
         context: context || {},
         layout: layout || [],
         widgets: widgets || [],
@@ -150,23 +155,56 @@ const createDashboard = async (req, res, next) => {
 const updateDashboard = async (req, res, next) => {
   try {
     const where = { id: req.params.id, ...orgScope(req.user) }
+    if (req.user.role === 'USER') {
+      where.OR = [{ ownerUserId: req.user.id }, { visibility: 'SHARED' }]
+    }
     const existing = await prisma.customDashboard.findFirst({ where })
     if (!existing) return next(new AppError('Dashboard not found', 404))
 
     const isOwner = existing.ownerUserId === req.user.id
     const isManager = req.user.role === 'SUPER_ADMIN' || req.user.role === 'ORG_ADMIN'
-    if (!isOwner && !isManager) return next(new AppError('Not allowed to edit this dashboard', 403))
 
     const {
       name, description, visibility, context, layout, widgets, targetDeviceId,
     } = req.body
+
+    // Non-owners may only toggle their own favorite flag (stored in context.favorites).
+    if (!isOwner && !isManager) {
+      const otherFields = [name, description, visibility, layout, widgets, targetDeviceId]
+        .some((v) => v !== undefined)
+      if (otherFields || context === undefined) {
+        return next(new AppError('Not allowed to edit this dashboard', 403))
+      }
+      const prev = typeof existing.context === 'object' && existing.context ? existing.context : {}
+      const favorites = {
+        ...(prev.favorites && typeof prev.favorites === 'object' ? prev.favorites : {}),
+      }
+      const want = !!(context?.favorites?.[req.user.id] ?? context?.favorite)
+      if (want) favorites[req.user.id] = true
+      else delete favorites[req.user.id]
+      const { favorite: _legacy, ...rest } = prev
+      const data = await prisma.customDashboard.update({
+        where: { id: existing.id },
+        data: { context: { ...rest, favorites } },
+        include: { owner: { select: { id: true, fullName: true, email: true } } },
+      })
+      return res.json({ success: true, data })
+    }
+
+    let vis
+    if (visibility !== undefined) {
+      if (visibility !== 'SHARED' && visibility !== 'PRIVATE') {
+        return next(new AppError('visibility must be SHARED or PRIVATE', 400))
+      }
+      vis = visibility
+    }
 
     const data = await prisma.customDashboard.update({
       where: { id: existing.id },
       data: {
         name: name?.trim() || undefined,
         description: description !== undefined ? description : undefined,
-        visibility: visibility || undefined,
+        visibility: vis,
         context: context !== undefined ? context : undefined,
         layout: layout !== undefined ? layout : undefined,
         widgets: widgets !== undefined ? widgets : undefined,
@@ -213,6 +251,9 @@ const getPowerFlow = async (req, res, next) => {
       })
     }
 
+    const accessibleIds = await listAccessibleDeviceIds(req.user)
+    const allowedSet = accessibleIds ? new Set(accessibleIds) : null
+
     const groups = await prisma.deviceGroup.findMany({
       where: { organizationId: orgId, isActive: true },
       include: {
@@ -223,24 +264,32 @@ const getPowerFlow = async (req, res, next) => {
     const mappedGroups = []
     const allDeviceIds = new Set()
     for (const g of groups) {
-      const deviceIds = g.devices.map((d) => d.deviceId)
+      const deviceRows = allowedSet
+        ? g.devices.filter((d) => allowedSet.has(d.deviceId))
+        : g.devices
+      // USER: omit groups with no accessible devices
+      if (allowedSet && !deviceRows.length) continue
+      const deviceIds = deviceRows.map((d) => d.deviceId)
       deviceIds.forEach((id) => allDeviceIds.add(id))
       const loadKw = await sumLoadsForDeviceIds(deviceIds)
       mappedGroups.push({
         id: g.id,
         name: g.name,
         description: g.description,
-        deviceCount: g.devices.length,
+        deviceCount: deviceRows.length,
         deviceIds,
-        devices: g.devices.map((d) => d.device),
+        devices: deviceRows.map((d) => d.device),
         loadKw,
         load: loadKw,
       })
     }
 
-    // Also include org devices not in groups for source totals
+    // Also include org devices not in groups for source totals (ACL-filtered for USER)
     const orgDevices = await prisma.device.findMany({
-      where: { organizationId: orgId },
+      where: {
+        organizationId: orgId,
+        ...(allowedSet ? { id: { in: [...allowedSet] } } : {}),
+      },
       select: { id: true },
     })
     orgDevices.forEach((d) => allDeviceIds.add(d.id))
