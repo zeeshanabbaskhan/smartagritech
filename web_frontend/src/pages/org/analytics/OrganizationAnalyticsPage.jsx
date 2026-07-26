@@ -3,15 +3,21 @@ import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Legend, Line, LineChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts'
-import { AlertTriangle, ArrowLeft, BarChart3, Download, Eye, RefreshCw, RotateCcw } from 'lucide-react'
+import { AlertTriangle, Download, Eye, RefreshCw, RotateCcw, BarChart3 } from 'lucide-react'
 import DataTable from '../../../components/ui/DataTable'
 import Modal from '../../../components/ui/Modal'
 import PageState, { useFetch } from '../../../components/ui/PageState'
 import emsApi, { list } from '../../../api/emsApi'
 import { mapDevice, mapAnomaly, mergeVoltageChart, mergeCurrentChart, aiPointsToChart } from '../../../utils/mappers'
-
-const CURRENCY = 'PKR'
-const TARIFF = 28
+import {
+  RANGE_LABELS,
+  formatTs,
+  alarmStatus,
+  alarmSeverity,
+  imbalanceEventsFromSeries,
+  energyFromAiResponse,
+  anomalyActivitySeries,
+} from '../../../utils/analyticsHelpers'
 
 const PAGE_CONFIG = {
   voltage: {
@@ -40,8 +46,6 @@ const PAGE_CONFIG = {
     tableTitle: 'Anomalies', kind: 'anomaly', api: null,
   },
 }
-
-const PERIODS = { '24h': 'Today', '7d': 'Last 7 days', '30d': 'This Month' }
 
 function Gauge({ value, scope }) {
   const num = Number(value) || 0
@@ -82,12 +86,20 @@ function SeverityBadge({ value }) {
   return <span className={`badge ${klass}`}>{value}</span>
 }
 function StatusBadge({ value }) {
-  return <span className={`badge ${value === 'Active' ? 'badge-danger' : 'badge-success'}`}>{value}</span>
+  return <span className={`badge ${value === 'Active' || value === 'Detected' ? 'badge-danger' : 'badge-success'}`}>{value}</span>
+}
+
+function EmptyChart({ children }) {
+  return (
+    <div className="p-8 text-center text-xs text-surface-500 font-bold bg-surface-50/30 dark:bg-surface-900/40 rounded-xl border border-dashed border-surface-200 dark:border-surface-800">
+      {children}
+    </div>
+  )
 }
 
 function exportCsv(filename, rows) {
   if (!rows.length) return
-  const headers = Object.keys(rows[0]).filter((k) => !['id', '_raw'].includes(k))
+  const headers = Object.keys(rows[0]).filter((k) => !['id', '_raw', 'imbalanceValue', 'deviceId'].includes(k))
   const csv = [
     headers.join(','),
     ...rows.map((row) => headers.map((k) => `"${String(row[k] ?? '').replace(/"/g, '""')}"`).join(',')),
@@ -106,71 +118,99 @@ async function loadAnalytics({ type, deviceId, timeRange }) {
   if (type === 'anomalies') {
     const anomalies = list(await emsApi.getAnomalies({ limit: 100 })).map(mapAnomaly)
     const rows = deviceId ? anomalies.filter((a) => a.deviceId === deviceId) : anomalies
-    return { chartData: [], rows }
+    return { chartData: anomalyActivitySeries(rows), rows }
   }
-  if (!deviceId) return { chartData: [], rows: [] }
+  if (!deviceId) return { chartData: [], rows: [], dailyData: [], predicted: [] }
   const res = await emsApi[config.api]({ deviceId, timeRange })
   const d = res?.data ?? {}
 
   if (type === 'voltage') {
     const chartData = mergeVoltageChart(d.chartData ?? {})
-    const imb = (d.chartData?.voltageImbalance ?? []).map((p) => p.value).filter((v) => v != null)
-    const maxImb = imb.length ? Math.max(...imb) : 0
-    const rows = (d.alarms ?? []).map((a, i) => ({
-      id: i, time: String(a.alarmTime).slice(0, 16),
-      phaseA: d.current?.VoltageA != null ? `${d.current.VoltageA}V` : '—',
-      phaseB: d.current?.VoltageB != null ? `${d.current.VoltageB}V` : '—',
-      phaseC: d.current?.VoltageC != null ? `${d.current.VoltageC}V` : '—',
-      imbalance: `${maxImb.toFixed(1)}%`, severity: maxImb > 3 ? 'Critical' : 'Warning', status: 'Resolved',
+    const imbSeries = d.chartData?.voltageImbalance ?? []
+    const imb = imbSeries.map((p) => p.value).filter((v) => v != null)
+    const alarmRows = (d.alarms ?? []).map((a, i) => ({
+      id: a.id ?? `alarm-${i}`,
+      time: formatTs(a.alarmTime),
+      phaseA: d.current?.VoltageA != null ? `${Number(d.current.VoltageA).toFixed(1)}V` : '—',
+      phaseB: d.current?.VoltageB != null ? `${Number(d.current.VoltageB).toFixed(1)}V` : '—',
+      phaseC: d.current?.VoltageC != null ? `${Number(d.current.VoltageC).toFixed(1)}V` : '—',
+      imbalance: a.triggeringCondition ?? a.variableName ?? '—',
+      severity: alarmSeverity(a),
+      status: alarmStatus(a),
     }))
-    return { chartData, rows, meta: { maxImb, avgImb: imb.length ? imb.reduce((a, b) => a + b, 0) / imb.length : 0 } }
+    const seriesRows = imbalanceEventsFromSeries({
+      imbalance: imbSeries,
+      chartRows: chartData,
+      chartKeys: ['voltageA', 'voltageB', 'voltageC'],
+      unit: 'V',
+    })
+    const rows = alarmRows.length ? alarmRows : seriesRows
+    return {
+      chartData,
+      rows,
+      meta: {
+        maxImb: imb.length ? Math.max(...imb) : null,
+        avgImb: imb.length ? imb.reduce((a, b) => a + b, 0) / imb.length : null,
+      },
+    }
   }
+
   if (type === 'current') {
     const chartData = mergeCurrentChart(d.chartData ?? {})
-    const imb = (d.chartData?.currentImbalance ?? []).map((p) => p.value).filter((v) => v != null)
-    const maxImb = imb.length ? Math.max(...imb) : 0
-    const cur = d.current ?? {}
-    const rows = imb.slice(0, 20).map((v, i) => ({
-      id: i, time: String(d.chartData?.currentImbalance?.[i]?.timestamp ?? '—').slice(0, 16),
-      phaseA: cur.CurrentA != null ? `${cur.CurrentA}A` : '—',
-      phaseB: cur.CurrentB != null ? `${cur.CurrentB}A` : '—',
-      phaseC: cur.CurrentC != null ? `${cur.CurrentC}A` : '—',
-      imbalance: `${v.toFixed(1)}%`, severity: v > 3 ? 'Critical' : 'Warning', status: 'Resolved',
-    }))
-    return { chartData, rows, meta: { maxImb, avgImb: imb.length ? imb.reduce((a, b) => a + b, 0) / imb.length : 0 } }
+    const imbSeries = d.chartData?.currentImbalance ?? []
+    const imb = imbSeries.map((p) => p.value).filter((v) => v != null)
+    const rows = imbalanceEventsFromSeries({
+      imbalance: imbSeries,
+      chartRows: chartData,
+      chartKeys: ['currentA', 'currentB', 'currentC'],
+      unit: 'A',
+    })
+    return {
+      chartData,
+      rows,
+      meta: {
+        maxImb: imb.length ? Math.max(...imb) : null,
+        avgImb: imb.length ? imb.reduce((a, b) => a + b, 0) / imb.length : null,
+      },
+    }
   }
+
   if (type === 'powerFactor') {
     const chartData = aiPointsToChart(d.chartData ?? [], 'pf')
+    const predicted = aiPointsToChart(d.predictedChart ?? [], 'pf')
     const vals = chartData.map((p) => p.pf ?? p.value).filter((v) => v != null)
-    const currentPf = Number(d.current ?? (vals.length ? vals[vals.length - 1] : 0))
+    const currentPf = Number(d.current ?? (vals.length ? vals[vals.length - 1] : NaN))
     const rows = (d.alarms ?? []).map((a, i) => ({
-      id: i, time: String(a.alarmTime).slice(0, 16),
-      pf: d.current != null ? Number(d.current).toFixed(2) : '—', duration: '—', threshold: '0.85', status: 'Resolved',
+      id: a.id ?? i,
+      time: formatTs(a.alarmTime),
+      pf: a.currentValue != null ? Number(a.currentValue).toFixed(2)
+        : (Number.isFinite(currentPf) ? currentPf.toFixed(2) : '—'),
+      duration: a.durationMinutes != null ? `${a.durationMinutes} min` : (a.duration ?? '—'),
+      threshold: '0.85',
+      status: alarmStatus(a),
     }))
     return {
-      chartData, rows,
+      chartData,
+      predicted,
+      rows,
       meta: {
-        currentPf,
-        avg: vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : currentPf,
-        min: vals.length ? Math.min(...vals) : 0,
+        currentPf: Number.isFinite(currentPf) ? currentPf : null,
+        avg: vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null,
+        min: vals.length ? Math.min(...vals) : null,
         below: vals.filter((v) => v < 0.85).length,
       },
     }
   }
-  // energy
-  const chartData = aiPointsToChart(d.chartData ?? [], 'power').map((p) => ({ ...p, power: p.power ?? p.value }))
-  const total = d.totalConsumption ?? 0
-  const peak = chartData.reduce((m, p) => Math.max(m, p.power ?? 0), 0)
-  const dailyData = chartData
-    .filter((_, i) => i % Math.max(1, Math.floor(chartData.length / 7)) === 0)
-    .map((p, i) => ({ day: p.time || `Pt ${i + 1}`, kWh: Math.round((p.power ?? 0) / 10) }))
-  const rows = chartData.map((p, i) => ({
-    id: i, date: String(p.time ?? '—'),
-    power: `${Number(p.power ?? 0).toFixed(1)} kW`,
-    kWh: Math.round((p.power ?? 0) / 10),
-    cost: `${CURRENCY} ${Math.round(((p.power ?? 0) / 10) * TARIFF).toLocaleString()}`,
-  }))
-  return { chartData, dailyData, rows, meta: { total, peak } }
+
+  const energy = energyFromAiResponse(d)
+  const predicted = aiPointsToChart(d.predictedChart ?? [], 'power')
+  return {
+    chartData: energy.chartData,
+    dailyData: energy.dailyData,
+    rows: energy.rows,
+    predicted,
+    meta: energy.meta,
+  }
 }
 
 export default function OrganizationAnalyticsPage({ type }) {
@@ -218,14 +258,11 @@ export default function OrganizationAnalyticsPage({ type }) {
       ]
     }
     if (type === 'energy') {
-      const total = m.total ?? 0
       return [
-        ['Total Energy', Number(total).toLocaleString(), 'text-primary-600'],
-        ['Peak Power', `${Number(m.peak ?? 0).toFixed(1)} kW`, 'text-primary-600'],
-        ['Off-Peak', `${Math.round(total * 0.5).toLocaleString()} kWh`, 'text-info-600'],
-        ['On-Peak', `${Math.round(total * 0.5).toLocaleString()} kWh`, 'text-success-600'],
-        ['Estimated Cost', `${CURRENCY} ${Math.round(total * TARIFF).toLocaleString()}`, 'text-danger-600'],
-        ['Records', String(filteredRows.length), 'text-info-600'],
+        ['Total Consumption', m.total != null ? Number(m.total).toLocaleString(undefined, { maximumFractionDigits: 1 }) : '—', 'text-primary-600'],
+        ['Peak Power', m.peak != null ? `${Number(m.peak).toFixed(1)} kW` : '—', 'text-primary-600'],
+        ['Avg Power', m.avg != null ? `${Number(m.avg).toFixed(1)} kW` : '—', 'text-info-600'],
+        ['Samples', String(m.samples ?? 0), 'text-info-600'],
       ]
     }
     if (type === 'anomalies') {
@@ -260,8 +297,6 @@ export default function OrganizationAnalyticsPage({ type }) {
     energy: [
       { key: 'date', label: 'Time', render: (v) => <span className="font-mono text-xs">{v}</span> },
       { key: 'power', label: 'Active Power' },
-      { key: 'kWh', label: 'Energy', render: (v) => `${Number(v).toLocaleString()} kWh` },
-      { key: 'cost', label: 'Estimated Cost' },
     ],
     anomaly: [
       { key: 'type', label: 'Anomaly Type' }, { key: 'device', label: 'Device' },
@@ -271,6 +306,9 @@ export default function OrganizationAnalyticsPage({ type }) {
       { key: 'status', label: 'Status', render: (v) => <StatusBadge value={v} /> },
     ],
   }[config.kind]
+
+  const hasChart = (data?.chartData ?? []).length > 0
+  const hasRows = filteredRows.length > 0
 
   return (
     <div className="space-y-6">
@@ -284,14 +322,13 @@ export default function OrganizationAnalyticsPage({ type }) {
           <p className="text-xs text-surface-500 mt-1">{scopeLabel} · {config.chartDescription}</p>
         </div>
         <div className="flex items-center gap-2">
-          <button className="btn-secondary px-3" onClick={reload} title="Refresh"><RefreshCw size={15} className={loading ? 'animate-spin' : ''} /></button>
-          <button className="btn-secondary" onClick={() => exportCsv(`${config.title.toLowerCase().replace(/\s+/g, '-')}.csv`, filteredRows)}>
+          <button type="button" className="btn-secondary px-3" onClick={reload} title="Refresh"><RefreshCw size={15} className={loading ? 'animate-spin' : ''} /></button>
+          <button type="button" className="btn-secondary" onClick={() => exportCsv(`${config.title.toLowerCase().replace(/\s+/g, '-')}.csv`, filteredRows)}>
             <Download size={14} /> Export
           </button>
         </div>
       </div>
 
-      {/* Filters */}
       <div className="card p-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
           <div>
@@ -305,7 +342,7 @@ export default function OrganizationAnalyticsPage({ type }) {
             <div>
               <label className="label">Period</label>
               <select className="select" value={timeRange} onChange={(e) => setTimeRange(e.target.value)}>
-                {Object.entries(PERIODS).map(([val, lbl]) => <option key={val} value={val}>{lbl}</option>)}
+                {Object.entries(RANGE_LABELS).map(([val, lbl]) => <option key={val} value={val}>{lbl}</option>)}
               </select>
             </div>
           )}
@@ -314,48 +351,62 @@ export default function OrganizationAnalyticsPage({ type }) {
             <input className="input" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search records..." />
           </div>
           <div>
-            <button className="btn-primary" onClick={reload}>Load</button>
+            <button type="button" className="btn-primary" onClick={reload}>Load</button>
           </div>
         </div>
       </div>
 
       <PageState loading={loading} error={error} onRetry={reload}>
-        {filteredRows.length === 0 && (data?.chartData ?? []).length === 0 ? (
+        {!hasChart && !hasRows ? (
           <div className="card p-10 text-center">
             <div className="w-14 h-14 rounded-full bg-surface-200 dark:bg-surface-800 text-surface-600 dark:text-surface-300 flex items-center justify-center mx-auto mb-4"><BarChart3 size={26} /></div>
             <h3 className="text-sm font-semibold text-surface-900 dark:text-surface-100">No analytics found</h3>
-            <p className="text-xs text-surface-600 dark:text-surface-400 mt-2 max-w-xl mx-auto">No data for the selected device and period. Try a different device or time range.</p>
+            <p className="text-xs text-surface-600 dark:text-surface-400 mt-2 max-w-xl mx-auto">No logged readings for the selected device and period.</p>
             <div className="mt-5 flex items-center justify-center gap-3">
-              <button className="btn-secondary" onClick={() => { setSearch(''); setTimeRange('7d'); reload() }}><RotateCcw size={14} /> Reset Filters</button>
+              <button type="button" className="btn-secondary" onClick={() => { setSearch(''); setTimeRange('7d'); reload() }}><RotateCcw size={14} /> Reset Filters</button>
             </div>
           </div>
         ) : (
           <div className="space-y-6">
-            {type === 'powerFactor' && <Gauge value={data?.meta?.currentPf ?? 0} scope={scopeLabel} />}
+            {type === 'powerFactor' && data?.meta?.currentPf != null && (
+              <Gauge value={data.meta.currentPf} scope={scopeLabel} />
+            )}
 
-            {type !== 'anomalies' && (
-              <div className="card p-5">
-                <div className="flex items-start justify-between gap-3 mb-4">
-                  <div>
-                    <h3 className="text-sm font-semibold text-surface-800 mb-1">{config.chartTitle} — {scopeLabel}</h3>
-                    <p className="text-xs text-surface-500">{config.chartDescription}</p>
-                  </div>
-                  <span className="badge badge-neutral">{PERIODS[timeRange]}</span>
+            <div className="card p-5">
+              <div className="flex items-start justify-between gap-3 mb-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-surface-800 mb-1">{config.chartTitle} — {scopeLabel}</h3>
+                  <p className="text-xs text-surface-500">{config.chartDescription}</p>
                 </div>
+                {type !== 'anomalies' && <span className="badge badge-neutral">{RANGE_LABELS[timeRange]}</span>}
+              </div>
+              {!hasChart ? (
+                <EmptyChart>No logged readings in this period.</EmptyChart>
+              ) : (
                 <ResponsiveContainer width="100%" height={260}>
-                  {type === 'current' ? (
-                    <LineChart data={data?.chartData ?? []}>
+                  {type === 'anomalies' ? (
+                    <BarChart data={data.chartData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
+                      <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
+                      <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
+                      <Tooltip />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      <Bar dataKey="active" fill="#EF4444" name="Active" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="resolved" fill="#22C55E" name="Resolved" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  ) : type === 'current' ? (
+                    <BarChart data={data.chartData}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
                       <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
                       <YAxis tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
                       <Tooltip />
                       <Legend wrapperStyle={{ fontSize: 11 }} />
-                      <Line type="monotone" dataKey="currentA" stroke="#F5A623" dot={false} strokeWidth={2} name="Phase A" />
-                      <Line type="monotone" dataKey="currentB" stroke="#3B82F6" dot={false} strokeWidth={2} name="Phase B" />
-                      <Line type="monotone" dataKey="currentC" stroke="#EF4444" dot={false} strokeWidth={2} name="Phase C" />
-                    </LineChart>
+                      <Bar dataKey="currentA" fill="#F5A623" name="Phase A" radius={[2, 2, 0, 0]} />
+                      <Bar dataKey="currentB" fill="#3B82F6" name="Phase B" radius={[2, 2, 0, 0]} />
+                      <Bar dataKey="currentC" fill="#EF4444" name="Phase C" radius={[2, 2, 0, 0]} />
+                    </BarChart>
                   ) : type === 'energy' ? (
-                    <AreaChart data={data?.chartData ?? []}>
+                    <AreaChart data={data.chartData}>
                       <defs>
                         <linearGradient id="orgEnergyGrad" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="5%" stopColor="#F5A623" stopOpacity={0.3} />
@@ -369,7 +420,7 @@ export default function OrganizationAnalyticsPage({ type }) {
                       <Area type="monotone" dataKey="power" stroke="#F5A623" fill="url(#orgEnergyGrad)" strokeWidth={2} name="Power" />
                     </AreaChart>
                   ) : type === 'powerFactor' ? (
-                    <LineChart data={data?.chartData ?? []}>
+                    <LineChart data={data.chartData}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
                       <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
                       <YAxis domain={[0.8, 1]} tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
@@ -377,7 +428,7 @@ export default function OrganizationAnalyticsPage({ type }) {
                       <Line type="monotone" dataKey="pf" stroke="#F5A623" dot={false} strokeWidth={2} name="Power Factor" />
                     </LineChart>
                   ) : (
-                    <LineChart data={data?.chartData ?? []}>
+                    <LineChart data={data.chartData}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
                       <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
                       <YAxis domain={['auto', 'auto']} tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
@@ -389,24 +440,24 @@ export default function OrganizationAnalyticsPage({ type }) {
                     </LineChart>
                   )}
                 </ResponsiveContainer>
-              </div>
-            )}
+              )}
+            </div>
 
-            <div className={`grid grid-cols-1 sm:grid-cols-2 ${type === 'energy' ? 'xl:grid-cols-6' : 'xl:grid-cols-4'} gap-4`}>
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
               {stats.map(([label, value, color]) => <MetricCard key={label} label={label} value={value} color={color} />)}
             </div>
 
             {type === 'energy' && (data?.dailyData ?? []).length > 0 && (
               <div className="card p-5">
-                <h3 className="text-sm font-semibold text-surface-800 mb-1">Daily Consumption</h3>
-                <p className="text-xs text-surface-500 mb-4">Energy consumed per bucket (kWh)</p>
+                <h3 className="text-sm font-semibold text-surface-800 mb-1">Interval Power</h3>
+                <p className="text-xs text-surface-500 mb-4">Measured average active power per logged interval (kW)</p>
                 <ResponsiveContainer width="100%" height={210}>
-                  <BarChart data={data?.dailyData ?? []}>
+                  <BarChart data={data.dailyData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
                     <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
                     <YAxis tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
-                    <Tooltip formatter={(v) => [`${v} kWh`, 'Consumption']} />
-                    <Bar dataKey="kWh" fill="#F5A623" radius={[4, 4, 0, 0]} />
+                    <Tooltip formatter={(v) => [`${v} kW`, 'Avg Power']} />
+                    <Bar dataKey="kW" fill="#F5A623" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -425,7 +476,7 @@ export default function OrganizationAnalyticsPage({ type }) {
                 searchPlaceholder={`Search ${config.title.toLowerCase()}...`}
                 emptyMessage="No records found"
                 actions={(row) => (
-                  <button className="btn-ghost p-1.5 rounded" title="View details" onClick={() => setDetail(row)}><Eye size={14} /></button>
+                  <button type="button" className="btn-ghost p-1.5 rounded" title="View details" onClick={() => setDetail(row)}><Eye size={14} /></button>
                 )}
               />
             </div>
@@ -441,7 +492,7 @@ export default function OrganizationAnalyticsPage({ type }) {
               {detail.status && <StatusBadge value={detail.status} />}
             </div>
             {Object.entries(detail)
-              .filter(([key]) => !['id', '_raw', 'deviceId'].includes(key))
+              .filter(([key]) => !['id', '_raw', 'deviceId', 'imbalanceValue'].includes(key))
               .map(([key, value]) => (
                 <div key={key} className="flex justify-between text-sm gap-4">
                   <span className="text-surface-400 capitalize flex-shrink-0">{key.replace(/([A-Z])/g, ' $1')}</span>

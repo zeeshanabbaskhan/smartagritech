@@ -1,13 +1,15 @@
+import { useState } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import PageState, { useFetch } from '../../components/ui/PageState'
 import emsApi from '../../api/emsApi'
 import { aiPointsToChart } from '../../utils/mappers'
 import DeviceSlaveSelector from '../../components/shared/DeviceSlaveSelector'
 import { useDevices } from '../../context/DeviceContext'
+import { PERIOD_TO_RANGE, RANGE_LABELS, formatTs, alarmStatus } from '../../utils/analyticsHelpers'
 
 function GaugeArc({ value }) {
   const num = Number(value) || 0
-  const pct = (num - 0.7) / 0.3
+  const pct = Math.max(0, Math.min(1, (num - 0.7) / 0.3))
   const angle = pct * 180 - 90
   const cx = 100; const cy = 90; const r = 70
   const toXY = (angleDeg) => ({
@@ -34,38 +36,51 @@ function GaugeArc({ value }) {
   )
 }
 
+function EmptyChart({ children }) {
+  return (
+    <div className="p-8 text-center text-xs text-surface-500 font-bold bg-surface-50/30 dark:bg-surface-900/40 rounded-xl border border-dashed border-surface-200 dark:border-surface-800">
+      {children}
+    </div>
+  )
+}
+
 export default function UserPowerFactor() {
-  const { selectedDeviceId, selectedDevice } = useDevices()
+  const { selectedDeviceId, selectedSlaveId, selectedDevice } = useDevices()
+  const [period, setPeriod] = useState('Today')
+
   const { data, loading, error, reload } = useFetch(async () => {
     const deviceId = selectedDeviceId
-    if (!deviceId) return { currentPf: 0, pfTrend: [], pfEvents: [], stats: [], deviceName: '—' }
-    const res = await emsApi.getAiPowerFactor({ deviceId, timeRange: '24h' })
-    const currentPf = Number(res?.data?.current ?? 0)
+    if (!deviceId) return { currentPf: null, pfTrend: [], pfEvents: [], stats: [], deviceName: '—' }
+    const timeRange = PERIOD_TO_RANGE[period] ?? '24h'
+    const res = await emsApi.getAiPowerFactor({ deviceId, slaveId: selectedSlaveId || undefined, timeRange })
     const pfTrend = aiPointsToChart(res?.data?.chartData ?? [], 'pf')
-    const pfEvents = (res?.data?.alarms ?? []).map((a) => ({
-      time: a.alarmTime,
-      pf: res?.data?.current != null ? Number(res.data.current).toFixed(2) : '—',
-      duration: '—',
-      status: 'Resolved',
-    }))
     const chartVals = pfTrend.map((p) => p.pf ?? p.value).filter((v) => v != null)
-    const avg = chartVals.length ? (chartVals.reduce((a, b) => a + b, 0) / chartVals.length).toFixed(2) : currentPf.toFixed(2)
+    const currentPf = Number(res?.data?.current ?? (chartVals.length ? chartVals[chartVals.length - 1] : NaN))
+    const pfEvents = (res?.data?.alarms ?? []).map((a) => ({
+      time: formatTs(a.alarmTime),
+      pf: a.currentValue != null ? Number(a.currentValue).toFixed(2)
+        : (Number.isFinite(currentPf) ? currentPf.toFixed(2) : '—'),
+      duration: a.durationMinutes != null ? `${a.durationMinutes} min` : (a.duration ?? '—'),
+      status: alarmStatus(a),
+    }))
+    const avg = chartVals.length ? (chartVals.reduce((a, b) => a + b, 0) / chartVals.length).toFixed(2) : '—'
     const min = chartVals.length ? Math.min(...chartVals).toFixed(2) : '—'
     const below = chartVals.filter((v) => v < 0.85).length
     return {
-      currentPf,
+      currentPf: Number.isFinite(currentPf) ? currentPf : null,
       pfTrend,
       pfEvents,
       deviceName: selectedDevice?.name ?? 'Device',
+      periodLabel: RANGE_LABELS[timeRange] ?? period,
       stats: [
-        { label: 'Avg PF This Month', value: avg, color: 'text-success-600' },
-        { label: 'Min PF', value: min, color: 'text-primary-600' },
-        { label: 'Hours Below 0.85', value: `${below} pts`, color: 'text-danger-600' },
+        { label: 'Avg Power Factor', value: avg, color: 'text-success-600' },
+        { label: 'Min Power Factor', value: min, color: 'text-primary-600' },
+        { label: 'Points Below 0.85', value: String(below), color: 'text-danger-600' },
       ],
     }
-  }, [selectedDeviceId])
+  }, [selectedDeviceId, selectedSlaveId, period])
 
-  const currentPf = data?.currentPf ?? 0
+  const currentPf = data?.currentPf
 
   return (
     <PageState loading={loading} error={error} onRetry={reload}>
@@ -76,26 +91,44 @@ export default function UserPowerFactor() {
 
         <DeviceSlaveSelector onChange={reload} />
 
-        <div className="card p-6">
-          <h3 className="text-sm font-semibold text-surface-800 text-center mb-4">Current Power Factor — {data?.deviceName}</h3>
-          <GaugeArc value={currentPf} />
-          <p className={`text-center text-xs mt-2 ${currentPf >= 0.9 ? 'text-success-600' : 'text-warning-600'}`}>
-            {currentPf >= 0.9 ? 'Excellent — above 0.90 threshold' : 'Below optimal threshold'}
-          </p>
+        <div className="card p-4">
+          <div className="flex flex-wrap gap-3 items-end">
+            <div>
+              <label className="label">Period</label>
+              <select className="select w-40" value={period} onChange={(e) => setPeriod(e.target.value)}>
+                {['Today', 'This Week', 'This Month'].map((p) => <option key={p}>{p}</option>)}
+              </select>
+            </div>
+            <button type="button" className="btn-primary" onClick={reload}>Load</button>
+          </div>
         </div>
+
+        {currentPf != null && (
+          <div className="card p-6">
+            <h3 className="text-sm font-semibold text-surface-800 text-center mb-4">Current Power Factor — {data?.deviceName}</h3>
+            <GaugeArc value={currentPf} />
+            <p className={`text-center text-xs mt-2 ${currentPf >= 0.9 ? 'text-success-600' : 'text-warning-600'}`}>
+              {currentPf >= 0.9 ? 'Excellent — above 0.90 threshold' : 'Below optimal threshold'}
+            </p>
+          </div>
+        )}
 
         <div className="card p-5">
           <h3 className="text-sm font-semibold text-surface-800 mb-1">Power Factor Trend</h3>
-          <p className="text-xs text-surface-500 mb-4">Last 24 hours</p>
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={data?.pfTrend ?? []}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
-              <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
-              <YAxis domain={[0.8, 1.0]} tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
-              <Tooltip formatter={(v) => [v, 'Power Factor']} />
-              <Line type="monotone" dataKey="pf" stroke="#F5A623" dot={false} strokeWidth={2} name="Power Factor" />
-            </LineChart>
-          </ResponsiveContainer>
+          <p className="text-xs text-surface-500 mb-4">{data?.periodLabel ?? period}</p>
+          {(data?.pfTrend ?? []).length === 0 ? (
+            <EmptyChart>No logged readings in this period.</EmptyChart>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <LineChart data={data.pfTrend}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
+                <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
+                <YAxis domain={[0.8, 1.0]} tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
+                <Tooltip formatter={(v) => [v, 'Power Factor']} />
+                <Line type="monotone" dataKey="pf" stroke="#F5A623" dot={false} strokeWidth={2} name="Power Factor" />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -119,10 +152,10 @@ export default function UserPowerFactor() {
                   ) : (data?.pfEvents ?? []).map((e, i) => (
                     <tr key={i}>
                       <td className="text-surface-500 font-mono text-xs">{i + 1}</td>
-                      <td><span className="font-mono text-xs">{String(e.time).slice(0, 16)}</span></td>
+                      <td><span className="font-mono text-xs">{e.time}</span></td>
                       <td className="text-primary-600 font-semibold">{e.pf}</td>
                       <td>{e.duration}</td>
-                      <td><span className="badge badge-success">{e.status}</span></td>
+                      <td><span className={`badge ${e.status === 'Active' ? 'badge-danger' : 'badge-success'}`}>{e.status}</span></td>
                     </tr>
                   ))}
                 </tbody>

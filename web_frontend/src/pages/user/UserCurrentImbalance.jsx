@@ -1,36 +1,42 @@
 import { useState } from 'react'
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import PageState, { useFetch } from '../../components/ui/PageState'
 import { AlertTriangle } from 'lucide-react'
 import emsApi from '../../api/emsApi'
 import { mergeCurrentChart } from '../../utils/mappers'
 import DeviceSlaveSelector from '../../components/shared/DeviceSlaveSelector'
 import { useDevices } from '../../context/DeviceContext'
+import { timeRangeFromDates, imbalanceEventsFromSeries } from '../../utils/analyticsHelpers'
+
+function EmptyChart({ children }) {
+  return (
+    <div className="p-8 text-center text-xs text-surface-500 font-bold bg-surface-50/30 dark:bg-surface-900/40 rounded-xl border border-dashed border-surface-200 dark:border-surface-800">
+      {children}
+    </div>
+  )
+}
 
 export default function UserCurrentImbalance() {
-  const { selectedDeviceId, selectedDevice } = useDevices()
+  const { selectedDeviceId, selectedSlaveId, selectedDevice } = useDevices()
   const [from, setFrom] = useState(new Date(Date.now() - 3 * 86400000).toISOString().slice(0, 10))
   const [to, setTo] = useState(new Date().toISOString().slice(0, 10))
 
   const { data, loading, error, reload } = useFetch(async () => {
     const deviceId = selectedDeviceId
     if (!deviceId) return { chartData: [], events: [], stats: [] }
-    const res = await emsApi.getAiCurrent({ deviceId, timeRange: '7d' })
+    const timeRange = timeRangeFromDates(from, to)
+    const res = await emsApi.getAiCurrent({ deviceId, slaveId: selectedSlaveId || undefined, timeRange })
     const chartData = mergeCurrentChart(res?.data?.chartData ?? {})
     const imbalance = res?.data?.chartData?.currentImbalance ?? []
     const values = imbalance.map((p) => p.value).filter((v) => v != null)
     const maxImb = values.length ? `${Math.max(...values).toFixed(1)}%` : '—'
     const avgImb = values.length ? `${(values.reduce((a, b) => a + b, 0) / values.length).toFixed(1)}%` : '—'
-    const current = res?.data?.current ?? {}
-    const events = values.slice(0, 5).map((v, i) => ({
-      id: i,
-      time: imbalance[i]?.timestamp ?? '—',
-      phaseA: current.CurrentA != null ? `${current.CurrentA}A` : '—',
-      phaseB: current.CurrentB != null ? `${current.CurrentB}A` : '—',
-      phaseC: current.CurrentC != null ? `${current.CurrentC}A` : '—',
-      imbalance: `${v.toFixed(1)}%`,
-      severity: v > 3 ? 'Critical' : 'Warning',
-    }))
+    const events = imbalanceEventsFromSeries({
+      imbalance,
+      chartRows: chartData,
+      chartKeys: ['currentA', 'currentB', 'currentC'],
+      unit: 'A',
+    })
     return {
       chartData,
       events,
@@ -41,7 +47,7 @@ export default function UserCurrentImbalance() {
       ],
       deviceName: selectedDevice?.name ?? 'Device',
     }
-  }, [selectedDeviceId, from, to])
+  }, [selectedDeviceId, selectedSlaveId, from, to])
 
   return (
     <PageState loading={loading} error={error} onRetry={reload}>
@@ -63,18 +69,22 @@ export default function UserCurrentImbalance() {
         <div className="card p-5">
           <h3 className="text-sm font-semibold text-surface-800 mb-1">Phase Current Trend — {data?.deviceName}</h3>
           <p className="text-xs text-surface-500 mb-4">Three-phase current comparison (A)</p>
-          <ResponsiveContainer width="100%" height={260}>
-            <LineChart data={data?.chartData ?? []}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
-              <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
-              <YAxis tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
-              <Tooltip />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Line type="monotone" dataKey="currentA" stroke="#F5A623" dot={false} strokeWidth={2} name="Phase A" />
-              <Line type="monotone" dataKey="currentB" stroke="#3B82F6" dot={false} strokeWidth={2} name="Phase B" />
-              <Line type="monotone" dataKey="currentC" stroke="#EF4444" dot={false} strokeWidth={2} name="Phase C" />
-            </LineChart>
-          </ResponsiveContainer>
+          {(data?.chartData ?? []).length === 0 ? (
+            <EmptyChart>No logged readings in this period.</EmptyChart>
+          ) : (
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={data.chartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
+                <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
+                <YAxis tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
+                <Tooltip />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Bar dataKey="currentA" fill="#F5A623" name="Phase A" radius={[2, 2, 0, 0]} />
+                <Bar dataKey="currentB" fill="#3B82F6" name="Phase B" radius={[2, 2, 0, 0]} />
+                <Bar dataKey="currentC" fill="#EF4444" name="Phase C" radius={[2, 2, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -94,11 +104,11 @@ export default function UserCurrentImbalance() {
                 <thead><tr><th>#</th><th>Timestamp</th><th>Phase A</th><th>Phase B</th><th>Phase C</th><th>Imbalance</th><th>Severity</th></tr></thead>
                 <tbody>
                   {(data?.events ?? []).length === 0 ? (
-                    <tr><td colSpan={7} className="text-center py-8 text-surface-500 text-sm">No events in this period.</td></tr>
+                    <tr><td colSpan={7} className="text-center py-8 text-surface-500 text-sm">No imbalance events above threshold in this period.</td></tr>
                   ) : (data?.events ?? []).map((e, i) => (
                     <tr key={e.id}>
                       <td className="text-surface-500 font-mono text-xs">{i + 1}</td>
-                      <td><span className="font-mono text-xs">{String(e.time).slice(0, 16)}</span></td>
+                      <td><span className="font-mono text-xs">{e.time}</span></td>
                       <td>{e.phaseA}</td><td>{e.phaseB}</td><td>{e.phaseC}</td>
                       <td className="font-semibold text-primary-600">{e.imbalance}</td>
                       <td><span className={`badge ${e.severity === 'Critical' ? 'badge-danger' : 'badge-warning'}`}>{e.severity}</span></td>
