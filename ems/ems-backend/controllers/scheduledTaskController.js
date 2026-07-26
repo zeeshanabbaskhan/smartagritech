@@ -6,15 +6,26 @@ const prisma      = require('../config/database')
 const { AppError } = require('../middleware/errorHandler')
 const { orgScope, paginate } = require('../utils/helpers')
 const { addTask, removeTask } = require('../services/schedulerService')
+const { listAccessibleDeviceIds } = require('../utils/deviceAccess')
 
 // @desc  List scheduled tasks; filterable by device and status
-// @access SUPER_ADMIN | ORG_ADMIN
+// @access SUPER_ADMIN | ORG_ADMIN | USER (ACL-scoped devices)
 const getScheduledTasks = async (req, res, next) => {
   try {
     const { page, limit, skip } = paginate(req.query)
     const where = { ...orgScope(req.user) }
     if (req.query.deviceId) where.deviceId = req.query.deviceId
     if (req.query.status)   where.status   = req.query.status
+
+    const accessibleIds = await listAccessibleDeviceIds(req.user)
+    if (accessibleIds) {
+      if (req.query.deviceId && !accessibleIds.includes(req.query.deviceId)) {
+        return res.json({ success: true, data: [], total: 0, page, pages: 1 })
+      }
+      where.deviceId = req.query.deviceId
+        ? req.query.deviceId
+        : { in: accessibleIds.length ? accessibleIds : ['__none__'] }
+    }
 
     const [data, total] = await Promise.all([
       prisma.scheduledTask.findMany({

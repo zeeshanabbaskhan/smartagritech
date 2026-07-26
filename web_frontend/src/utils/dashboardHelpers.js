@@ -10,11 +10,11 @@ export async function fetchListTotal(fetcher, params = {}) {
 
 export async function fetchAdminStats() {
   const [orgs, users, devicesRes, gateways, anomaliesRes] = await Promise.all([
-    fetchListTotal(emsApi.getOrganizations),
-    fetchListTotal(emsApi.getUsers),
-    emsApi.getDevices({ limit: 100 }),
-    fetchListTotal(emsApi.getGateways),
-    emsApi.getAnomalies({ limit: 100 }),
+    fetchListTotal(emsApi.getOrganizations).catch(() => 0),
+    fetchListTotal(emsApi.getUsers).catch(() => 0),
+    emsApi.getDevices({ limit: 100 }).catch(() => ({ data: [], total: 0 })),
+    fetchListTotal(emsApi.getGateways).catch(() => 0),
+    emsApi.getAnomalies({ limit: 100 }).catch(() => ({ data: [], total: 0 })),
   ])
   const devices = list(devicesRes).map(mapDevice)
   const anomalies = list(anomaliesRes)
@@ -37,9 +37,9 @@ export async function fetchAdminStats() {
 
 export async function fetchOrgStats() {
   const [devicesRes, gatewaysRes, anomaliesRes] = await Promise.all([
-    emsApi.getDevices({ limit: 100 }),
-    emsApi.getGateways({ limit: 100 }),
-    emsApi.getAnomalies({ limit: 50 }),
+    emsApi.getDevices({ limit: 100 }).catch(() => ({ data: [], total: 0 })),
+    emsApi.getGateways({ limit: 100 }).catch(() => ({ data: [], total: 0 })),
+    emsApi.getAnomalies({ limit: 50 }).catch(() => ({ data: [], total: 0 })),
   ])
   const devices = list(devicesRes).map(mapDevice)
   const online = devices.filter((d) => d.statusRaw === 'ONLINE').length
@@ -54,20 +54,21 @@ export async function fetchOrgStats() {
 }
 
 export async function fetchUserStats(user) {
+  // Soft-fail each call so one unauthorized endpoint cannot blank the whole dashboard.
   const [devicesRes, notifRes, anomaliesRes, subsRes] = await Promise.all([
-    emsApi.getDevices({ limit: 100 }),
-    emsApi.getNotifications({ limit: 30 }),
-    emsApi.getAnomalies({ limit: 50 }),
-    emsApi.getSubscriptions({ limit: 10 }),
+    emsApi.getDevices({ limit: 100 }).catch(() => ({ data: [], total: 0 })),
+    emsApi.getNotifications({ limit: 30 }).catch(() => ({ data: [], total: 0, unreadCount: 0 })),
+    emsApi.getAnomalies({ limit: 50 }).catch(() => ({ data: [], total: 0 })),
+    emsApi.getSubscriptions({ limit: 10 }).catch(() => ({ data: [] })),
   ])
   const devices = list(devicesRes)
   const notifications = list(notifRes)
   const anomalies = list(anomaliesRes)
-  const subscription = list(subsRes).find((s) => s.email === user?.email)
+  const subscription = list(subsRes).find((s) => s.email === user?.email) ?? list(subsRes)[0]
   return {
     assignedDevices: devicesRes?.total ?? devices.length,
     activeAlarms: anomalies.filter((a) => a.alarmState === 'ACTIVE').length,
-    notifications: notifRes?.total ?? notifications.filter((n) => !n.read).length,
+    notifications: notifRes?.unreadCount ?? notifications.filter((n) => !n.read).length,
     subscription: subscription?.status ?? '—',
     devices,
     notificationList: notifications,

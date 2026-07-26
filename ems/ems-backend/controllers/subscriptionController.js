@@ -19,13 +19,22 @@ const createSubscription = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
-// @desc  List all subscription requests; filterable by status
-// @access SUPER_ADMIN
+// @desc  List subscription requests
+// @access SUPER_ADMIN (all) | ORG_ADMIN (org + own email) | USER (own email)
 const getSubscriptions = async (req, res, next) => {
   try {
     const { page, limit, skip } = paginate(req.query)
     const where = {}
     if (req.query.status) where.status = req.query.status
+
+    if (req.user.role === 'USER') {
+      where.email = req.user.email
+    } else if (req.user.role === 'ORG_ADMIN') {
+      where.OR = [
+        { email: req.user.email },
+        ...(req.user.organizationId ? [{ organizationId: req.user.organizationId }] : []),
+      ]
+    }
 
     const [data, total] = await Promise.all([
       prisma.subscription.findMany({ where, skip, take: limit, orderBy: { submittedAt: 'desc' } }),
