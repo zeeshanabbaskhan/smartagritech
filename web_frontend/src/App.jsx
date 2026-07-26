@@ -58,24 +58,23 @@ import UserCurrentImbalance   from './pages/user/UserCurrentImbalance'
 import UserPowerFactor        from './pages/user/UserPowerFactor'
 import UserEnergyConsumption  from './pages/user/UserEnergyConsumption'
 import UserAnomalies          from './pages/user/UserAnomalies'
-import UserAccountSettings    from './pages/user/UserAccountSettings'
-import UserAlarmSettings      from './pages/user/UserAlarmSettings'
 
-import DashboardDetailPage    from './pages/shared/DashboardDetailPage'
-import SensorHistoryPage      from './pages/shared/SensorHistoryPage'
-import AlarmHistoryPage       from './pages/shared/AlarmHistoryPage'
 import DeviceDetailPage       from './pages/shared/DeviceDetailPage'
 import DashboardList          from './pages/shared/DashboardList'
 import DashboardEditor        from './pages/shared/DashboardEditor'
 
-import OrgUsers               from './pages/org/OrgUsers'
-import OrgWidgetTemplates     from './pages/org/OrgWidgetTemplates'
-import OrgDeviceTimestamps    from './pages/org/OrgDeviceTimestamps'
 import TemplateDetailPage     from './pages/shared/TemplateDetailPage'
 import AdminAccessGroups      from './pages/admin/AdminAccessGroups'
 import AdminDeviceGroups      from './pages/admin/AdminDeviceGroups'
 import OrgAccessGroups        from './pages/org/OrgAccessGroups'
 import OrgDeviceGroups        from './pages/org/OrgDeviceGroups'
+
+// Org AI Analytics
+import OrgVoltageImbalance    from './pages/org/analytics/OrgVoltageImbalance'
+import OrgCurrentImbalance    from './pages/org/analytics/OrgCurrentImbalance'
+import OrgPowerFactor         from './pages/org/analytics/OrgPowerFactor'
+import OrgEnergyConsumption   from './pages/org/analytics/OrgEnergyConsumption'
+import OrgAnomalies           from './pages/org/analytics/OrgAnomalies'
 
 function ProtectedRoute({ children, requiredRole }) {
   const { user } = useAuth()
@@ -119,13 +118,10 @@ function AppRoutes() {
         <Route path="icons"             element={<AdminManageIcons />} />
         <Route path="products"          element={<AdminProducts />} />
         <Route path="data-center"       element={<AdminDataCenter />} />
-        <Route path="dashboard-detail"  element={<DashboardDetailPage title="Dashboard Detail" breadcrumb="Admin / Dashboard Detail" />} />
         <Route path="custom-dashboard"  element={<DashboardList />} />
         <Route path="custom-dashboard/:id" element={<DashboardEditor />} />
-        <Route path="sensor-history"    element={<SensorHistoryPage title="Sensor History" breadcrumb="Admin / Sensor History" />} />
         <Route path="historical-data"   element={<AdminHistoricalData />} />
         <Route path="variable-alarms"   element={<AdminVariableAlarms />} />
-        <Route path="alarm-history"     element={<AlarmHistoryPage title="Alarm History" breadcrumb="Admin / Alarm History" />} />
         <Route path="linkage-records"   element={<AdminLinkageRecords />} />
         <Route path="template-triggers" element={<AdminTemplateTriggers />} />
         <Route path="alarm-settings"    element={<AdminAlarmSettings />} />
@@ -143,11 +139,8 @@ function AppRoutes() {
         </ProtectedRoute>
       }>
         <Route index                    element={<OrgDashboard />} />
-        <Route path="dashboard-detail"  element={<DashboardDetailPage title="Dashboard Detail" breadcrumb="Organization / Dashboard Detail" />} />
         <Route path="custom-dashboard"  element={<DashboardList />} />
         <Route path="custom-dashboard/:id" element={<DashboardEditor />} />
-        <Route path="users"             element={<OrgUsers />} />
-        <Route path="widget-templates"  element={<OrgWidgetTemplates />} />
         <Route path="devices"           element={<OrgDevices />} />
         <Route path="devices/:deviceId" element={<DeviceDetailPage basePath="/org" />} />
         <Route path="access-groups"     element={<OrgAccessGroups />} />
@@ -155,13 +148,16 @@ function AppRoutes() {
         <Route path="gateways"          element={<OrgGateways />} />
         <Route path="device-templates"  element={<OrgDeviceTemplates />} />
         <Route path="device-templates/:templateId" element={<TemplateDetailPage basePath="/org" />} />
-        <Route path="sensor-history"    element={<SensorHistoryPage title="Sensor History" breadcrumb="Organization / Sensor History" />} />
+        <Route path="ai-analytics"      element={<Navigate to="/org/ai-analytics/voltage-imbalance" replace />} />
+        <Route path="ai-analytics/voltage-imbalance"  element={<OrgVoltageImbalance />} />
+        <Route path="ai-analytics/current-imbalance"  element={<OrgCurrentImbalance />} />
+        <Route path="ai-analytics/power-factor"       element={<OrgPowerFactor />} />
+        <Route path="ai-analytics/energy-consumption" element={<OrgEnergyConsumption />} />
+        <Route path="ai-analytics/anomalies"          element={<OrgAnomalies />} />
         <Route path="historical-data"   element={<OrgHistoricalData />} />
-        <Route path="device-timestamps" element={<OrgDeviceTimestamps />} />
         <Route path="template-triggers" element={<OrgTemplateTriggers />} />
         <Route path="alarm-settings"    element={<OrgAlarmSettings />} />
         <Route path="alarm-contacts"    element={<OrgAlarmContacts />} />
-        <Route path="alarm-history"     element={<AlarmHistoryPage title="Alarm History" breadcrumb="Organization / Alarm History" />} />
         <Route path="schedule-tasks"    element={<OrgScheduleTasks />} />
         <Route path="settings"          element={<OrgSettings />} />
       </Route>
@@ -173,20 +169,15 @@ function AppRoutes() {
         </ProtectedRoute>
       }>
         <Route index                     element={<UserDashboard />} />
-        <Route path="dashboard-detail"  element={<DashboardDetailPage title="Dashboard Detail" breadcrumb="User / Dashboard Detail" />} />
         <Route path="custom-dashboard"  element={<DashboardList />} />
         <Route path="custom-dashboard/:id" element={<DashboardEditor />} />
-        <Route path="account"           element={<UserAccountSettings />} />
         <Route path="notifications"      element={<UserNotifications />} />
         <Route path="subscription"       element={<UserSubscription />} />
         <Route path="products"           element={<UserProducts />} />
         <Route path="schedule"           element={<UserSchedule />} />
         <Route path="slab-rates"         element={<UserSlabRates />} />
         <Route path="interval-history"   element={<UserIntervalHistory />} />
-        <Route path="sensor-history"     element={<SensorHistoryPage title="Sensor History" breadcrumb="User / Sensor History" />} />
         <Route path="alarm-template"     element={<UserAlarmTemplate />} />
-        <Route path="alarm-settings"     element={<UserAlarmSettings />} />
-        <Route path="alarm-history"      element={<AlarmHistoryPage title="Alarm History" breadcrumb="User / Alarm History" />} />
         <Route path="ai-analytics"       element={<UserAIAnalytics />} />
         <Route path="voltage-imbalance"  element={<UserVoltageImbalance />} />
         <Route path="current-imbalance"  element={<UserCurrentImbalance />} />
