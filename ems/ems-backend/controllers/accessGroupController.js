@@ -5,22 +5,57 @@ const { orgScope, paginate } = require('../utils/helpers')
 const includeMembers = {
   devices: { include: { device: { select: { id: true, name: true, status: true } } } },
   users: { include: { user: { select: { id: true, fullName: true, email: true, role: true } } } },
+  creator: { select: { id: true, fullName: true, role: true } },
   _count: { select: { devices: true, users: true } },
 }
 
 function mapGroup(g) {
+  const { creator, devices, users, ...rest } = g
   return {
-    ...g,
-    deviceIds: (g.devices || []).map((d) => d.deviceId),
-    userIds: (g.users || []).map((u) => u.userId),
-    devices: (g.devices || []).map((d) => d.device),
-    users: (g.users || []).map((u) => u.user),
+    ...rest,
+    deviceIds: (devices || []).map((d) => d.deviceId),
+    userIds: (users || []).map((u) => u.userId),
+    devices: (devices || []).map((d) => d.device),
+    users: (users || []).map((u) => u.user),
+    createdByRole: creator?.role || null,
+    createdByName: creator?.fullName || null,
   }
 }
 
 const resolveOrgId = (req, bodyOrgId) => {
   if (req.user.role === 'SUPER_ADMIN') return bodyOrgId || req.query.organizationId
   return req.user.organizationId
+}
+
+/** Ensure member devices/users belong to the target organization. */
+async function assertMembersInOrg(orgId, deviceIds = [], userIds = []) {
+  const uniqueDevices = [...new Set((deviceIds || []).filter(Boolean))]
+  const uniqueUsers = [...new Set((userIds || []).filter(Boolean))]
+
+  if (uniqueDevices.length) {
+    const count = await prisma.device.count({
+      where: { organizationId: orgId, id: { in: uniqueDevices } },
+    })
+    if (count !== uniqueDevices.length) {
+      throw new AppError('One or more devices do not belong to this organization', 400)
+    }
+  }
+
+  if (uniqueUsers.length) {
+    const count = await prisma.user.count({
+      where: {
+        organizationId: orgId,
+        id: { in: uniqueUsers },
+        status: { not: 'DELETED' },
+        role: { not: 'SUPER_ADMIN' },
+      },
+    })
+    if (count !== uniqueUsers.length) {
+      throw new AppError('One or more users do not belong to this organization', 400)
+    }
+  }
+
+  return { deviceIds: uniqueDevices, userIds: uniqueUsers }
 }
 
 const listAccessGroups = async (req, res, next) => {
@@ -48,16 +83,18 @@ const createAccessGroup = async (req, res, next) => {
     if (!orgId) return next(new AppError('organizationId is required', 400))
     if (!name?.trim()) return next(new AppError('name is required', 400))
 
+    const members = await assertMembersInOrg(orgId, deviceIds, userIds)
+
     const data = await prisma.accessGroup.create({
       data: {
         name: name.trim(),
         organizationId: orgId,
         createdBy: req.user.id,
         devices: {
-          create: deviceIds.map((deviceId) => ({ deviceId })),
+          create: members.deviceIds.map((deviceId) => ({ deviceId })),
         },
         users: {
-          create: userIds.map((userId) => ({ userId })),
+          create: members.userIds.map((userId) => ({ userId })),
         },
       },
       include: includeMembers,
@@ -73,12 +110,21 @@ const updateAccessGroup = async (req, res, next) => {
     if (!existing) return next(new AppError('Access group not found', 404))
 
     const { name, deviceIds, userIds } = req.body
+    if (Array.isArray(deviceIds) || Array.isArray(userIds)) {
+      await assertMembersInOrg(
+        existing.organizationId,
+        Array.isArray(deviceIds) ? deviceIds : [],
+        Array.isArray(userIds) ? userIds : [],
+      )
+    }
+
     const data = await prisma.$transaction(async (tx) => {
       if (Array.isArray(deviceIds)) {
         await tx.accessGroupDevice.deleteMany({ where: { accessGroupId: existing.id } })
         if (deviceIds.length) {
           await tx.accessGroupDevice.createMany({
-            data: deviceIds.map((deviceId) => ({ accessGroupId: existing.id, deviceId })),
+            data: [...new Set(deviceIds.filter(Boolean))].map((deviceId) => ({ accessGroupId: existing.id, deviceId })),
+            skipDuplicates: true,
           })
         }
       }
@@ -86,7 +132,8 @@ const updateAccessGroup = async (req, res, next) => {
         await tx.accessGroupUser.deleteMany({ where: { accessGroupId: existing.id } })
         if (userIds.length) {
           await tx.accessGroupUser.createMany({
-            data: userIds.map((userId) => ({ accessGroupId: existing.id, userId })),
+            data: [...new Set(userIds.filter(Boolean))].map((userId) => ({ accessGroupId: existing.id, userId })),
+            skipDuplicates: true,
           })
         }
       }
