@@ -410,6 +410,25 @@ export const mergeVoltageChart = (chartData) => {
   }))
 }
 
+export const mergeCurrentChart = (chartData) => {
+  const len = Math.max(
+    chartData?.currentA?.length ?? 0,
+    chartData?.currentB?.length ?? 0,
+    chartData?.currentC?.length ?? 0,
+  )
+  const src = chartData?.currentA?.length ? chartData.currentA
+    : chartData?.currentB?.length ? chartData.currentB
+      : chartData?.currentC
+  return Array.from({ length: len }, (_, i) => ({
+    time: src?.[i]?.timestamp
+      ? new Date(src[i].timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : String(i),
+    currentA: chartData.currentA?.[i]?.value,
+    currentB: chartData.currentB?.[i]?.value,
+    currentC: chartData.currentC?.[i]?.value,
+  }))
+}
+
 export const VAR_API_NAMES = {
   voltageA: 'VoltageA',
   voltageB: 'VoltageB',
