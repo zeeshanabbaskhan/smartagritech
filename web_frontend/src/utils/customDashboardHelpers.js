@@ -44,33 +44,37 @@ export function layoutForWidgets(widgets) {
   })
 }
 
-export function buildFromTemplate(templateId, name, targetDeviceId = null) {
+export function buildFromTemplate(templateId, name, targetDeviceId = null, { visibility = 'PRIVATE' } = {}) {
   const template = DASHBOARD_TEMPLATES.find((t) => t.id === templateId) || DASHBOARD_TEMPLATES[0]
   const widgets = template.widgets.map((w) => makeWidget(w))
   return {
     name: name || template.name,
     description: template.description,
     targetDeviceId: targetDeviceId || null,
-    visibility: 'PRIVATE',
+    visibility: visibility === 'SHARED' || visibility === 'shared' ? 'SHARED' : 'PRIVATE',
     context: {
       level: 'organization',
       buildingId: null,
       floorId: null,
       departmentId: null,
       timeRange: 'today',
-      favorite: false,
+      favorites: {},
     },
     widgets,
     layout: layoutForWidgets(widgets),
   }
 }
 
-/** Normalize API dashboard for UI. */
-export function mapDashboard(d) {
+/** Normalize API dashboard for UI. Pass viewerUserId for per-user favorite state. */
+export function mapDashboard(d, viewerUserId = null) {
   if (!d) return null
   const context = typeof d.context === 'object' && d.context ? d.context : {}
   const widgets = Array.isArray(d.widgets) ? d.widgets : []
   const layout = Array.isArray(d.layout) ? d.layout : []
+  const favorites = context.favorites && typeof context.favorites === 'object' ? context.favorites : {}
+  const favorite = viewerUserId
+    ? !!favorites[viewerUserId]
+    : !!context.favorite
   return {
     id: d.id,
     name: d.name,
@@ -83,8 +87,9 @@ export function mapDashboard(d) {
       floorId: null,
       departmentId: null,
       timeRange: 'today',
-      favorite: false,
+      favorites: {},
       ...context,
+      favorites: { ...favorites },
     },
     widgets,
     layout,
@@ -94,11 +99,22 @@ export function mapDashboard(d) {
     ownerUserId: d.ownerUserId,
     ownerEmail: d.owner?.email,
     ownerName: d.owner?.fullName,
-    favorite: !!context.favorite,
+    favorite,
     createdAt: d.createdAt,
     updatedAt: d.updatedAt,
     _raw: d,
   }
+}
+
+/** Build context patch that toggles favorite for one user without clobbering others. */
+export function toggleFavoriteContext(context = {}, userId, nextValue) {
+  const favorites = {
+    ...(context.favorites && typeof context.favorites === 'object' ? context.favorites : {}),
+  }
+  if (nextValue) favorites[userId] = true
+  else delete favorites[userId]
+  const { favorite: _legacy, ...rest } = context
+  return { ...rest, favorites }
 }
 
 export function toApiVisibility(v) {
