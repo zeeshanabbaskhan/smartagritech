@@ -1,0 +1,6 @@
+2026-07-26 15:35:19,859 [INFO] Connecting to MQTT broker at localhost:1883
+2026-07-26 15:35:23,935 [CRITICAL] Critical failure connecting to broker: [WinError 10061] No connection could be made because the target machine actively refused it
+2026-07-26 15:45:49,584 [INFO] Connecting to MQTT broker at localhost:1883
+2026-07-26 15:45:53,621 [CRITICAL] Critical failure connecting to broker: [WinError 10061] No connection could be made because the target machine actively refused it
+2026-07-26 16:43:09,054 [INFO] Connecting to MQTT broker at localhost:1883
+2026-07-26 16:43:13,123 [CRITICAL] Critical failure connecting to broker: [WinError 10061] No connection could be made because the target machine actively refused it
