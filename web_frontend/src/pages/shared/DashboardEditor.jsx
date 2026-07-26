@@ -11,7 +11,7 @@ import { useToast } from '../../context/ToastContext'
 import emsApi, { list, one } from '../../api/emsApi'
 import { mapDevice, mapOrganization } from '../../utils/mappers'
 import { mapTreeFromApi, scopeLabel } from '../../data/facilitiesHierarchy'
-import { mapDashboard, makeWidget, toApiVisibility } from '../../utils/customDashboardHelpers'
+import { mapDashboard, makeWidget, toApiVisibility, toggleFavoriteContext } from '../../utils/customDashboardHelpers'
 
 const GridCanvas = lazy(() => import('../../components/dashboard-builder/GridCanvas'))
 
@@ -40,7 +40,7 @@ export default function DashboardEditor() {
 
   const { data, loading, error, reload } = useFetch(async () => {
     const res = await emsApi.getCustomDashboard(id)
-    const mapped = mapDashboard(one(res))
+    const mapped = mapDashboard(one(res), user?.id)
     const orgId = mapped.organizationId || user?.organizationId
 
     const [orgsRes, facRes, devRes] = await Promise.all([
@@ -92,7 +92,7 @@ export default function DashboardEditor() {
       const body = { ...patch }
       if (body.visibility) body.visibility = toApiVisibility(body.visibility)
       const res = await emsApi.updateCustomDashboard(dashboard.id, body)
-      const mapped = mapDashboard(one(res))
+      const mapped = mapDashboard(one(res), user?.id)
       if (mapped.targetDeviceId) {
         const d = devices.find((x) => x.id === mapped.targetDeviceId)
         if (d) mapped.targetDevice = d.name
@@ -101,7 +101,7 @@ export default function DashboardEditor() {
     } catch (e) {
       showToast(e.message || 'Save failed', 'error')
     }
-  }, [dashboard, devices, showToast])
+  }, [dashboard, devices, showToast, user?.id])
 
   const canEditDash = (dash) => {
     if (!user || !dash) return false
@@ -132,19 +132,30 @@ export default function DashboardEditor() {
     }
   }
 
-  async function handleDuplicate() {
+  async function handleDuplicate(asOwnerCopy = false) {
     try {
+      // When making a copy of a dashboard shared by someone else, scope the new
+      // dashboard to the current user's own organization (backend assigns
+      // ownership to the creator). A plain copy keeps the source org.
+      const ownOrgId = user?.organizationId || data.orgId
+      const organizationId = asOwnerCopy
+        ? (ownOrgId || dashboard.organizationId || data.orgId)
+        : (dashboard.organizationId || data.orgId)
       const res = await emsApi.createCustomDashboard({
         name: `${dashboard.name} (Copy)`,
         description: dashboard.description,
         visibility: 'PRIVATE',
-        context: { ...dashboard.context, favorite: false },
+        context: toggleFavoriteContext(
+          { ...dashboard.context, favorites: {} },
+          user?.id,
+          false,
+        ),
         layout: dashboard.layout,
         widgets: dashboard.widgets,
         targetDeviceId: dashboard.targetDeviceId,
-        organizationId: dashboard.organizationId || data.orgId,
+        organizationId,
       })
-      showToast('Dashboard duplicated', 'success')
+      showToast(asOwnerCopy ? 'Copied to your dashboards' : 'Dashboard duplicated', 'success')
       navigate(`${basePath}/${one(res).id}`)
     } catch (e) {
       showToast(e.message || 'Duplicate failed', 'error')
@@ -219,9 +230,12 @@ export default function DashboardEditor() {
         onToggleShare={() => persist({
           visibility: dashboard.visibility === 'shared' ? 'private' : 'shared',
         })}
-        onToggleFavorite={() => persist({
-          context: { ...dashboard.context, favorite: !dashboard.favorite },
-        })}
+        onToggleFavorite={() => {
+          if (!user?.id) return
+          persist({
+            context: toggleFavoriteContext(dashboard.context, user.id, !dashboard.favorite),
+          })
+        }}
         isManager={isManager}
       />
 
