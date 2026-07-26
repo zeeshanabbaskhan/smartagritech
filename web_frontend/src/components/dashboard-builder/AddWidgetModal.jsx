@@ -222,11 +222,7 @@ export default function AddWidgetModal({ open, onClose, onAdd, devices = [] }) {
                   key={p.value}
                   type="button"
                   onClick={() => setPollInterval(p.value)}
-                  className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border transition-colors ${
-                    pollInterval === p.value
-                      ? 'bg-primary-500 text-white border-primary-500'
-                      : 'border-surface-300 text-surface-600 hover:border-primary-400'
-                  }`}
+                  className={pollInterval === p.value ? 'filter-chip-active !text-[11px] !px-2.5 !py-1' : 'filter-chip !text-[11px] !px-2.5 !py-1'}
                 >
                   {p.value}
                 </button>

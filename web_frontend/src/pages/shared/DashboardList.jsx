@@ -197,9 +197,7 @@ export default function DashboardList() {
                 key={f.key}
                 type="button"
                 onClick={() => setFilter(f.key)}
-                className={`px-3 py-1.5 rounded-full text-xs font-bold transition-colors ${
-                  filter === f.key ? 'bg-primary-500 text-white' : 'bg-surface-100 text-surface-600 hover:bg-surface-200'
-                }`}
+                className={filter === f.key ? 'filter-chip-active' : 'filter-chip'}
               >
                 {f.label}
               </button>
@@ -209,13 +207,13 @@ export default function DashboardList() {
 
         {filtered.length === 0 && (
           <div className="card flex flex-col items-center justify-center py-24 text-center border-dashed">
-            <LayoutTemplate size={32} className="text-surface-300 mb-3" />
-            <p className="text-sm font-bold text-surface-700">
+            <LayoutTemplate size={32} className="text-surface-500 dark:text-surface-400 mb-3" />
+            <p className="text-sm font-bold text-surface-800 dark:text-surface-100">
               {dashboards.length === 0 ? 'No custom dashboards yet' : 'No dashboards match your search'}
             </p>
             {dashboards.length === 0 && (
               <>
-                <p className="text-xs text-surface-400 mt-1 mb-4 max-w-sm">
+                <p className="text-xs text-surface-600 dark:text-surface-400 mt-1 mb-4 max-w-sm">
                   {ROLE_EMPTY_COPY[user?.role] || ROLE_EMPTY_COPY.user}
                 </p>
                 <button type="button" className="btn-primary text-sm" onClick={() => setNewOpen(true)}>

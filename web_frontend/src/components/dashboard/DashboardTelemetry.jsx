@@ -146,7 +146,7 @@ export default function DashboardTelemetry({
       <div className="space-y-3">
         {showAccessFilter && (
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[10px] font-black text-surface-400 uppercase tracking-widest flex-shrink-0">Filter KPIs:</span>
+            <span className="text-[10px] font-black text-surface-600 dark:text-surface-400 uppercase tracking-widest flex-shrink-0">Filter KPIs:</span>
             <div className="relative" ref={filterRef}>
               <button
                 type="button"
@@ -207,7 +207,7 @@ export default function DashboardTelemetry({
                 className="card p-4 text-left hover:shadow-elevated hover:border-primary-200 dark:hover:border-primary-800 transition-all duration-200 cursor-pointer group border border-surface-200 dark:border-surface-800 w-full"
               >
                 <div className="flex items-start justify-between mb-2">
-                  <span className="text-[10px] font-black text-surface-400 uppercase tracking-wider leading-tight">{label}</span>
+                  <span className="text-[10px] font-black text-surface-600 dark:text-surface-400 uppercase tracking-wider leading-tight">{label}</span>
                   <Icon size={13} style={{ color }} className="flex-shrink-0 mt-0.5" />
                 </div>
                 <div className="flex items-baseline gap-1">
@@ -277,7 +277,7 @@ export default function DashboardTelemetry({
                         {offline ? 'Offline' : 'Online'}
                       </span>
                       <label className="flex items-center gap-1.5 cursor-pointer">
-                        <span className="text-[10px] text-surface-400 font-black uppercase select-none">Control Switch</span>
+                        <span className="text-[10px] text-surface-600 dark:text-surface-400 font-black uppercase select-none">Control Switch</span>
                         <button
                           type="button"
                           onClick={() => handleToggleSwitch(d)}

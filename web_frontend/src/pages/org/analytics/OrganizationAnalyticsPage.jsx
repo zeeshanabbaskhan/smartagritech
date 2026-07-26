@@ -54,7 +54,7 @@ function Gauge({ value, scope }) {
   return (
     <div className="card p-6">
       <h3 className="text-sm font-semibold text-surface-800 text-center mb-1">Current Power Factor</h3>
-      <p className="text-xs text-surface-400 text-center mb-4">{scope} · threshold 0.85</p>
+      <p className="text-xs text-surface-600 dark:text-surface-400 text-center mb-4">{scope} · threshold 0.85</p>
       <svg viewBox="0 0 200 110" className="w-full max-w-xs mx-auto">
         <path d="M 30 90 A 70 70 0 0 1 170 90" fill="none" stroke="#ECEEE6" strokeWidth="14" strokeLinecap="round" />
         <path d={`M 30 90 A 70 70 0 ${pct > 0.5 ? 1 : 0} 1 ${30 + pct * 140} ${90 - Math.sin(pct * Math.PI) * 70}`} fill="none" stroke={color} strokeWidth="14" strokeLinecap="round" />
@@ -72,7 +72,7 @@ function MetricCard({ label, value, color = 'text-primary-600' }) {
   return (
     <div className="card p-4 text-center">
       <p className={`text-2xl font-bold ${color}`}>{value}</p>
-      <p className="text-xs text-surface-400 mt-1">{label}</p>
+      <p className="text-xs text-surface-600 dark:text-surface-400 mt-1">{label}</p>
     </div>
   )
 }
@@ -322,9 +322,9 @@ export default function OrganizationAnalyticsPage({ type }) {
       <PageState loading={loading} error={error} onRetry={reload}>
         {filteredRows.length === 0 && (data?.chartData ?? []).length === 0 ? (
           <div className="card p-10 text-center">
-            <div className="w-14 h-14 rounded-full bg-surface-100 text-surface-400 flex items-center justify-center mx-auto mb-4"><BarChart3 size={26} /></div>
-            <h3 className="text-sm font-semibold text-surface-900">No analytics found</h3>
-            <p className="text-xs text-surface-400 mt-2 max-w-xl mx-auto">No data for the selected device and period. Try a different device or time range.</p>
+            <div className="w-14 h-14 rounded-full bg-surface-200 dark:bg-surface-800 text-surface-600 dark:text-surface-300 flex items-center justify-center mx-auto mb-4"><BarChart3 size={26} /></div>
+            <h3 className="text-sm font-semibold text-surface-900 dark:text-surface-100">No analytics found</h3>
+            <p className="text-xs text-surface-600 dark:text-surface-400 mt-2 max-w-xl mx-auto">No data for the selected device and period. Try a different device or time range.</p>
             <div className="mt-5 flex items-center justify-center gap-3">
               <button className="btn-secondary" onClick={() => { setSearch(''); setTimeRange('7d'); reload() }}><RotateCcw size={14} /> Reset Filters</button>
             </div>

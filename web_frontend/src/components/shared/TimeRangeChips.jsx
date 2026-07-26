@@ -13,11 +13,7 @@ export default function TimeRangeChips({ value, onChange }) {
           key={r.id}
           type="button"
           onClick={() => onChange(r.id)}
-          className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border transition-colors ${
-            value === r.id
-              ? 'bg-primary-500 border-primary-500 text-surface-950'
-              : 'border-surface-200 dark:border-surface-700 text-surface-500 hover:border-primary-500/50'
-          }`}
+          className={`${value === r.id ? 'filter-chip-active' : 'filter-chip'} !py-1 !text-[10px] uppercase tracking-wider`}
         >
           {r.label}
         </button>

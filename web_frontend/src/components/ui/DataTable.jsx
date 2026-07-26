@@ -147,11 +147,11 @@ export default function DataTable({
                   className="text-center py-16 text-surface-500"
                 >
                   <div className="flex flex-col items-center justify-center">
-                    <div className="w-16 h-16 bg-surface-100 dark:bg-surface-950 rounded-full flex items-center justify-center mb-4 text-surface-400 dark:text-surface-600">
+                    <div className="w-16 h-16 bg-surface-200 dark:bg-surface-800 rounded-full flex items-center justify-center mb-4 text-surface-600 dark:text-surface-300">
                       <Inbox size={28} />
                     </div>
                     <h4 className="text-sm font-semibold text-surface-900 dark:text-surface-100 mb-1">{emptyMessage}</h4>
-                    <p className="text-xs text-surface-400 dark:text-surface-500">Try adjusting your search or filters.</p>
+                    <p className="text-xs text-surface-600 dark:text-surface-400">Try adjusting your search or filters.</p>
                   </div>
                 </td>
               </tr>
@@ -202,15 +202,11 @@ export default function DataTable({
                 const showEllipsis = prev && p - prev > 1
                 return (
                   <div key={p} className="flex items-center">
-                    {showEllipsis && <span className="px-2 text-xs text-surface-400">...</span>}
+                    {showEllipsis && <span className="px-2 text-xs text-surface-500 dark:text-surface-400">...</span>}
                     <button
                       type="button"
                       onClick={() => setPage(p)}
-                      className={`px-2.5 py-1 rounded text-xs font-semibold transition-colors ${
-                        p === page
-                          ? 'bg-primary-500 text-surface-950 font-bold'
-                          : 'text-surface-500 hover:bg-surface-100'
-                      }`}
+                      className={p === page ? 'filter-chip-active !px-2.5 !py-1' : 'filter-chip !px-2.5 !py-1'}
                     >
                       {p}
                     </button>

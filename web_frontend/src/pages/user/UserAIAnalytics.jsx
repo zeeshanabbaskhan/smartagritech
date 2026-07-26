@@ -99,7 +99,7 @@ export default function UserAIAnalytics() {
                   <div className={`w-7 h-7 rounded-full flex-shrink-0 flex items-center justify-center ${msg.role === 'assistant' ? 'bg-primary-600/20' : 'bg-surface-700'}`}>
                     {msg.role === 'assistant' ? <Bot size={13} className="text-primary-600" /> : <User size={13} className="text-surface-700" />}
                   </div>
-                  <div className={`max-w-[80%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${msg.role === 'assistant' ? 'bg-surface-100 text-surface-800 rounded-tl-sm' : 'bg-primary-500/10 text-surface-900 border border-primary-500/20 rounded-tr-sm'}`}>
+                  <div className={`max-w-[80%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${msg.role === 'assistant' ? 'bg-surface-200 dark:bg-surface-800 text-surface-900 dark:text-surface-100 rounded-tl-sm' : 'bg-primary-500/10 text-surface-900 dark:text-surface-100 border border-primary-500/20 rounded-tr-sm'}`}>
                     {msg.text}
                   </div>
                 </div>

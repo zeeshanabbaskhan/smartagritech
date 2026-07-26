@@ -350,7 +350,7 @@ export default function Topbar({ title, onMenuClick }) {
             onFocus={() => { setSearchOpen(true); setDropOpen(false); setNotifOpen(false); }}
             ref={searchInputRef}
           />
-          <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[9px] font-bold text-surface-400 dark:text-surface-500 bg-surface-100 dark:bg-surface-900 px-1.5 py-0.5 rounded border border-surface-200 dark:border-surface-800 pointer-events-none">
+          <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[9px] font-bold text-surface-700 dark:text-surface-200 bg-surface-200 dark:bg-surface-800 px-1.5 py-0.5 rounded border border-surface-300 dark:border-surface-700 pointer-events-none">
             Ctrl+K
           </span>
 
@@ -364,11 +364,7 @@ export default function Topbar({ title, onMenuClick }) {
                     key={tab}
                     type="button"
                     onClick={() => setSearchTab(tab)}
-                    className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider transition-colors whitespace-nowrap ${
-                      searchTab === tab
-                        ? 'bg-primary-500 text-white shadow-sm'
-                        : 'bg-surface-100 dark:bg-surface-800 text-surface-500 hover:bg-surface-200 dark:hover:bg-surface-700'
-                    }`}
+                    className={searchTab === tab ? 'filter-chip-active !px-2.5 !py-1 !text-[10px] uppercase tracking-wider' : 'filter-chip !px-2.5 !py-1 !text-[10px] uppercase tracking-wider'}
                   >
                     {tab}
                   </button>
@@ -396,7 +392,7 @@ export default function Topbar({ title, onMenuClick }) {
                           className="w-full text-left px-3 py-1.5 text-xs text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-800 hover:text-surface-950 dark:hover:text-surface-100 rounded-lg font-medium flex items-center justify-between cursor-pointer"
                         >
                           <span>{highlightMatch(r.title, query)}</span>
-                          <span className="text-[9px] text-surface-400 bg-surface-100 dark:bg-surface-800 dark:text-surface-500 px-1 py-0.5 rounded uppercase font-semibold scale-90">Go</span>
+                          <span className="text-[9px] text-surface-700 dark:text-surface-200 bg-surface-200 dark:bg-surface-700 px-1 py-0.5 rounded uppercase font-semibold scale-90">Go</span>
                         </button>
                       ))}
                     </div>
@@ -605,7 +601,7 @@ export default function Topbar({ title, onMenuClick }) {
                       className="w-full text-left px-3 py-1.5 text-xs text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-800 hover:text-surface-950 dark:hover:text-surface-100 rounded-lg font-medium flex items-center justify-between cursor-pointer"
                     >
                       <span>{highlightMatch(r.title, query)}</span>
-                      <span className="text-[9px] text-surface-400 bg-surface-100 dark:bg-surface-800 dark:text-surface-500 px-1 py-0.5 rounded uppercase font-semibold">Go</span>
+                      <span className="text-[9px] text-surface-700 dark:text-surface-200 bg-surface-200 dark:bg-surface-700 px-1 py-0.5 rounded uppercase font-semibold">Go</span>
                     </button>
                   ))}
                 </div>

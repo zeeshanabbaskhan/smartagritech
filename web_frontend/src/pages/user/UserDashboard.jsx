@@ -101,10 +101,14 @@ export default function UserDashboard() {
                     : 'Select a device with ingested data'}
                 </p>
               </div>
-              <div className="flex bg-surface-100 p-0.5 rounded-lg border border-surface-200">
+              <div className="flex bg-surface-200 dark:bg-surface-800 p-0.5 rounded-lg border border-surface-300 dark:border-surface-600">
                 {['Today', 'Week', 'Month'].map((tab) => (
                   <button key={tab} type="button" onClick={() => setActiveTab(tab)}
-                    className={`px-3 py-1 text-xs font-bold rounded-md transition-colors ${activeTab === tab ? 'bg-white text-surface-900 shadow-sm border border-surface-200/50' : 'text-surface-500 hover:text-surface-800'}`}>
+                    className={`px-3 py-1 text-xs font-bold rounded-md transition-colors ${
+                      activeTab === tab
+                        ? 'bg-white dark:bg-surface-700 text-surface-900 dark:text-surface-50 shadow-sm border border-surface-300 dark:border-surface-500'
+                        : 'text-surface-700 dark:text-surface-200 hover:text-surface-900 dark:hover:text-surface-50'
+                    }`}>
                     {tab}
                   </button>
                 ))}
