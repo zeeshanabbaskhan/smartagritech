@@ -25,6 +25,14 @@ export function useFetch(fetcher, deps = []) {
   return { data, loading, error, reload, setData }
 }
 
+export function ChartEmpty({ height = 260, message = 'No readings for the selected period' }) {
+  return (
+    <div className="flex items-center justify-center text-xs text-surface-500 inset-panel" style={{ height }}>
+      {message}
+    </div>
+  )
+}
+
 export default function PageState({ loading, error, onRetry, children, empty, emptyMessage = 'No records found' }) {
   if (loading) {
     return (

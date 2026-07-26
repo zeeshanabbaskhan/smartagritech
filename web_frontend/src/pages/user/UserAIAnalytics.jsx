@@ -12,14 +12,14 @@ export default function UserAIAnalytics() {
   const { selectedDeviceId, selectedSlaveId } = useDevices()
   const { data: summary, loading, reload } = useFetch(async () => {
     const deviceId = selectedDeviceId
-    const demoStats = [
-      { label: 'Monthly Energy', value: '12,450 kWh', icon: Zap, color: 'text-primary-600' },
-      { label: 'Peak Demand', value: '24.3 kW', icon: TrendingUp, color: 'text-primary-600' },
-      { label: 'Avg Power Factor', value: '0.92', icon: Activity, color: 'text-success-600' },
-      { label: 'Active Anomalies', value: '2', icon: AlertTriangle, color: 'text-danger-600' },
+    const emptyStats = [
+      { label: 'Monthly Energy', value: '—', icon: Zap, color: 'text-primary-600' },
+      { label: 'Peak Demand', value: '—', icon: TrendingUp, color: 'text-primary-600' },
+      { label: 'Avg Power Factor', value: '—', icon: Activity, color: 'text-success-600' },
+      { label: 'Active Anomalies', value: '—', icon: AlertTriangle, color: 'text-danger-600' },
     ]
     if (!deviceId) {
-      return { stats: demoStats, deviceId: null, isDemo: true, monthlyKwh: 12450, peakKw: 24.3, avgPf: 0.92, activeAnoms: 2, predCount: 0 }
+      return { stats: emptyStats, deviceId: null, monthlyKwh: null, peakKw: 0, avgPf: null, activeAnoms: 0, predCount: 0 }
     }
     try {
       const q = { deviceId, slaveId: selectedSlaveId || undefined, timeRange: '30d' }
@@ -38,18 +38,15 @@ export default function UserAIAnalytics() {
       const activeAnoms = anomalies.filter((a) => a.status === 'Active').length
       const predictions = predRes?.data?.predictions ?? predRes?.data ?? []
       const predCount = Array.isArray(predictions) ? predictions.length : 0
-      const hasLive = monthlyKwh != null || peakKw > 0 || avgPf != null
-      const stats = hasLive ? [
+      const stats = [
         { label: 'Monthly Energy', value: monthlyKwh != null ? `${Number(monthlyKwh).toLocaleString()} units` : '—', icon: Zap, color: 'text-primary-600' },
         { label: 'Peak Demand', value: peakKw > 0 ? `${Number(peakKw).toFixed(1)} kW` : '—', icon: TrendingUp, color: 'text-primary-600' },
         { label: 'Avg Power Factor', value: avgPf != null ? Number(avgPf).toFixed(2) : '—', icon: Activity, color: 'text-success-600' },
         { label: 'Active Anomalies', value: String(activeAnoms), icon: AlertTriangle, color: 'text-danger-600' },
-      ] : demoStats
-      return {
-        stats, deviceId, isDemo: !hasLive, monthlyKwh, peakKw, avgPf, activeAnoms, predCount, anomalies,
-      }
+      ]
+      return { stats, deviceId, monthlyKwh, peakKw, avgPf, activeAnoms, predCount, anomalies }
     } catch {
-      return { stats: demoStats, deviceId, isDemo: true, monthlyKwh: 12450, peakKw: 24.3, avgPf: 0.92, activeAnoms: 2, predCount: 0 }
+      return { stats: emptyStats, deviceId, monthlyKwh: null, peakKw: 0, avgPf: null, activeAnoms: 0, predCount: 0 }
     }
   }, [selectedDeviceId, selectedSlaveId])
 
@@ -64,25 +61,25 @@ export default function UserAIAnalytics() {
 
   const buildReply = (msg, snap) => {
     const q = msg.toLowerCase()
-    const demoNote = snap?.isDemo ? ' (sample preview until live readings are available)' : ''
+    if (!snap?.deviceId) return 'Select a device first so I can load its telemetry.'
     if (q.includes('peak') || q.includes('demand')) {
       return snap.peakKw > 0
-        ? `Peak measured demand is ${Number(snap.peakKw).toFixed(1)} kW over the last 30 days${demoNote}.`
+        ? `Peak measured demand is ${Number(snap.peakKw).toFixed(1)} kW over the last 30 days.`
         : 'No peak demand readings are available yet.'
     }
     if (q.includes('anomal')) {
       return snap.activeAnoms > 0
-        ? `There ${snap.activeAnoms === 1 ? 'is' : 'are'} ${snap.activeAnoms} active anomal${snap.activeAnoms === 1 ? 'y' : 'ies'}${demoNote}.`
+        ? `There ${snap.activeAnoms === 1 ? 'is' : 'are'} ${snap.activeAnoms} active anomal${snap.activeAnoms === 1 ? 'y' : 'ies'}.`
         : 'No active anomalies are recorded right now.'
     }
     if (q.includes('power factor') || q.includes('pf')) {
       return snap.avgPf != null
-        ? `The latest power factor reading is ${Number(snap.avgPf).toFixed(2)}${demoNote}.`
+        ? `The latest power factor reading is ${Number(snap.avgPf).toFixed(2)}.`
         : 'No power factor readings are available yet.'
     }
     if (q.includes('cost') || q.includes('reduce') || q.includes('save')) {
       return snap.monthlyKwh != null
-        ? `Consumption for the period is ${Number(snap.monthlyKwh).toLocaleString()} units${demoNote}. Cost estimates use your configured tariff — check Slab Rates for the actual rate.`
+        ? `Consumption for the period is ${Number(snap.monthlyKwh).toLocaleString()} units. Cost estimates use your configured tariff — check Slab Rates for the actual rate.`
         : 'No consumption data is available yet to discuss cost reduction.'
     }
     if (q.includes('forecast') || q.includes('predict')) {
@@ -91,9 +88,9 @@ export default function UserAIAnalytics() {
         : 'No forecast points are stored yet.'
     }
     if (snap.monthlyKwh != null) {
-      return `Consumption is ${Number(snap.monthlyKwh).toLocaleString()} units. Peak demand is ${snap.peakKw > 0 ? `${Number(snap.peakKw).toFixed(1)} kW` : 'unavailable'}, power factor is ${snap.avgPf != null ? Number(snap.avgPf).toFixed(2) : 'unavailable'}, and there are ${snap.activeAnoms} active anomalies${demoNote}.`
+      return `Consumption is ${Number(snap.monthlyKwh).toLocaleString()} units. Peak demand is ${snap.peakKw > 0 ? `${Number(snap.peakKw).toFixed(1)} kW` : 'unavailable'}, power factor is ${snap.avgPf != null ? Number(snap.avgPf).toFixed(2) : 'unavailable'}, and there are ${snap.activeAnoms} active anomalies.`
     }
-    return 'Ask about peak demand, power factor, anomalies, or forecast.'
+    return 'No logged analytics are available for this device yet.'
   }
 
   const sendMessage = async (text) => {
@@ -137,22 +134,18 @@ export default function UserAIAnalytics() {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() }
   }
 
-  const demoStats = [
-    { label: 'Monthly Energy', value: '12,450 kWh', icon: Zap, color: 'text-primary-600' },
-    { label: 'Peak Demand', value: '24.3 kW', icon: TrendingUp, color: 'text-primary-600' },
-    { label: 'Avg Power Factor', value: '0.92', icon: Activity, color: 'text-success-600' },
-    { label: 'Active Anomalies', value: '2', icon: AlertTriangle, color: 'text-danger-600' },
+  const stats = summary?.stats ?? [
+    { label: 'Monthly Energy', value: '—', icon: Zap, color: 'text-primary-600' },
+    { label: 'Peak Demand', value: '—', icon: TrendingUp, color: 'text-primary-600' },
+    { label: 'Avg Power Factor', value: '—', icon: Activity, color: 'text-success-600' },
+    { label: 'Active Anomalies', value: '—', icon: AlertTriangle, color: 'text-danger-600' },
   ]
-  const stats = summary?.stats?.length ? summary.stats : demoStats
 
   return (
     <div className="space-y-6">
       <div className="page-header">
         <div>
-          <div className="flex items-center gap-2">
-            <h2 className="page-title">AI Analytics</h2>
-            {summary?.isDemo && <span className="badge badge-neutral">Sample preview</span>}
-          </div>
+          <h2 className="page-title">AI Analytics</h2>
           <p className="breadcrumb">User / AI Analytics</p>
         </div>
         <div className="flex items-center gap-2">

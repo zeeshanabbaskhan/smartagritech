@@ -15,14 +15,9 @@ import {
   alarmSeverity,
   imbalanceEventsFromSeries,
   energyFromAiResponse,
-  energyFromCfFallback,
   anomalyActivitySeries,
-  cfFallbackChart,
-  cfFallbackEvents,
-  preferLive,
 } from '../../../utils/analyticsHelpers'
-
-const CURRENCY = 'PKR'
+import { ChartEmpty } from '../../../components/ui/PageState'
 
 const PAGE_CONFIG = {
   voltage: {
@@ -53,10 +48,11 @@ const PAGE_CONFIG = {
 }
 
 function Gauge({ value, scope }) {
-  const num = Number(value) || 0
+  const hasValue = value != null && Number.isFinite(Number(value))
+  const num = hasValue ? Number(value) : 0
   const pct = Math.max(0, Math.min(1, (num - 0.7) / 0.3))
   const angle = pct * 180 - 180
-  const color = num >= 0.9 ? '#16a34a' : num >= 0.85 ? '#F5A623' : '#dc2626'
+  const color = !hasValue ? '#D1D5C8' : num >= 0.9 ? '#16a34a' : num >= 0.85 ? '#F5A623' : '#dc2626'
   const needleX = 100 + 62 * Math.cos((angle * Math.PI) / 180)
   const needleY = 90 + 62 * Math.sin((angle * Math.PI) / 180)
   const status = num >= 0.9 ? 'Excellent' : num >= 0.85 ? 'Acceptable' : num >= 0.8 ? 'Warning' : 'Critical'
@@ -69,10 +65,14 @@ function Gauge({ value, scope }) {
         <path d={`M 30 90 A 70 70 0 ${pct > 0.5 ? 1 : 0} 1 ${30 + pct * 140} ${90 - Math.sin(pct * Math.PI) * 70}`} fill="none" stroke={color} strokeWidth="14" strokeLinecap="round" />
         <line x1="100" y1="90" x2={needleX} y2={needleY} stroke="#1F2937" strokeWidth="2.5" strokeLinecap="round" />
         <circle cx="100" cy="90" r="4" fill="#1F2937" />
-        <text x="100" y="78" fontSize="20" fill="#1F2937" textAnchor="middle" fontWeight="700">{num.toFixed(2)}</text>
+        <text x="100" y="78" fontSize="20" fill="#1F2937" textAnchor="middle" fontWeight="700">{hasValue ? num.toFixed(2) : '—'}</text>
         <text x="100" y="94" fontSize="8" fill="#64748b" textAnchor="middle">POWER FACTOR</text>
       </svg>
-      <p className={`text-center text-xs mt-2 ${num >= 0.9 ? 'text-success-600' : num >= 0.85 ? 'text-primary-600' : 'text-danger-600'}`}>{status} · selected scope</p>
+      {hasValue ? (
+        <p className={`text-center text-xs mt-2 ${num >= 0.9 ? 'text-success-600' : num >= 0.85 ? 'text-primary-600' : 'text-danger-600'}`}>{status} · selected scope</p>
+      ) : (
+        <p className="text-center text-xs mt-2 text-surface-500">No power factor reading available</p>
+      )}
     </div>
   )
 }
@@ -110,50 +110,29 @@ function exportCsv(filename, rows) {
   URL.revokeObjectURL(url)
 }
 
+const EMPTY_RESULT = { chartData: [], rows: [], meta: {} }
+
 async function loadAnalytics({ type, deviceId, timeRange }) {
   const config = PAGE_CONFIG[type]
-  const fallbackChart = cfFallbackChart(type)
-  const fallbackRows = cfFallbackEvents(type)
 
   if (type === 'anomalies') {
     try {
       const anomalies = list(await emsApi.getAnomalies({ limit: 100 })).map(mapAnomaly)
       const rows = deviceId ? anomalies.filter((a) => a.deviceId === deviceId) : anomalies
-      const liveChart = anomalyActivitySeries(rows)
-      return {
-        chartData: preferLive(liveChart, fallbackChart),
-        rows: preferLive(rows, fallbackRows),
-        isDemo: !(rows.length || liveChart.length),
-      }
+      return { chartData: anomalyActivitySeries(rows), rows, meta: {} }
     } catch {
-      return { chartData: fallbackChart, rows: fallbackRows, isDemo: true }
+      return EMPTY_RESULT
     }
   }
 
-  if (!deviceId) {
-    if (type === 'energy') return { ...energyFromCfFallback('Organization'), isDemo: true }
-    if (type === 'powerFactor') {
-      const chartData = fallbackChart
-      const vals = chartData.map((p) => p.pf)
-      return {
-        chartData, rows: fallbackRows, isDemo: true,
-        meta: { currentPf: vals[vals.length - 1], avg: vals.reduce((a, b) => a + b, 0) / vals.length, min: Math.min(...vals), below: vals.filter((v) => v < 0.85).length },
-      }
-    }
-    const imb = type === 'voltage' ? 2.1 : 2.4
-    return {
-      chartData: fallbackChart, rows: fallbackRows, isDemo: true,
-      meta: { maxImb: imb, avgImb: imb * 0.4 },
-    }
-  }
+  if (!deviceId) return type === 'energy' ? energyFromAiResponse({}) : EMPTY_RESULT
 
   try {
     const res = await emsApi[config.api]({ deviceId, timeRange })
     const d = res?.data ?? {}
 
     if (type === 'voltage') {
-      const liveChart = mergeVoltageChart(d.chartData ?? {})
-      const chartData = preferLive(liveChart, fallbackChart)
+      const chartData = mergeVoltageChart(d.chartData ?? {})
       const imbSeries = d.chartData?.voltageImbalance ?? []
       const imb = imbSeries.map((p) => p.value).filter((v) => v != null)
       const alarmRows = (d.alarms ?? []).map((a, i) => ({
@@ -166,75 +145,58 @@ async function loadAnalytics({ type, deviceId, timeRange }) {
         severity: alarmSeverity(a),
         status: alarmStatus(a),
       }))
-      const seriesRows = imbalanceEventsFromSeries({ imbalance: imbSeries, chartRows: liveChart, chartKeys: ['voltageA', 'voltageB', 'voltageC'], unit: 'V' })
-      const liveRows = alarmRows.length ? alarmRows : seriesRows
+      const seriesRows = imbalanceEventsFromSeries({ imbalance: imbSeries, chartRows: chartData, chartKeys: ['voltageA', 'voltageB', 'voltageC'], unit: 'V' })
       return {
         chartData,
-        rows: preferLive(liveRows, fallbackRows),
-        isDemo: !liveChart.length,
+        rows: alarmRows.length ? alarmRows : seriesRows,
         meta: {
-          maxImb: imb.length ? Math.max(...imb) : 2.1,
-          avgImb: imb.length ? imb.reduce((a, b) => a + b, 0) / imb.length : 0.8,
+          maxImb: imb.length ? Math.max(...imb) : null,
+          avgImb: imb.length ? imb.reduce((a, b) => a + b, 0) / imb.length : null,
         },
       }
     }
 
     if (type === 'current') {
-      const liveChart = mergeCurrentChart(d.chartData ?? {})
-      const chartData = preferLive(liveChart, fallbackChart)
+      const chartData = mergeCurrentChart(d.chartData ?? {})
       const imbSeries = d.chartData?.currentImbalance ?? []
       const imb = imbSeries.map((p) => p.value).filter((v) => v != null)
-      const liveRows = imbalanceEventsFromSeries({ imbalance: imbSeries, chartRows: liveChart, chartKeys: ['currentA', 'currentB', 'currentC'], unit: 'A' })
       return {
         chartData,
-        rows: preferLive(liveRows, fallbackRows),
-        isDemo: !liveChart.length,
+        rows: imbalanceEventsFromSeries({ imbalance: imbSeries, chartRows: chartData, chartKeys: ['currentA', 'currentB', 'currentC'], unit: 'A' }),
         meta: {
-          maxImb: imb.length ? Math.max(...imb) : 2.4,
-          avgImb: imb.length ? imb.reduce((a, b) => a + b, 0) / imb.length : 0.9,
+          maxImb: imb.length ? Math.max(...imb) : null,
+          avgImb: imb.length ? imb.reduce((a, b) => a + b, 0) / imb.length : null,
         },
       }
     }
 
     if (type === 'powerFactor') {
-      const liveChart = aiPointsToChart(d.chartData ?? [], 'pf')
-      const chartData = preferLive(liveChart, fallbackChart)
+      const chartData = aiPointsToChart(d.chartData ?? [], 'pf')
       const vals = chartData.map((p) => p.pf ?? p.value).filter((v) => v != null)
-      const currentPf = Number(d.current ?? (vals.length ? vals[vals.length - 1] : 0.91))
-      const liveRows = (d.alarms ?? []).map((a, i) => ({
-        id: a.id ?? i,
-        time: formatTs(a.alarmTime),
-        pf: a.currentValue != null ? Number(a.currentValue).toFixed(2) : currentPf.toFixed(2),
-        duration: a.durationMinutes != null ? `${a.durationMinutes} min` : (a.duration ?? '—'),
-        threshold: '0.85',
-        status: alarmStatus(a),
-      }))
+      const rawCurrent = d.current ?? (vals.length ? vals[vals.length - 1] : null)
+      const currentPf = rawCurrent != null ? Number(rawCurrent) : null
       return {
         chartData,
-        rows: preferLive(liveRows, fallbackRows),
-        isDemo: !liveChart.length,
+        rows: (d.alarms ?? []).map((a, i) => ({
+          id: a.id ?? i,
+          time: formatTs(a.alarmTime),
+          pf: a.currentValue != null ? Number(a.currentValue).toFixed(2) : '—',
+          duration: a.durationMinutes != null ? `${a.durationMinutes} min` : (a.duration ?? '—'),
+          threshold: '0.85',
+          status: alarmStatus(a),
+        })),
         meta: {
           currentPf,
-          avg: vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : currentPf,
-          min: vals.length ? Math.min(...vals) : currentPf,
-          below: vals.filter((v) => v < 0.85).length,
+          avg: vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null,
+          min: vals.length ? Math.min(...vals) : null,
+          below: vals.length ? vals.filter((v) => v < 0.85).length : null,
         },
       }
     }
 
-    const energy = energyFromAiResponse(d)
-    if (!energy.chartData.length) return energyFromCfFallback('Organization')
-    return energy
+    return energyFromAiResponse(d)
   } catch {
-    if (type === 'energy') return energyFromCfFallback('Organization')
-    return {
-      chartData: fallbackChart,
-      rows: fallbackRows,
-      isDemo: true,
-      meta: type === 'powerFactor'
-        ? { currentPf: 0.91, avg: 0.92, min: 0.90, below: 1 }
-        : { maxImb: 2.1, avgImb: 0.8 },
-    }
+    return type === 'energy' ? energyFromAiResponse({}) : EMPTY_RESULT
   }
 }
 
@@ -274,37 +236,31 @@ export default function OrganizationAnalyticsPage({ type }) {
   const selectedDevice = devices.find((d) => d.id === deviceId)
   const scopeLabel = selectedDevice ? selectedDevice.name : 'Organization'
 
-  const fallbackEnergy = useMemo(() => energyFromCfFallback(scopeLabel || 'Organization'), [scopeLabel])
-
   const filteredRows = useMemo(() => {
-    const rows = data?.rows?.length ? data.rows : cfFallbackEvents(type)
+    const rows = data?.rows ?? []
     const q = search.trim().toLowerCase()
     if (!q) return rows
     return rows.filter((r) => Object.values(r).join(' ').toLowerCase().includes(q))
-  }, [data, search, type])
+  }, [data, search])
 
-  const chartData = data?.chartData?.length ? data.chartData : cfFallbackChart(type)
-  const dailyData = data?.dailyData?.length
-    ? data.dailyData
-    : (type === 'energy' ? fallbackEnergy.dailyData : [])
+  const chartData = data?.chartData ?? []
+  const dailyData = data?.dailyData ?? []
 
   const stats = useMemo(() => {
-    const m = data?.meta ?? (type === 'energy' ? fallbackEnergy.meta : {})
+    const m = data?.meta ?? {}
     if (type === 'powerFactor') {
       return [
-        ['Avg Power Factor', m.avg != null ? Number(m.avg).toFixed(2) : '0.92', 'text-success-600'],
-        ['Min Power Factor', m.min != null ? Number(m.min).toFixed(2) : '0.90', 'text-primary-600'],
-        ['Hours Below 0.85', m.below != null ? `${m.below}` : '1', 'text-danger-600'],
-        ['Events', String(filteredRows.length || 3), 'text-info-600'],
+        ['Avg Power Factor', m.avg != null ? Number(m.avg).toFixed(2) : '—', 'text-success-600'],
+        ['Min Power Factor', m.min != null ? Number(m.min).toFixed(2) : '—', 'text-primary-600'],
+        ['Readings Below 0.85', m.below != null ? `${m.below}` : '—', 'text-danger-600'],
+        ['Events', String(filteredRows.length), 'text-info-600'],
       ]
     }
     if (type === 'energy') {
       return [
-        ['Total Energy', m.total != null ? `${Number(m.total).toLocaleString()} kWh` : `${fallbackEnergy.meta.total.toLocaleString()} kWh`, 'text-primary-600'],
-        ['Peak Power', m.peak != null ? `${Number(m.peak).toFixed(1)} kW` : `${fallbackEnergy.meta.peak.toFixed(1)} kW`, 'text-primary-600'],
-        ['Off-Peak Energy', m.offPeak != null ? `${Number(m.offPeak).toLocaleString()} kWh` : `${fallbackEnergy.meta.offPeak.toLocaleString()} kWh`, 'text-info-600'],
-        ['On-Peak Energy', m.onPeak != null ? `${Number(m.onPeak).toLocaleString()} kWh` : `${fallbackEnergy.meta.onPeak.toLocaleString()} kWh`, 'text-success-600'],
-        ['Estimated Cost', m.cost != null ? `${CURRENCY} ${Number(m.cost).toLocaleString()}` : `${CURRENCY} ${fallbackEnergy.meta.cost.toLocaleString()}`, 'text-danger-600'],
+        ['Total Energy', m.total != null ? `${Number(m.total).toLocaleString()} kWh` : '—', 'text-primary-600'],
+        ['Peak Power', m.peak != null ? `${Number(m.peak).toFixed(1)} kW` : '—', 'text-primary-600'],
+        ['Average Power', m.avg != null ? `${Number(m.avg).toFixed(1)} kW` : '—', 'text-info-600'],
         ['Samples', String(m.samples ?? filteredRows.length), 'text-info-600'],
       ]
     }
@@ -317,12 +273,12 @@ export default function OrganizationAnalyticsPage({ type }) {
       ]
     }
     return [
-      [`Maximum ${type === 'current' ? 'Current ' : ''}Imbalance`, m.maxImb != null ? `${Number(m.maxImb).toFixed(1)}%` : '2.1%', 'text-primary-600'],
-      [`Average ${type === 'current' ? 'Current ' : ''}Imbalance`, m.avgImb != null ? `${Number(m.avgImb).toFixed(1)}%` : '0.8%', 'text-info-600'],
-      ['Events Detected', String(filteredRows.length || 3), 'text-danger-600'],
-      ['Devices Affected', '1', 'text-success-600'],
+      [`Maximum ${type === 'current' ? 'Current ' : ''}Imbalance`, m.maxImb != null ? `${Number(m.maxImb).toFixed(1)}%` : '—', 'text-primary-600'],
+      [`Average ${type === 'current' ? 'Current ' : ''}Imbalance`, m.avgImb != null ? `${Number(m.avgImb).toFixed(1)}%` : '—', 'text-info-600'],
+      ['Events Detected', String(filteredRows.length), 'text-danger-600'],
+      ['Devices Affected', deviceId ? '1' : '0', 'text-success-600'],
     ]
-  }, [data, filteredRows, type, fallbackEnergy])
+  }, [data, filteredRows, type, deviceId])
 
   const columns = {
     imbalance: [
@@ -342,7 +298,6 @@ export default function OrganizationAnalyticsPage({ type }) {
       { key: 'date', label: 'Time', render: (v) => <span className="font-mono text-xs">{v}</span> },
       { key: 'power', label: 'Active Power' },
       { key: 'kWh', label: 'Energy', render: (v) => (v != null ? `${Number(v).toLocaleString()} kWh` : '—') },
-      { key: 'cost', label: 'Estimated Cost', render: (v) => (v != null ? `${CURRENCY} ${Number(v).toLocaleString()}` : '—') },
     ],
     anomaly: [
       { key: 'type', label: 'Anomaly Type' }, { key: 'device', label: 'Device' },
@@ -353,7 +308,7 @@ export default function OrganizationAnalyticsPage({ type }) {
     ],
   }[config.kind]
 
-  const pfValue = data?.meta?.currentPf ?? 0.91
+  const pfValue = data?.meta?.currentPf ?? null
 
   return (
     <div className="space-y-6">
@@ -362,7 +317,6 @@ export default function OrganizationAnalyticsPage({ type }) {
           <div className="flex items-center gap-2">
             <h2 className="page-title">{config.title}</h2>
             <span className="badge badge-info">Organization</span>
-            {data?.isDemo && <span className="badge badge-neutral">Sample preview</span>}
           </div>
           <p className="breadcrumb">Organization / AI Analytics / {config.crumb}</p>
           <p className="text-xs text-surface-500 mt-1">{scopeLabel} · {config.chartDescription}</p>
@@ -383,7 +337,7 @@ export default function OrganizationAnalyticsPage({ type }) {
             <label className="label">Device</label>
             <select className="select" value={deviceId} onChange={(e) => setDeviceId(e.target.value)}>
               {type === 'anomalies' && <option value="">All organization devices</option>}
-              {devices.length === 0 && <option value="">No devices — showing sample</option>}
+              {devices.length === 0 && <option value="">No devices available</option>}
               {devices.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
           </div>
@@ -406,7 +360,6 @@ export default function OrganizationAnalyticsPage({ type }) {
         </div>
       </div>
 
-      {/* Always show full CF layout */}
       <div className={`space-y-6 ${loading ? 'opacity-70' : ''}`}>
         {type === 'powerFactor' && <Gauge value={pfValue} scope={scopeLabel} />}
 
@@ -418,6 +371,7 @@ export default function OrganizationAnalyticsPage({ type }) {
             </div>
             {type !== 'anomalies' && <span className="badge badge-neutral">{RANGE_LABELS[timeRange]}</span>}
           </div>
+          {chartData.length === 0 ? <ChartEmpty height={260} /> : (
           <ResponsiveContainer width="100%" height={260}>
             {type === 'anomalies' ? (
               <BarChart data={chartData}>
@@ -466,7 +420,7 @@ export default function OrganizationAnalyticsPage({ type }) {
               <LineChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
                 <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
-                <YAxis domain={[210, 240]} tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
+                <YAxis domain={['auto', 'auto']} tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
                 <Tooltip />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
                 <Line type="monotone" dataKey="voltageA" stroke="#F5A623" dot={false} strokeWidth={2} name="Phase A" />
@@ -475,9 +429,10 @@ export default function OrganizationAnalyticsPage({ type }) {
               </LineChart>
             )}
           </ResponsiveContainer>
+          )}
         </div>
 
-        <div className={`grid grid-cols-1 sm:grid-cols-2 ${type === 'energy' ? 'xl:grid-cols-6' : 'xl:grid-cols-4'} gap-4`}>
+        <div className={`grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4`}>
           {stats.map(([label, value, color]) => <MetricCard key={label} label={label} value={value} color={color} />)}
         </div>
 
@@ -485,15 +440,17 @@ export default function OrganizationAnalyticsPage({ type }) {
           <div className="card p-5">
             <h3 className="text-sm font-semibold text-surface-800 mb-1">Daily Consumption</h3>
             <p className="text-xs text-surface-500 mb-4">Energy consumed per interval (kWh)</p>
-            <ResponsiveContainer width="100%" height={210}>
-              <BarChart data={dailyData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
-                <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
-                <YAxis tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
-                <Tooltip formatter={(v) => [`${v} kWh`, 'Consumption']} />
-                <Bar dataKey="kWh" fill="#F5A623" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            {dailyData.length === 0 ? <ChartEmpty height={210} /> : (
+              <ResponsiveContainer width="100%" height={210}>
+                <BarChart data={dailyData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
+                  <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
+                  <YAxis tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
+                  <Tooltip formatter={(v) => [`${v} kWh`, 'Consumption']} />
+                  <Bar dataKey="kWh" fill="#F5A623" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </div>
         )}
 

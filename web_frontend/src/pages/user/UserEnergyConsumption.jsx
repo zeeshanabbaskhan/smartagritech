@@ -1,14 +1,14 @@
 import { useState } from 'react'
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-import { Zap, TrendingUp, Moon, Sun, Receipt, Loader2 } from 'lucide-react'
+import { Zap, TrendingUp, Moon, Sun, Receipt, Activity, Loader2 } from 'lucide-react'
 import emsApi from '../../api/emsApi'
 import DeviceSlaveSelector from '../../components/shared/DeviceSlaveSelector'
 import { useDevices } from '../../context/DeviceContext'
-import { PERIOD_TO_RANGE, energyFromAiResponse, energyFromCfFallback, timeRangeFromDates } from '../../utils/analyticsHelpers'
-import { useFetch } from '../../components/ui/PageState'
+import { PERIOD_TO_RANGE, energyFromAiResponse, timeRangeFromDates } from '../../utils/analyticsHelpers'
+import { useFetch, ChartEmpty } from '../../components/ui/PageState'
 
 const periods = ['Today', 'This Week', 'This Month', 'Custom']
-const ICONS = { zap: Zap, trend: TrendingUp, moon: Moon, sun: Sun, receipt: Receipt, activity: TrendingUp }
+const ICONS = { zap: Zap, trend: TrendingUp, moon: Moon, sun: Sun, receipt: Receipt, activity: Activity }
 const colorClass = {
   primary: 'text-primary-600 bg-primary-600/10',
   warning: 'text-primary-600 bg-warning-600/10',
@@ -24,34 +24,27 @@ export default function UserEnergyConsumption() {
   const [to, setTo] = useState(new Date().toISOString().slice(0, 10))
 
   const { data, loading, reload } = useFetch(async () => {
-    const deviceName = selectedDevice?.name ?? 'Main Wapda'
+    const deviceName = selectedDevice?.name ?? 'Device'
     const deviceId = selectedDeviceId
-    if (!deviceId) return energyFromCfFallback(deviceName)
+    if (!deviceId) return energyFromAiResponse({}, { deviceName })
     try {
       const timeRange = period === 'Custom' ? timeRangeFromDates(from, to) : (PERIOD_TO_RANGE[period] ?? '30d')
       const res = await emsApi.getAiEnergy({ deviceId, slaveId: selectedSlaveId || undefined, timeRange })
-      const energy = energyFromAiResponse(res?.data ?? {}, { deviceName })
-      if (!energy.chartData.length) return energyFromCfFallback(deviceName)
-      return energy
+      return energyFromAiResponse(res?.data ?? {}, { deviceName })
     } catch {
-      return energyFromCfFallback(deviceName)
+      return energyFromAiResponse({}, { deviceName })
     }
   }, [period, from, to, selectedDeviceId, selectedSlaveId])
 
-  const fallback = energyFromCfFallback(selectedDevice?.name ?? 'Main Wapda')
-  const chartData = data?.chartData?.length ? data.chartData : fallback.chartData
-  const dailyData = data?.dailyData?.length ? data.dailyData : fallback.dailyData
-  const statCards = data?.statCards?.length ? data.statCards : fallback.statCards
-  const isDemo = data?.isDemo ?? true
+  const chartData = data?.chartData ?? []
+  const dailyData = data?.dailyData ?? []
+  const statCards = data?.statCards ?? energyFromAiResponse({}).statCards
 
   return (
     <div className="space-y-6">
       <div className="page-header">
         <div>
-          <div className="flex items-center gap-2">
-            <h2 className="page-title">Energy Consumption</h2>
-            {isDemo && <span className="badge badge-neutral">Sample preview</span>}
-          </div>
+          <h2 className="page-title">Energy Consumption</h2>
           <p className="breadcrumb">User / Energy Consumption</p>
         </div>
         {loading && <Loader2 size={16} className="animate-spin text-surface-400" />}
@@ -80,24 +73,26 @@ export default function UserEnergyConsumption() {
       <div className="card p-5">
         <h3 className="text-sm font-semibold text-surface-800 mb-1">Power Consumption — {data?.deviceName ?? 'Device'}</h3>
         <p className="text-xs text-surface-500 mb-4">{period} · Active Power (kW)</p>
-        <ResponsiveContainer width="100%" height={260}>
-          <AreaChart data={chartData}>
-            <defs>
-              <linearGradient id="powerGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#F5A623" stopOpacity={0.3} />
-                <stop offset="95%" stopColor="#F5A623" stopOpacity={0.02} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
-            <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
-            <YAxis tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
-            <Tooltip formatter={(v) => [`${Number(v).toFixed(1)} kW`, 'Active Power']} />
-            <Area type="monotone" dataKey="power" stroke="#F5A623" fill="url(#powerGrad)" strokeWidth={2} name="Power" />
-          </AreaChart>
-        </ResponsiveContainer>
+        {chartData.length === 0 ? <ChartEmpty height={260} /> : (
+          <ResponsiveContainer width="100%" height={260}>
+            <AreaChart data={chartData}>
+              <defs>
+                <linearGradient id="powerGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#F5A623" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="#F5A623" stopOpacity={0.02} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
+              <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
+              <YAxis tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
+              <Tooltip formatter={(v) => [`${Number(v).toFixed(1)} kW`, 'Active Power']} />
+              <Area type="monotone" dataKey="power" stroke="#F5A623" fill="url(#powerGrad)" strokeWidth={2} name="Power" />
+            </AreaChart>
+          </ResponsiveContainer>
+        )}
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {statCards.map(({ label, value, unit, iconKey, color }) => {
           const Icon = ICONS[iconKey] || Zap
           return (
@@ -116,15 +111,17 @@ export default function UserEnergyConsumption() {
       <div className="card p-5">
         <h3 className="text-sm font-semibold text-surface-800 mb-1">Daily Consumption</h3>
         <p className="text-xs text-surface-500 mb-4">Energy consumed per interval (kWh)</p>
-        <ResponsiveContainer width="100%" height={200}>
-          <BarChart data={dailyData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
-            <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
-            <YAxis tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
-            <Tooltip formatter={(v) => [`${v} kWh`, 'Consumption']} />
-            <Bar dataKey="kWh" fill="#F5A623" radius={[4, 4, 0, 0]} name="kWh" />
-          </BarChart>
-        </ResponsiveContainer>
+        {dailyData.length === 0 ? <ChartEmpty height={200} /> : (
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={dailyData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
+              <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
+              <YAxis tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
+              <Tooltip formatter={(v) => [`${v} kWh`, 'Consumption']} />
+              <Bar dataKey="kWh" fill="#F5A623" radius={[4, 4, 0, 0]} name="kWh" />
+            </BarChart>
+          </ResponsiveContainer>
+        )}
       </div>
     </div>
   )

@@ -5,7 +5,6 @@ import Modal from '../../components/ui/Modal'
 import emsApi, { list } from '../../api/emsApi'
 import { mapAnomaly } from '../../utils/mappers'
 import { useToast } from '../../context/ToastContext'
-import { cfFallbackEvents, preferLive } from '../../utils/analyticsHelpers'
 import { useFetch } from '../../components/ui/PageState'
 
 const severityBadge = { High: 'badge-danger', Medium: 'badge-warning', Low: 'badge-info', Critical: 'badge-danger', Warning: 'badge-warning' }
@@ -14,20 +13,19 @@ export default function UserAnomalies() {
   const { showToast } = useToast()
   const { data, loading, reload } = useFetch(async () => {
     try {
-      const live = list(await emsApi.getAnomalies({ limit: 100 })).map(mapAnomaly)
-      return { rows: preferLive(live, cfFallbackEvents('anomalies')), isDemo: !live.length }
+      return { rows: list(await emsApi.getAnomalies({ limit: 100 })).map(mapAnomaly) }
     } catch {
-      return { rows: cfFallbackEvents('anomalies'), isDemo: true }
+      return { rows: [] }
     }
   }, [])
   const [viewing, setViewing] = useState(null)
 
-  const rows = data?.rows ?? cfFallbackEvents('anomalies')
+  const rows = data?.rows ?? []
   const activeCount = rows.filter((a) => a.status === 'Active').length
   const resolvedCount = rows.filter((a) => a.status === 'Resolved').length
 
   const handleAcknowledge = async (row) => {
-    if (row.status !== 'Active' || data?.isDemo) return
+    if (row.status !== 'Active') return
     try {
       await emsApi.acknowledgeAnomaly(row.id)
       reload()
@@ -50,10 +48,7 @@ export default function UserAnomalies() {
     <div className="space-y-6">
       <div className="page-header">
         <div>
-          <div className="flex items-center gap-2">
-            <h2 className="page-title">Anomalies</h2>
-            {data?.isDemo && <span className="badge badge-neutral">Sample preview</span>}
-          </div>
+          <h2 className="page-title">Anomalies</h2>
           <p className="breadcrumb">User / Anomalies</p>
         </div>
         <div className="flex items-center gap-2">
@@ -67,10 +62,11 @@ export default function UserAnomalies() {
         columns={columns}
         data={rows}
         searchPlaceholder="Search anomalies..."
+        emptyMessage="No anomalies detected"
         actions={(row) => (
           <>
             <button type="button" className="btn-ghost p-1.5 rounded" title="View Details" onClick={() => setViewing(row)}><Eye size={14} /></button>
-            {row.status === 'Active' && !data?.isDemo && (
+            {row.status === 'Active' && (
               <button type="button" className="btn-ghost text-xs px-2 py-1" onClick={() => handleAcknowledge(row)}>Ack</button>
             )}
           </>

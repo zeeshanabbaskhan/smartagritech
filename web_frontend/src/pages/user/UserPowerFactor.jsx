@@ -5,11 +5,14 @@ import emsApi from '../../api/emsApi'
 import { aiPointsToChart } from '../../utils/mappers'
 import DeviceSlaveSelector from '../../components/shared/DeviceSlaveSelector'
 import { useDevices } from '../../context/DeviceContext'
-import {
-  PERIOD_TO_RANGE, RANGE_LABELS, formatTs, alarmStatus,
-  cfFallbackChart, cfFallbackEvents, preferLive,
-} from '../../utils/analyticsHelpers'
-import { useFetch } from '../../components/ui/PageState'
+import { PERIOD_TO_RANGE, RANGE_LABELS, formatTs, alarmStatus } from '../../utils/analyticsHelpers'
+import { useFetch, ChartEmpty } from '../../components/ui/PageState'
+
+const emptyStats = () => [
+  { label: 'Avg Power Factor', value: '—', color: 'text-success-600' },
+  { label: 'Min PF', value: '—', color: 'text-primary-600' },
+  { label: 'Readings Below 0.85', value: '—', color: 'text-danger-600' },
+]
 
 function GaugeArc({ value }) {
   const num = Number(value) || 0
@@ -45,76 +48,51 @@ export default function UserPowerFactor() {
   const [period, setPeriod] = useState('Today')
 
   const { data, loading, reload } = useFetch(async () => {
-    const fallbackTrend = cfFallbackChart('powerFactor')
-    const fallbackEvents = cfFallbackEvents('powerFactor')
+    const deviceName = selectedDevice?.name ?? 'Device'
     const deviceId = selectedDeviceId
     if (!deviceId) {
-      return {
-        currentPf: 0.91, pfTrend: fallbackTrend, pfEvents: fallbackEvents, isDemo: true,
-        deviceName: 'Main Wapda', periodLabel: 'Today',
-        stats: [
-          { label: 'Avg PF This Month', value: '0.92', color: 'text-success-600' },
-          { label: 'Min PF', value: '0.90', color: 'text-primary-600' },
-          { label: 'Hours Below 0.85', value: '1', color: 'text-danger-600' },
-        ],
-      }
+      return { currentPf: null, pfTrend: [], pfEvents: [], deviceName, periodLabel: period, stats: emptyStats() }
     }
     try {
       const timeRange = PERIOD_TO_RANGE[period] ?? '24h'
       const res = await emsApi.getAiPowerFactor({ deviceId, slaveId: selectedSlaveId || undefined, timeRange })
-      const liveTrend = aiPointsToChart(res?.data?.chartData ?? [], 'pf')
-      const pfTrend = preferLive(liveTrend, fallbackTrend)
+      const pfTrend = aiPointsToChart(res?.data?.chartData ?? [], 'pf')
       const chartVals = pfTrend.map((p) => p.pf ?? p.value).filter((v) => v != null)
-      const currentPf = Number(res?.data?.current ?? (chartVals.length ? chartVals[chartVals.length - 1] : 0.91))
-      const liveEvents = (res?.data?.alarms ?? []).map((a) => ({
+      const rawCurrent = res?.data?.current ?? (chartVals.length ? chartVals[chartVals.length - 1] : null)
+      const currentPf = rawCurrent != null ? Number(rawCurrent) : null
+      const pfEvents = (res?.data?.alarms ?? []).map((a) => ({
         time: formatTs(a.alarmTime),
-        pf: a.currentValue != null ? Number(a.currentValue).toFixed(2) : currentPf.toFixed(2),
+        pf: a.currentValue != null ? Number(a.currentValue).toFixed(2) : '—',
         duration: a.durationMinutes != null ? `${a.durationMinutes} min` : (a.duration ?? '—'),
         status: alarmStatus(a),
       }))
       return {
         currentPf,
         pfTrend,
-        pfEvents: preferLive(liveEvents, fallbackEvents),
-        isDemo: !liveTrend.length,
-        deviceName: selectedDevice?.name ?? 'Device',
+        pfEvents,
+        deviceName,
         periodLabel: RANGE_LABELS[timeRange] ?? period,
         stats: [
-          { label: 'Avg PF This Month', value: chartVals.length ? (chartVals.reduce((a, b) => a + b, 0) / chartVals.length).toFixed(2) : currentPf.toFixed(2), color: 'text-success-600' },
+          { label: 'Avg Power Factor', value: chartVals.length ? (chartVals.reduce((a, b) => a + b, 0) / chartVals.length).toFixed(2) : '—', color: 'text-success-600' },
           { label: 'Min PF', value: chartVals.length ? Math.min(...chartVals).toFixed(2) : '—', color: 'text-primary-600' },
-          { label: 'Hours Below 0.85', value: String(chartVals.filter((v) => v < 0.85).length), color: 'text-danger-600' },
+          { label: 'Readings Below 0.85', value: chartVals.length ? String(chartVals.filter((v) => v < 0.85).length) : '—', color: 'text-danger-600' },
         ],
       }
     } catch {
-      return {
-        currentPf: 0.91, pfTrend: fallbackTrend, pfEvents: fallbackEvents, isDemo: true,
-        deviceName: selectedDevice?.name ?? 'Device', periodLabel: period,
-        stats: [
-          { label: 'Avg PF This Month', value: '0.92', color: 'text-success-600' },
-          { label: 'Min PF', value: '0.90', color: 'text-primary-600' },
-          { label: 'Hours Below 0.85', value: '1', color: 'text-danger-600' },
-        ],
-      }
+      return { currentPf: null, pfTrend: [], pfEvents: [], deviceName, periodLabel: period, stats: emptyStats() }
     }
   }, [selectedDeviceId, selectedSlaveId, period])
 
-  const currentPf = data?.currentPf ?? 0.91
-  const pfTrend = data?.pfTrend ?? cfFallbackChart('powerFactor')
-  const pfEvents = data?.pfEvents ?? cfFallbackEvents('powerFactor')
-  const stats = data?.stats?.length ? data.stats : [
-    { label: 'Avg PF This Month', value: '0.92', color: 'text-success-600' },
-    { label: 'Min PF', value: '0.90', color: 'text-primary-600' },
-    { label: 'Hours Below 0.85', value: '1', color: 'text-danger-600' },
-  ]
+  const currentPf = data?.currentPf ?? null
+  const pfTrend = data?.pfTrend ?? []
+  const pfEvents = data?.pfEvents ?? []
+  const stats = data?.stats ?? emptyStats()
 
   return (
     <div className="space-y-6">
       <div className="page-header">
         <div>
-          <div className="flex items-center gap-2">
-            <h2 className="page-title">Power Factor</h2>
-            {data?.isDemo && <span className="badge badge-neutral">Sample preview</span>}
-          </div>
+          <h2 className="page-title">Power Factor</h2>
           <p className="breadcrumb">User / Power Factor</p>
         </div>
         {loading && <Loader2 size={16} className="animate-spin text-surface-400" />}
@@ -136,24 +114,26 @@ export default function UserPowerFactor() {
 
       <div className="card p-6">
         <h3 className="text-sm font-semibold text-surface-800 text-center mb-4">Current Power Factor — {data?.deviceName ?? 'Device'}</h3>
-        <GaugeArc value={currentPf} />
-        <p className={`text-center text-xs mt-2 ${currentPf >= 0.9 ? 'text-success-600' : 'text-warning-600'}`}>
-          {currentPf >= 0.9 ? 'Excellent — above 0.90 threshold' : 'Below optimal threshold'}
+        <GaugeArc value={currentPf ?? 0} />
+        <p className={`text-center text-xs mt-2 ${currentPf == null ? 'text-surface-500' : currentPf >= 0.9 ? 'text-success-600' : 'text-warning-600'}`}>
+          {currentPf == null ? 'No power factor reading available' : currentPf >= 0.9 ? 'Excellent — above 0.90 threshold' : 'Below optimal threshold'}
         </p>
       </div>
 
       <div className="card p-5">
         <h3 className="text-sm font-semibold text-surface-800 mb-1">Power Factor Trend</h3>
         <p className="text-xs text-surface-500 mb-4">{data?.periodLabel ?? period}</p>
-        <ResponsiveContainer width="100%" height={220}>
-          <LineChart data={pfTrend}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
-            <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
-            <YAxis domain={[0.8, 1.0]} tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
-            <Tooltip formatter={(v) => [v, 'Power Factor']} />
-            <Line type="monotone" dataKey="pf" stroke="#F5A623" dot={false} strokeWidth={2} name="Power Factor" />
-          </LineChart>
-        </ResponsiveContainer>
+        {pfTrend.length === 0 ? <ChartEmpty height={220} /> : (
+          <ResponsiveContainer width="100%" height={220}>
+            <LineChart data={pfTrend}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
+              <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
+              <YAxis domain={[0.8, 1.0]} tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
+              <Tooltip formatter={(v) => [v, 'Power Factor']} />
+              <Line type="monotone" dataKey="pf" stroke="#F5A623" dot={false} strokeWidth={2} name="Power Factor" />
+            </LineChart>
+          </ResponsiveContainer>
+        )}
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -172,6 +152,9 @@ export default function UserPowerFactor() {
             <table className="data-table">
               <thead><tr><th>#</th><th>Timestamp</th><th>Power Factor</th><th>Duration</th><th>Status</th></tr></thead>
               <tbody>
+                {pfEvents.length === 0 && (
+                  <tr><td colSpan={5} className="text-center text-xs text-surface-500 py-8">No power factor events recorded</td></tr>
+                )}
                 {pfEvents.map((e, i) => (
                   <tr key={i}>
                     <td className="text-surface-500 font-mono text-xs">{i + 1}</td>

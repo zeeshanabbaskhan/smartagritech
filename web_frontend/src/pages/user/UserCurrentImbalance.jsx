@@ -8,11 +8,14 @@ import { useDevices } from '../../context/DeviceContext'
 import {
   timeRangeFromDates,
   imbalanceEventsFromSeries,
-  cfFallbackChart,
-  cfFallbackEvents,
-  preferLive,
 } from '../../utils/analyticsHelpers'
-import { useFetch } from '../../components/ui/PageState'
+import { useFetch, ChartEmpty } from '../../components/ui/PageState'
+
+const emptyStats = (events = 0) => [
+  { label: 'Max Imbalance', value: '—', color: 'text-primary-600' },
+  { label: 'Avg Imbalance', value: '—', color: 'text-info-600' },
+  { label: 'Events Detected', value: String(events), color: 'text-danger-600' },
+]
 
 export default function UserCurrentImbalance() {
   const { selectedDeviceId, selectedSlaveId, selectedDevice } = useDevices()
@@ -20,71 +23,42 @@ export default function UserCurrentImbalance() {
   const [to, setTo] = useState(new Date().toISOString().slice(0, 10))
 
   const { data, loading, reload } = useFetch(async () => {
-    const fallbackChart = cfFallbackChart('current')
-    const fallbackEvents = cfFallbackEvents('current')
+    const deviceName = selectedDevice?.name ?? 'Device'
     const deviceId = selectedDeviceId
-    if (!deviceId) {
-      return {
-        chartData: fallbackChart, events: fallbackEvents, isDemo: true,
-        stats: [
-          { label: 'Max Imbalance', value: '2.9%', color: 'text-primary-600' },
-          { label: 'Avg Imbalance', value: '1.1%', color: 'text-info-600' },
-          { label: 'Events Detected', value: '3', color: 'text-danger-600' },
-        ],
-        deviceName: 'Main Wapda',
-      }
-    }
+    if (!deviceId) return { chartData: [], events: [], stats: emptyStats(), deviceName }
     try {
       const timeRange = timeRangeFromDates(from, to)
       const res = await emsApi.getAiCurrent({ deviceId, slaveId: selectedSlaveId || undefined, timeRange })
-      const liveChart = mergeCurrentChart(res?.data?.chartData ?? {})
-      const chartData = preferLive(liveChart, fallbackChart)
+      const chartData = mergeCurrentChart(res?.data?.chartData ?? {})
       const imbalance = res?.data?.chartData?.currentImbalance ?? []
       const values = imbalance.map((p) => p.value).filter((v) => v != null)
-      const liveEvents = imbalanceEventsFromSeries({
-        imbalance, chartRows: liveChart, chartKeys: ['currentA', 'currentB', 'currentC'], unit: 'A',
+      const events = imbalanceEventsFromSeries({
+        imbalance, chartRows: chartData, chartKeys: ['currentA', 'currentB', 'currentC'], unit: 'A',
       })
-      const events = preferLive(liveEvents, fallbackEvents)
       return {
         chartData,
         events,
-        isDemo: !liveChart.length,
         stats: [
-          { label: 'Max Imbalance', value: values.length ? `${Math.max(...values).toFixed(1)}%` : '2.9%', color: 'text-primary-600' },
-          { label: 'Avg Imbalance', value: values.length ? `${(values.reduce((a, b) => a + b, 0) / values.length).toFixed(1)}%` : '1.1%', color: 'text-info-600' },
+          { label: 'Max Imbalance', value: values.length ? `${Math.max(...values).toFixed(1)}%` : '—', color: 'text-primary-600' },
+          { label: 'Avg Imbalance', value: values.length ? `${(values.reduce((a, b) => a + b, 0) / values.length).toFixed(1)}%` : '—', color: 'text-info-600' },
           { label: 'Events Detected', value: String(events.length), color: 'text-danger-600' },
         ],
-        deviceName: selectedDevice?.name ?? 'Device',
+        deviceName,
       }
     } catch {
-      return {
-        chartData: fallbackChart, events: fallbackEvents, isDemo: true,
-        stats: [
-          { label: 'Max Imbalance', value: '2.9%', color: 'text-primary-600' },
-          { label: 'Avg Imbalance', value: '1.1%', color: 'text-info-600' },
-          { label: 'Events Detected', value: '3', color: 'text-danger-600' },
-        ],
-        deviceName: selectedDevice?.name ?? 'Device',
-      }
+      return { chartData: [], events: [], stats: emptyStats(), deviceName }
     }
   }, [selectedDeviceId, selectedSlaveId, from, to])
 
-  const chartData = data?.chartData ?? cfFallbackChart('current')
-  const events = data?.events ?? cfFallbackEvents('current')
-  const stats = data?.stats?.length ? data.stats : [
-    { label: 'Max Imbalance', value: '2.9%', color: 'text-primary-600' },
-    { label: 'Avg Imbalance', value: '1.1%', color: 'text-info-600' },
-    { label: 'Events Detected', value: '3', color: 'text-danger-600' },
-  ]
+  const chartData = data?.chartData ?? []
+  const events = data?.events ?? []
+  const stats = data?.stats ?? emptyStats()
 
   return (
     <div className="space-y-6">
       <div className="page-header">
         <div>
-          <div className="flex items-center gap-2">
-            <h2 className="page-title">Current Imbalance</h2>
-            {data?.isDemo && <span className="badge badge-neutral">Sample preview</span>}
-          </div>
+          <h2 className="page-title">Current Imbalance</h2>
           <p className="breadcrumb">User / Current Imbalance</p>
         </div>
         {loading && <Loader2 size={16} className="animate-spin text-surface-400" />}
@@ -103,18 +77,20 @@ export default function UserCurrentImbalance() {
       <div className="card p-5">
         <h3 className="text-sm font-semibold text-surface-800 mb-1">Phase Current Trend — {data?.deviceName ?? 'Device'}</h3>
         <p className="text-xs text-surface-500 mb-4">Three-phase current comparison (A)</p>
-        <ResponsiveContainer width="100%" height={260}>
-          <BarChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
-            <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
-            <YAxis tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
-            <Tooltip />
-            <Legend wrapperStyle={{ fontSize: 11 }} />
-            <Bar dataKey="currentA" fill="#F5A623" name="Phase A" radius={[2, 2, 0, 0]} />
-            <Bar dataKey="currentB" fill="#3B82F6" name="Phase B" radius={[2, 2, 0, 0]} />
-            <Bar dataKey="currentC" fill="#EF4444" name="Phase C" radius={[2, 2, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
+        {chartData.length === 0 ? <ChartEmpty height={260} /> : (
+          <ResponsiveContainer width="100%" height={260}>
+            <BarChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
+              <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
+              <YAxis tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
+              <Tooltip />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              <Bar dataKey="currentA" fill="#F5A623" name="Phase A" radius={[2, 2, 0, 0]} />
+              <Bar dataKey="currentB" fill="#3B82F6" name="Phase B" radius={[2, 2, 0, 0]} />
+              <Bar dataKey="currentC" fill="#EF4444" name="Phase C" radius={[2, 2, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        )}
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -133,6 +109,9 @@ export default function UserCurrentImbalance() {
             <table className="data-table">
               <thead><tr><th>#</th><th>Timestamp</th><th>Phase A</th><th>Phase B</th><th>Phase C</th><th>Imbalance</th><th>Severity</th></tr></thead>
               <tbody>
+                {events.length === 0 && (
+                  <tr><td colSpan={7} className="text-center text-xs text-surface-500 py-8">No imbalance events recorded</td></tr>
+                )}
                 {events.map((e, i) => (
                   <tr key={e.id ?? i}>
                     <td className="text-surface-500 font-mono text-xs">{i + 1}</td>
