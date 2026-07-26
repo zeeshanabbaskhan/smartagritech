@@ -17,7 +17,8 @@ router.route('/:id')
   .put(authorize('SUPER_ADMIN', 'ORG_ADMIN'), updateDevice)
   .delete(authorize('SUPER_ADMIN', 'ORG_ADMIN'), deleteDevice);
 
-router.patch('/:id/switch', authorize('SUPER_ADMIN', 'ORG_ADMIN'), switchToggle);
+// USER may switch devices they can access (DeviceUser / AccessGroup ACL).
+router.patch('/:id/switch', authorize('SUPER_ADMIN', 'ORG_ADMIN', 'USER'), switchToggle);
 router.post('/:id/regenerate-ingest-key', authorize('SUPER_ADMIN', 'ORG_ADMIN'), regenerateIngestKey);
 router.get('/:id/commands/:commandId', getCommandStatus);
 
