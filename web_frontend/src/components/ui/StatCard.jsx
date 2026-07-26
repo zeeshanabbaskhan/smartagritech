@@ -28,8 +28,9 @@ export default function StatCard({
     neutral: 'border-t-surface-300/40',
   }
 
-  // Sparkline calculation
-  const points = sparklineData || [30, 42, 35, 52, 48, 65, 58, 72]
+  // Sparkline renders only from real data — no placeholder curve
+  const points = Array.isArray(sparklineData) ? sparklineData.filter((p) => Number.isFinite(Number(p))) : []
+  const hasSparkline = sparkline && points.length > 1
   const width = 80
   const height = 32
   const min = Math.min(...points)
@@ -80,7 +81,7 @@ export default function StatCard({
           )}
         </div>
 
-        {sparkline && (
+        {hasSparkline && (
           <div className="w-20 h-8 flex-shrink-0">
             <svg width={width} height={height} className="overflow-visible">
               <path

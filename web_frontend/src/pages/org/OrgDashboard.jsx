@@ -9,92 +9,35 @@ import { Cpu, AlertTriangle, Zap, CheckCircle } from 'lucide-react'
 import { Skeleton } from 'boneyard-js/react'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
-import { fetchOrgStats, fetchDashboardChart } from '../../utils/dashboardHelpers'
+import { fetchOrgStats, fetchOrgEnergyOverview } from '../../utils/dashboardHelpers'
 import { mapDevice } from '../../utils/mappers'
 import { readDeviceMetric, isOffline } from '../../utils/deviceMetrics'
 import emsApi, { list, one } from '../../api/emsApi'
 
 const GROUP_LINE_COLORS = ['#8B5CF6', '#F5A623', '#3B82F6', '#22C55E', '#EC4899', '#14B8A6', '#F97316', '#6366F1']
 const TARIFF_PKR_PER_KWH = 28
-const SAMPLE_INTERVAL_HOURS = 2
 
-function seedNum(str = '') {
-  return String(str).split('').reduce((acc, c) => acc + c.charCodeAt(0), 0)
-}
-
-function sourceKw(sources, type) {
-  return Number(sources?.find((s) => (s.type || s.id) === type)?.valueKw) || 0
-}
-
-/** CF-style 24h multi-source series shaped around live org load + source mix. */
-function buildSourceSeries(orgName, totalLoadKw = 0, sources = []) {
-  const codeSum = seedNum(orgName)
-  const solarCap = Math.max(sourceKw(sources, 'solar'), 6 + (codeSum % 5))
-  const genCap = sourceKw(sources, 'generator')
-  const loadBase = Math.max(totalLoadKw, solarCap + genCap, 1)
-
-  return Array.from({ length: 12 }, (_, i) => {
-    const hour = i * 2
-    const daylight = Math.max(0, Math.sin(((hour - 6) / 12) * Math.PI))
-    const dayCurve = 0.55 + 0.45 * Math.sin(((hour - 6) / 12) * Math.PI + (codeSum % 6) * 0.05)
-    const load = +(loadBase * dayCurve).toFixed(2)
-    const solar = +(daylight * solarCap * (0.85 + 0.3 * Math.sin(codeSum + i))).toFixed(2)
-    const generator = i % 5 === 0
-      ? +(genCap > 0 ? genCap * (0.6 + 0.4 * Math.sin(codeSum + i)) : (codeSum % 3) * 0.4).toFixed(2)
-      : 0
-    const grid = +Math.max(0, load - solar - generator).toFixed(2)
-    const label = new Date()
-    label.setHours(hour, 0, 0, 0)
-    return {
-      time: label.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      solar: Math.max(0, solar),
-      generator,
-      grid,
-      load,
-    }
-  })
-}
-
-/** CF-style 24h multi-line series keyed by group id, shaped around live load. */
-function buildDeviceGroupSeries(groupsWithLoad) {
-  return Array.from({ length: 12 }, (_, i) => {
-    const hour = i * 2
-    const label = new Date()
-    label.setHours(hour, 0, 0, 0)
-    const entry = { time: label.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }
-    groupsWithLoad.forEach((g) => {
-      const seed = seedNum(g.name)
-      const dayCurve = 0.55 + 0.45 * Math.sin(((hour - 6) / 12) * Math.PI + (seed % 6))
-      const base = Math.max(0.4, g.load || 0.4)
-      entry[g.id] = +Math.max(0, base * (0.35 + dayCurve * 0.9)).toFixed(2)
-    })
-    return entry
-  })
+function EmptyChart({ children }) {
+  return (
+    <div className="p-8 text-center text-xs text-surface-500 font-bold bg-surface-50/30 dark:bg-surface-900/40 rounded-xl border border-dashed border-surface-200 dark:border-surface-800">
+      {children}
+    </div>
+  )
 }
 
 export default function OrgDashboard() {
   const { user } = useAuth()
   const { showToast } = useToast()
-  const [chartBundle, setChartBundle] = useState({ power: [], multi: [], lines: [] })
   const [liveDevices, setLiveDevices] = useState([])
   const [openGroupId, setOpenGroupId] = useState(null)
+  const [energy, setEnergy] = useState(null)
 
   const { data: stats, loading, error, reload } = useFetch(async () => {
     const orgStats = await fetchOrgStats()
-    let monthlyEnergy = '—'
-    const deviceId = orgStats.devices?.[0]?.id
-    if (deviceId) {
-      try {
-        const summary = await emsApi.getDashboardSummary({ deviceId, timeRange: '30d' })
-        const val = summary?.data?.energySavingsComparison?.monthly?.current
-          ?? summary?.data?.totalPowerConsumption?.value
-        if (val != null) monthlyEnergy = `${Number(val).toLocaleString()} kWh`
-      } catch (_) { /* soft-fail */ }
-    }
     const activeAlarms = orgStats.anomalies.filter(
       (a) => a.alarmState === 'ACTIVE' || a.processState === 'UNPROCESSED'
     ).length
-    return { ...orgStats, activeAlarms, monthlyEnergy }
+    return { ...orgStats, activeAlarms }
   }, [])
 
   const { data: powerFlow, reload: reloadPowerFlow } = useFetch(async () => {
@@ -132,7 +75,6 @@ export default function OrgDashboard() {
     return () => clearInterval(interval)
   }, [])
 
-  // Prefer API groups; fall back to client aggregation from device groups + live metrics
   const [fallbackGroups, setFallbackGroups] = useState([])
 
   useEffect(() => {
@@ -175,50 +117,62 @@ export default function OrgDashboard() {
     [openGroup, liveDevices]
   )
 
-  const chartDeviceId = stats?.devices?.[0]?.id ?? liveDevices[0]?.id ?? null
+  const deviceIdKey = useMemo(() => {
+    const ids = (stats?.devices ?? []).map((d) => d.id).filter(Boolean)
+    return ids.length ? ids.join(',') : (liveDevices.map((d) => d.id).join(',') || '')
+  }, [stats?.devices, liveDevices])
 
   useEffect(() => {
-    if (!chartDeviceId) {
-      setChartBundle({ power: [], multi: [], lines: [] })
-      return
-    }
-    fetchDashboardChart(chartDeviceId, '24h').then(setChartBundle).catch(() => {})
-  }, [chartDeviceId])
+    const ids = deviceIdKey ? deviceIdKey.split(',') : []
+    if (!ids.length) { setEnergy(null); return }
+    let cancelled = false
+    fetchOrgEnergyOverview(ids, '24h')
+      .then((res) => { if (!cancelled) setEnergy(res) })
+      .catch(() => { if (!cancelled) setEnergy(null) })
+    return () => { cancelled = true }
+  }, [deviceIdKey])
 
   const orgName = user?.organization?.name ?? 'your organization'
+  const sourceSeries = energy?.series ?? []
 
-  const sourceSeries = useMemo(
-    () => buildSourceSeries(orgName, powerFlow?.totalLoadKw || 0, powerFlow?.sources || []),
-    [orgName, powerFlow]
-  )
+  // One row per real bucket; a group only gets a series when its devices reported data
+  const groupSeriesData = useMemo(() => {
+    const loadByDevice = energy?.loadByDevice ?? {}
+    const timestamps = energy?.timestamps ?? []
+    if (!timestamps.length) return { rows: [], groups: [] }
+    const plotted = groupLoads.filter((g) => (g.deviceIds || []).some((id) => loadByDevice[id]))
+    const rows = timestamps.map((ts) => {
+      const row = { time: sourceSeries.find((s) => s.ts === ts)?.time ?? '' }
+      plotted.forEach((g) => {
+        const total = (g.deviceIds || []).reduce((sum, id) => sum + (loadByDevice[id]?.get(ts) ?? 0), 0)
+        row[g.id] = +total.toFixed(2)
+      })
+      return row
+    })
+    return { rows, groups: plotted }
+  }, [energy, groupLoads, sourceSeries])
 
-  const deviceGroupSeries = useMemo(
-    () => buildDeviceGroupSeries(groupLoads),
-    [groupLoads]
-  )
+  const monthlyEnergy = Number.isFinite(energy?.monthlyEnergyKwh)
+    ? `${Math.round(energy.monthlyEnergyKwh).toLocaleString()} kWh`
+    : '—'
 
-  const consumptionSeries = useMemo(() => {
-    if (chartBundle.power?.length) return chartBundle.power
-    return sourceSeries.map((r) => ({ time: r.time, power: r.load }))
-  }, [chartBundle.power, sourceSeries])
-
-  // CF: derive savings from Solar + Generator offset across the 24h series
+  // Savings come from stored config; otherwise from the real exported (solar) energy
   const savings = useMemo(() => {
     const stored = powerFlow?.savings
-    const dailyOffsetKWh = sourceSeries.reduce(
-      (sum, row) => sum + (row.solar + row.generator) * SAMPLE_INTERVAL_HOURS,
-      0
-    )
-    const derived = {
-      dailyKWh: +dailyOffsetKWh.toFixed(1),
-      daily: Math.round(dailyOffsetKWh * TARIFF_PKR_PER_KWH),
-      weekly: Math.round(dailyOffsetKWh * 7 * TARIFF_PKR_PER_KWH),
-      monthly: Math.round(dailyOffsetKWh * 30 * TARIFF_PKR_PER_KWH),
+    const storedTotal = (Number(stored?.daily) || 0) + (Number(stored?.weekly) || 0) + (Number(stored?.monthly) || 0)
+    if (storedTotal > 0) return { dailyKWh: Number(stored.dailyKWh) || 0, ...stored, unit: stored.unit || 'PKR' }
+    const bucketHours = energy?.bucketHours || 0
+    if (!bucketHours || !sourceSeries.length) return null
+    const offsetKWh = sourceSeries.reduce((sum, row) => sum + row.solar * bucketHours, 0)
+    if (offsetKWh <= 0) return null
+    return {
+      dailyKWh: +offsetKWh.toFixed(1),
+      daily: Math.round(offsetKWh * TARIFF_PKR_PER_KWH),
+      weekly: Math.round(offsetKWh * 7 * TARIFF_PKR_PER_KWH),
+      monthly: Math.round(offsetKWh * 30 * TARIFF_PKR_PER_KWH),
       unit: 'PKR',
     }
-    const storedTotal = (Number(stored?.daily) || 0) + (Number(stored?.weekly) || 0) + (Number(stored?.monthly) || 0)
-    return storedTotal > 0 ? { ...derived, ...stored, unit: stored.unit || 'PKR' } : derived
-  }, [sourceSeries, powerFlow])
+  }, [powerFlow, energy, sourceSeries])
 
   const liveTile = (d, key) => {
     if (isOffline(d)) return '—'
@@ -257,7 +211,7 @@ export default function OrgDashboard() {
     <PageState loading={loading} error={error} onRetry={reload}>
       <Skeleton name="org-dashboard" loading={loading} transition={300}>
         <div className="space-y-6">
-          {/* 1. Energy Flow Overview (CF hero) */}
+          {/* 1. Energy Flow Overview */}
           {powerFlow && (
             <div className="card p-5">
               <h3 className="text-2xl font-extrabold tracking-tight text-center mb-3 bg-gradient-to-r from-primary-500 via-purple-500 to-success-500 bg-clip-text text-transparent">
@@ -293,54 +247,58 @@ export default function OrgDashboard() {
             <StatCard label="My Devices" value={stats?.totalDevices ?? 0} icon={Cpu} color="primary" />
             <StatCard label="Online Devices" value={stats?.onlineDevices ?? 0} icon={CheckCircle} color="success" />
             <StatCard label="Active Alarms" value={stats?.activeAlarms ?? 0} icon={AlertTriangle} color="warning" />
-            <StatCard label="Monthly Energy" value={stats?.monthlyEnergy ?? '—'} icon={Zap} color="info" />
+            <StatCard label="Monthly Energy" value={monthlyEnergy} icon={Zap} color="info" />
           </div>
 
           {/* 4. Power Sources — Last 24 Hours */}
           <div className="card p-5">
             <h3 className="text-sm font-bold text-surface-900 dark:text-surface-100 leading-none">Power Sources — Last 24 Hours</h3>
-            <p className="text-xs text-surface-400 mt-1 mb-4">Solar, Generator, Grid and total Load over the last 24 hours — hover to compare all four at once</p>
-            <ResponsiveContainer width="100%" height={260}>
-              <AreaChart data={sourceSeries}>
-                <defs>
-                  <linearGradient id="srcSolar" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#F5A623" stopOpacity={0.3} /><stop offset="95%" stopColor="#F5A623" stopOpacity={0} /></linearGradient>
-                  <linearGradient id="srcGrid" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3} /><stop offset="95%" stopColor="#3B82F6" stopOpacity={0} /></linearGradient>
-                  <linearGradient id="srcGen" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#22C55E" stopOpacity={0.3} /><stop offset="95%" stopColor="#22C55E" stopOpacity={0} /></linearGradient>
-                  <linearGradient id="srcLoad" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#8B5CF6" stopOpacity={0.25} /><stop offset="95%" stopColor="#8B5CF6" stopOpacity={0} /></linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
-                <XAxis dataKey="time" tick={{ fontSize: 10, fill: '#9AA09A' }} stroke="#D1D5C8" />
-                <YAxis tick={{ fontSize: 10, fill: '#9AA09A' }} stroke="#D1D5C8" />
-                <Tooltip content={<CustomTooltip />} />
-                <Area type="monotone" dataKey="load" stroke="#8B5CF6" fill="url(#srcLoad)" strokeWidth={2} name="Load" unit="kW" />
-                <Area type="monotone" dataKey="solar" stroke="#F5A623" fill="url(#srcSolar)" strokeWidth={2} name="Solar" unit="kW" />
-                <Area type="monotone" dataKey="generator" stroke="#22C55E" fill="url(#srcGen)" strokeWidth={2} name="Generator" unit="kW" />
-                <Area type="monotone" dataKey="grid" stroke="#3B82F6" fill="url(#srcGrid)" strokeWidth={2} name="Grid" unit="kW" />
-              </AreaChart>
-            </ResponsiveContainer>
-            <div className="flex items-center justify-center gap-4 mt-3 flex-wrap">
-              {[{ label: 'Load', color: '#8B5CF6' }, { label: 'Solar', color: '#F5A623' }, { label: 'Generator', color: '#22C55E' }, { label: 'Grid', color: '#3B82F6' }].map((l) => (
-                <span key={l.label} className="flex items-center gap-1.5 text-[10px] font-bold text-surface-500">
-                  <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: l.color }} />{l.label}
-                </span>
-              ))}
-            </div>
+            <p className="text-xs text-surface-400 mt-1 mb-4">Measured load and exported (solar) power from your devices; Grid is the remaining import</p>
+            {sourceSeries.length === 0 ? (
+              <EmptyChart>No logged readings in the last 24 hours yet.</EmptyChart>
+            ) : (
+              <>
+                <ResponsiveContainer width="100%" height={260}>
+                  <AreaChart data={sourceSeries}>
+                    <defs>
+                      <linearGradient id="srcSolar" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#F5A623" stopOpacity={0.3} /><stop offset="95%" stopColor="#F5A623" stopOpacity={0} /></linearGradient>
+                      <linearGradient id="srcGrid" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3} /><stop offset="95%" stopColor="#3B82F6" stopOpacity={0} /></linearGradient>
+                      <linearGradient id="srcLoad" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#8B5CF6" stopOpacity={0.25} /><stop offset="95%" stopColor="#8B5CF6" stopOpacity={0} /></linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
+                    <XAxis dataKey="time" tick={{ fontSize: 10, fill: '#9AA09A' }} stroke="#D1D5C8" />
+                    <YAxis tick={{ fontSize: 10, fill: '#9AA09A' }} stroke="#D1D5C8" />
+                    <Tooltip content={<CustomTooltip />} />
+                    <Area type="monotone" dataKey="load" stroke="#8B5CF6" fill="url(#srcLoad)" strokeWidth={2} name="Load" unit="kW" />
+                    <Area type="monotone" dataKey="solar" stroke="#F5A623" fill="url(#srcSolar)" strokeWidth={2} name="Solar" unit="kW" />
+                    <Area type="monotone" dataKey="grid" stroke="#3B82F6" fill="url(#srcGrid)" strokeWidth={2} name="Grid" unit="kW" />
+                  </AreaChart>
+                </ResponsiveContainer>
+                <div className="flex items-center justify-center gap-4 mt-3 flex-wrap">
+                  {[{ label: 'Load', color: '#8B5CF6' }, { label: 'Solar', color: '#F5A623' }, { label: 'Grid', color: '#3B82F6' }].map((l) => (
+                    <span key={l.label} className="flex items-center gap-1.5 text-[10px] font-bold text-surface-500">
+                      <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: l.color }} />{l.label}
+                    </span>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
 
           {/* 5. Asset Group Load — Last 24 Hours */}
           <div className="card p-5">
             <h3 className="text-sm font-bold text-surface-900 dark:text-surface-100 leading-none">Asset Group Load — Last 24 Hours</h3>
-            <p className="text-xs text-surface-400 mt-1 mb-4">Every device group at {orgName} plotted together — hover any point to see each group&apos;s detailed value, or click a group below to view its devices</p>
+            <p className="text-xs text-surface-400 mt-1 mb-4">Logged load per device group at {orgName} — hover any point for per-group values, or click a group below to view its devices</p>
             {groupLoads.length === 0 ? (
-              <div className="p-8 text-center text-xs text-surface-500 font-bold bg-surface-50/30 dark:bg-surface-900/40 rounded-xl border border-dashed border-surface-200 dark:border-surface-800">
-                No device groups yet. Create one in &quot;Device Groups&quot; to see the comparison here.
-              </div>
+              <EmptyChart>No device groups yet. Create one in &quot;Device Groups&quot; to see the comparison here.</EmptyChart>
+            ) : groupSeriesData.groups.length === 0 ? (
+              <EmptyChart>No logged readings for these groups in the last 24 hours yet.</EmptyChart>
             ) : (
               <>
                 <ResponsiveContainer width="100%" height={260}>
-                  <AreaChart data={deviceGroupSeries}>
+                  <AreaChart data={groupSeriesData.rows}>
                     <defs>
-                      {groupLoads.map((g, i) => (
+                      {groupSeriesData.groups.map((g, i) => (
                         <linearGradient key={g.id} id={`groupGrad${g.id}`} x1="0" y1="0" x2="0" y2="1">
                           <stop offset="5%" stopColor={GROUP_LINE_COLORS[i % GROUP_LINE_COLORS.length]} stopOpacity={0.25} />
                           <stop offset="95%" stopColor={GROUP_LINE_COLORS[i % GROUP_LINE_COLORS.length]} stopOpacity={0} />
@@ -351,7 +309,7 @@ export default function OrgDashboard() {
                     <XAxis dataKey="time" tick={{ fontSize: 10, fill: '#9AA09A' }} stroke="#D1D5C8" />
                     <YAxis tick={{ fontSize: 10, fill: '#9AA09A' }} stroke="#D1D5C8" />
                     <Tooltip content={<CustomTooltip />} />
-                    {groupLoads.map((g, i) => (
+                    {groupSeriesData.groups.map((g, i) => (
                       <Area
                         key={g.id}
                         type="monotone"
@@ -366,7 +324,7 @@ export default function OrgDashboard() {
                   </AreaChart>
                 </ResponsiveContainer>
                 <div className="flex items-center justify-center gap-2 mt-3 flex-wrap">
-                  {groupLoads.map((g, i) => (
+                  {groupSeriesData.groups.map((g, i) => (
                     <button
                       type="button"
                       key={g.id}
@@ -386,26 +344,30 @@ export default function OrgDashboard() {
           <div className="card p-5 flex flex-col justify-between">
             <div>
               <h3 className="text-sm font-bold text-surface-900 leading-none">Power Consumption — Last 24 Hours</h3>
-              <p className="text-xs text-surface-400 mt-1 mb-4">Real-time load in kW logged at {orgName}</p>
+              <p className="text-xs text-surface-400 mt-1 mb-4">Logged load in kW across all devices at {orgName}</p>
             </div>
-            <ResponsiveContainer width="100%" height={220}>
-              <AreaChart data={consumptionSeries}>
-                <defs>
-                  <linearGradient id="orgPowerGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#F5A623" stopOpacity={0.35} />
-                    <stop offset="95%" stopColor="#F5A623" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
-                <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
-                <YAxis tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
-                <Tooltip content={<CustomTooltip />} />
-                <Area type="monotone" dataKey="power" stroke="#F5A623" fill="url(#orgPowerGrad)" strokeWidth={2} name="Load" unit="kW" />
-              </AreaChart>
-            </ResponsiveContainer>
+            {sourceSeries.length === 0 ? (
+              <EmptyChart>No logged readings in the last 24 hours yet.</EmptyChart>
+            ) : (
+              <ResponsiveContainer width="100%" height={220}>
+                <AreaChart data={sourceSeries}>
+                  <defs>
+                    <linearGradient id="orgPowerGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#F5A623" stopOpacity={0.35} />
+                      <stop offset="95%" stopColor="#F5A623" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
+                  <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
+                  <YAxis tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Area type="monotone" dataKey="load" stroke="#F5A623" fill="url(#orgPowerGrad)" strokeWidth={2} name="Load" unit="kW" />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
           </div>
 
-          {/* 7. Device Telemetry at bottom (CF order) */}
+          {/* 7. Device Telemetry */}
           <DashboardTelemetry
             sections="telemetry"
             panelTitle="Device Telemetry"
