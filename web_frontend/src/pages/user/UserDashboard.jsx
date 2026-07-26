@@ -9,6 +9,7 @@ import { useAuth } from '../../context/AuthContext'
 import { fetchUserStats, fetchDashboardChart } from '../../utils/dashboardHelpers'
 import { mapNotificationRow } from '../../utils/mappers'
 import DeviceSlaveSelector from '../../components/shared/DeviceSlaveSelector'
+import DashboardTelemetry from '../../components/dashboard/DashboardTelemetry'
 import { useDevices } from '../../context/DeviceContext'
 
 export default function UserDashboard() {
@@ -74,10 +75,12 @@ export default function UserDashboard() {
                 Account Tier: <span className="text-primary-600 font-bold uppercase">{stats?.subscription ?? '—'} Plan</span>
               </p>
             </div>
-            <button type="button" onClick={() => navigate('/user/sensor-history')} className="btn-primary self-start sm:self-auto text-xs py-2 px-3 flex items-center gap-1 font-bold">
-              Sensor History <ArrowUpRight size={13} />
+            <button type="button" onClick={() => navigate('/user/interval-history')} className="btn-primary self-start sm:self-auto text-xs py-2 px-3 flex items-center gap-1 font-bold">
+              Interval History <ArrowUpRight size={13} />
             </button>
           </div>
+
+          <DashboardTelemetry panelTitle="My Device Telemetry" showAccessFilter={false} />
 
           <DeviceSlaveSelector className="mb-2" />
 
