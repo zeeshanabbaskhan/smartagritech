@@ -8,10 +8,11 @@ import {
   ListTree, UserCog, LayoutGrid, Radio, LayoutTemplate, ShieldCheck, Boxes,
 } from 'lucide-react'
 
+// ─── Active navigation (aligned with improved CF dashboard) ──────────────────
+
 export const adminNav = [
   { divider: true, label: 'Main' },
   { to: '/admin',               label: 'Dashboard',        icon: LayoutDashboard },
-  { to: '/admin/dashboard-detail', label: 'Dashboard Detail', icon: ListTree },
   { to: '/admin/custom-dashboard', label: 'Custom Dashboards', icon: LayoutTemplate },
   { divider: true, label: 'Management' },
   { to: '/admin/organizations', label: 'Organizations',    icon: Building2 },
@@ -25,10 +26,8 @@ export const adminNav = [
   { to: '/admin/products',      label: 'Manage Products',  icon: Package },
   { divider: true, label: 'Data' },
   { to: '/admin/data-center',   label: 'Data Center',      icon: Database },
-  { to: '/admin/sensor-history', label: 'Sensor History',  icon: Radio },
   { to: '/admin/historical-data', label: 'Historical Data',icon: History },
   { to: '/admin/variable-alarms', label: 'Variable Alarms',icon: Activity },
-  { to: '/admin/alarm-history', label: 'Alarm History',    icon: Bell },
   { to: '/admin/linkage-records', label: 'Linkage Records',icon: Link2 },
   { divider: true, label: 'Alarms' },
   { to: '/admin/template-triggers', label: 'Template Triggers', icon: Bell },
@@ -44,11 +43,7 @@ export const adminNav = [
 export const orgNav = [
   { divider: true, label: 'Main' },
   { to: '/org',                    label: 'Dashboard',       icon: LayoutDashboard },
-  { to: '/org/dashboard-detail',   label: 'Dashboard Detail', icon: ListTree },
   { to: '/org/custom-dashboard',   label: 'Custom Dashboards', icon: LayoutTemplate },
-  { divider: true, label: 'Organization' },
-  { to: '/org/users',              label: 'Team Users',      icon: UserCog },
-  { to: '/org/widget-templates',   label: 'Widget Templates', icon: LayoutGrid },
   { divider: true, label: 'Devices' },
   { to: '/org/devices',            label: 'My Devices',      icon: Cpu },
   { to: '/org/access-groups',      label: 'Access Groups',   icon: ShieldCheck },
@@ -56,14 +51,22 @@ export const orgNav = [
   { to: '/org/gateways',           label: 'Gateways',        icon: Wifi },
   { to: '/org/device-templates',   label: 'Device Templates',icon: FileCode2 },
   { divider: true, label: 'Data' },
-  { to: '/org/sensor-history',     label: 'Sensor History',  icon: Radio },
+  {
+    label: 'AI Analytics',
+    icon: BrainCircuit,
+    children: [
+      { to: '/org/ai-analytics/voltage-imbalance',  label: 'Voltage Imbalance',  icon: Gauge },
+      { to: '/org/ai-analytics/current-imbalance',  label: 'Current Imbalance',  icon: Activity },
+      { to: '/org/ai-analytics/power-factor',       label: 'Power Factor',       icon: TrendingUp },
+      { to: '/org/ai-analytics/energy-consumption', label: 'Energy Consumption', icon: Zap },
+      { to: '/org/ai-analytics/anomalies',          label: 'Anomalies',          icon: AlertOctagon },
+    ],
+  },
   { to: '/org/historical-data',    label: 'Historical Data', icon: History },
-  { to: '/org/device-timestamps',  label: 'Device Connectivity', icon: Timer },
   { divider: true, label: 'Alarms' },
   { to: '/org/template-triggers',  label: 'Template Triggers', icon: Bell },
   { to: '/org/alarm-settings',     label: 'Alarm Settings',    icon: AlarmClock },
   { to: '/org/alarm-contacts',     label: 'Alarm Contacts',    icon: UserCheck },
-  { to: '/org/alarm-history',      label: 'Alarm History',     icon: History },
   { divider: true, label: 'System' },
   { to: '/org/schedule-tasks',     label: 'Schedule Tasks',  icon: CalendarClock },
   { to: '/org/settings',           label: 'Settings',        icon: Settings },
@@ -72,21 +75,16 @@ export const orgNav = [
 export const userNav = [
   { divider: true, label: 'Main' },
   { to: '/user',                   label: 'Dashboard',          icon: LayoutDashboard },
-  { to: '/user/dashboard-detail',  label: 'Dashboard Detail',   icon: ListTree },
   { to: '/user/custom-dashboard',  label: 'Custom Dashboards',  icon: LayoutTemplate },
   { divider: true, label: 'Account' },
-  { to: '/user/account',           label: 'Account Settings',   icon: Settings },
   { to: '/user/subscription',      label: 'Subscription',       icon: CreditCard },
   { to: '/user/products',          label: 'Products',           icon: ShoppingBag },
   { divider: true, label: 'Device Data' },
   { to: '/user/schedule',          label: 'Schedule',           icon: Calendar },
   { to: '/user/slab-rates',        label: 'Slab Rates',         icon: Layers },
   { to: '/user/interval-history',  label: 'Interval History',   icon: Clock },
-  { to: '/user/sensor-history',    label: 'Sensor History',     icon: Radio },
   { divider: true, label: 'Alarms' },
   { to: '/user/alarm-template',    label: 'Alarm Template',     icon: BellRing },
-  { to: '/user/alarm-settings',    label: 'Alarm Settings',     icon: AlarmClock },
-  { to: '/user/alarm-history',     label: 'Alarm History',      icon: History },
   { to: '/user/notifications',     label: 'Notifications',      icon: Bell },
   { divider: true, label: 'Analytics' },
   { to: '/user/ai-analytics',      label: 'AI Analytics',       icon: BrainCircuit },
@@ -96,3 +94,28 @@ export const userNav = [
   { to: '/user/energy-consumption',label: 'Energy Consumption', icon: Zap },
   { to: '/user/anomalies',         label: 'Anomalies',          icon: AlertOctagon },
 ]
+
+// ─── Parked navigation (EMS-only extras hidden from sidebar to match CF) ──────
+// Pages still exist and routes can be re-enabled; kept here for future restore.
+export const parkedNav = {
+  admin: [
+    { to: '/admin/dashboard-detail', label: 'Dashboard Detail', icon: ListTree },
+    { to: '/admin/sensor-history',   label: 'Sensor History',   icon: Radio },
+    { to: '/admin/alarm-history',    label: 'Alarm History',    icon: Bell },
+  ],
+  org: [
+    { to: '/org/dashboard-detail',   label: 'Dashboard Detail',   icon: ListTree },
+    { to: '/org/users',              label: 'Team Users',         icon: UserCog },
+    { to: '/org/widget-templates',   label: 'Widget Templates',   icon: LayoutGrid },
+    { to: '/org/sensor-history',     label: 'Sensor History',     icon: Radio },
+    { to: '/org/device-timestamps',  label: 'Device Connectivity',icon: Timer },
+    { to: '/org/alarm-history',      label: 'Alarm History',      icon: History },
+  ],
+  user: [
+    { to: '/user/dashboard-detail',  label: 'Dashboard Detail', icon: ListTree },
+    { to: '/user/account',           label: 'Account Settings', icon: Settings },
+    { to: '/user/sensor-history',    label: 'Sensor History',   icon: Radio },
+    { to: '/user/alarm-settings',    label: 'Alarm Settings',   icon: AlarmClock },
+    { to: '/user/alarm-history',     label: 'Alarm History',    icon: History },
+  ],
+}
