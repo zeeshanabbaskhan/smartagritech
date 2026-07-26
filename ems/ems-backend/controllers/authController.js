@@ -14,9 +14,10 @@ const signAccessToken = (id) =>
 
 const hashToken = (token) => crypto.createHash('sha256').update(token).digest('hex')
 
-const issueRefreshToken = async (userId) => {
+const issueRefreshToken = async (userId, { days } = {}) => {
   const refreshToken = crypto.randomBytes(48).toString('hex')
-  const expiresAt = new Date(Date.now() + REFRESH_DAYS * 24 * 60 * 60 * 1000)
+  const ttlDays = days != null ? days : REFRESH_DAYS
+  const expiresAt = new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000)
   await prisma.refreshToken.create({
     data: { userId, tokenHash: hashToken(refreshToken), expiresAt },
   })
@@ -28,6 +29,12 @@ const cookieOptions = {
   secure:   process.env.NODE_ENV === 'production',
   sameSite: 'lax',
   maxAge:   REFRESH_DAYS * 24 * 60 * 60 * 1000,
+}
+
+const clearCookieOptions = {
+  httpOnly: true,
+  secure:   process.env.NODE_ENV === 'production',
+  sameSite: 'lax',
 }
 
 const login = async (req, res, next) => {
@@ -89,7 +96,7 @@ const logout = async (req, res, next) => {
     if (refreshToken) {
       await prisma.refreshToken.deleteMany({ where: { tokenHash: hashToken(refreshToken) } }).catch(() => {})
     }
-    res.clearCookie('token')
+    res.clearCookie('token', clearCookieOptions)
     res.json({ success: true, message: 'Logged out' })
   } catch (err) { next(err) }
 }
@@ -116,6 +123,71 @@ const getMe = async (req, res, next) => {
       status: user.status,
     })
     res.json({ success: true, data: user })
+  } catch (err) { next(err) }
+}
+
+// ─── SUPER_ADMIN impersonation ("Login as Organization / User") ─────────────
+// Issues fresh access + refresh tokens for a target user so the SUPER_ADMIN can
+// operate the Org/User portals with a genuine, backend-authorized session.
+const impersonate = async (req, res, next) => {
+  try {
+    if (req.user?.role !== 'SUPER_ADMIN') {
+      return next(new AppError('Only super admins can impersonate', 403))
+    }
+    const { userId, organizationId } = req.body || {}
+    if (!userId && !organizationId) {
+      return next(new AppError('userId or organizationId is required', 400))
+    }
+
+    let target = null
+    const userSelect = {
+      id: true, fullName: true, email: true, role: true, organizationId: true, status: true,
+      organization: { select: { id: true, name: true, description: true, status: true, logoUrl: true, themeId: true } },
+    }
+    if (userId) {
+      target = await prisma.user.findUnique({
+        where: { id: userId },
+        select: userSelect,
+      })
+    } else {
+      // Login-as-Organization must land on an active ORG_ADMIN (never a random USER).
+      target = await prisma.user.findFirst({
+        where: { organizationId, role: 'ORG_ADMIN', status: 'ACTIVE' },
+        select: userSelect,
+      })
+      if (!target) {
+        return next(new AppError('No active Org Admin found for this organization', 404))
+      }
+    }
+
+    if (!target || target.status === 'DELETED') return next(new AppError('Target account not found', 404))
+    if (target.status === 'INACTIVE') return next(new AppError('Target account is inactive', 403))
+    if (target.role === 'SUPER_ADMIN') return next(new AppError('Cannot impersonate another super admin', 400))
+
+    const userCache = require('../utils/userCache')
+    await userCache.invalidate(target.id)
+
+    const token = signAccessToken(target.id)
+    // Impersonation refresh tokens are short-lived and revoked on exit.
+    const refreshToken = await issueRefreshToken(target.id, { days: 1 })
+    res.cookie('token', token, { ...cookieOptions, maxAge: 24 * 60 * 60 * 1000 })
+    await userCache.set(target.id, {
+      id: target.id,
+      fullName: target.fullName,
+      email: target.email,
+      role: target.role,
+      organizationId: target.organizationId,
+      status: target.status,
+    })
+
+    res.json({
+      success: true,
+      data: target,
+      token,
+      refreshToken,
+      impersonated: true,
+      impersonatedBy: req.user.id,
+    })
   } catch (err) { next(err) }
 }
 
@@ -198,4 +270,4 @@ const changePassword = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
-module.exports = { login, logout, refresh, getMe, forgotPassword, resetPassword, changePassword }
+module.exports = { login, logout, refresh, getMe, impersonate, forgotPassword, resetPassword, changePassword }
