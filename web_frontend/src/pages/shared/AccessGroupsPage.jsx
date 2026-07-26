@@ -46,6 +46,7 @@ export default function AccessGroupsPage({ scope = 'admin' }) {
       org: orgMap[g.organizationId] || g.organization?.name || '—',
       deviceIds: g.deviceIds || [],
       userIds: g.userIds || [],
+      createdBy: g.createdByRole === 'SUPER_ADMIN' ? 'Admin' : g.createdByRole ? 'Organization' : '—',
       createdAt: fmtDate(g.createdAt),
       _raw: g,
     }))
@@ -61,6 +62,8 @@ export default function AccessGroupsPage({ scope = 'admin' }) {
   const [selected, setSelected] = useState(null)
   const [form, setForm] = useState(EMPTY)
   const [saving, setSaving] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleting, setDeleting] = useState(false)
 
   const orgDevices = useMemo(() => {
     const oid = form.organizationId || user?.organizationId
@@ -141,14 +144,18 @@ export default function AccessGroupsPage({ scope = 'admin' }) {
     }
   }
 
-  const handleDelete = async (row) => {
-    if (!confirm(`Delete access group "${row.name}"?`)) return
+  const handleDelete = async () => {
+    if (!deleteTarget) return
+    setDeleting(true)
     try {
-      await emsApi.deleteAccessGroup(row.id)
+      await emsApi.deleteAccessGroup(deleteTarget.id)
       showToast('Access group deleted', 'success')
+      setDeleteTarget(null)
       reload()
     } catch (e) {
       showToast(e.message || 'Delete failed', 'error')
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -169,6 +176,7 @@ export default function AccessGroupsPage({ scope = 'admin' }) {
         <span className="badge badge-info">{ids?.length || 0} user{(ids?.length || 0) !== 1 ? 's' : ''}</span>
       ),
     },
+    ...(isAdmin ? [{ key: 'createdBy', label: 'Created By', render: (v) => <span className="badge badge-neutral">{v}</span> }] : []),
     { key: 'createdAt', label: 'Created At' },
   ]
 
@@ -218,7 +226,7 @@ export default function AccessGroupsPage({ scope = 'admin' }) {
               <button type="button" className="btn-ghost p-1.5" onClick={() => openEdit(row)} title="Edit">
                 <Pencil size={14} />
               </button>
-              <button type="button" className="btn-danger p-1.5" onClick={() => handleDelete(row)} title="Delete">
+              <button type="button" className="btn-danger p-1.5" onClick={() => setDeleteTarget(row)} title="Delete">
                 <Trash2 size={14} />
               </button>
             </>
@@ -322,6 +330,26 @@ export default function AccessGroupsPage({ scope = 'admin' }) {
               </div>
             )}
           </div>
+        </Modal>
+
+        <Modal
+          open={Boolean(deleteTarget)}
+          onClose={() => setDeleteTarget(null)}
+          size="sm"
+          variant="danger"
+          title="Delete Access Group"
+          footer={
+            <>
+              <button type="button" className="btn-secondary" onClick={() => setDeleteTarget(null)}>Cancel</button>
+              <button type="button" className="btn-danger" onClick={handleDelete} disabled={deleting}>
+                {deleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </>
+          }
+        >
+          <p className="text-sm text-surface-700 dark:text-surface-300">
+            Are you sure you want to delete <span className="font-bold">"{deleteTarget?.name}"</span>? This action cannot be undone.
+          </p>
         </Modal>
       </div>
     </PageState>
