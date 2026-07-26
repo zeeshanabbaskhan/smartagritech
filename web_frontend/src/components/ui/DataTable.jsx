@@ -1,5 +1,22 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useLocation } from 'react-router-dom'
 import { Search, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, SlidersHorizontal, Download, Inbox } from 'lucide-react'
+
+const highlightMatch = (text, search) => {
+  if (!search || text === null || text === undefined) return text
+  if (typeof text !== 'string' && typeof text !== 'number') return text
+  const str = String(text)
+  const parts = str.split(new RegExp(`(${search.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')})`, 'gi'))
+  return (
+    <span>
+      {parts.map((part, i) =>
+        part.toLowerCase() === search.toLowerCase()
+          ? <mark key={i} className="bg-amber-200 dark:bg-amber-900/40 text-amber-950 dark:text-amber-100 px-0.5 rounded">{part}</mark>
+          : part
+      )}
+    </span>
+  )
+}
 
 export default function DataTable({
   columns = [],
@@ -15,6 +32,18 @@ export default function DataTable({
   const [page, setPage]       = useState(1)
   const [sortKey, setSortKey] = useState(null)
   const [sortDir, setSortDir] = useState('asc')
+  const location = useLocation()
+
+  // Sync search query with URL highlight parameter (from Topbar entity search)
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    const hl = params.get('highlight')
+    if (hl) { setQuery(hl); setPage(1) }
+    else setQuery('')
+  }, [location.search])
+
+  // Reset page when parent data changes
+  useEffect(() => { setPage(1) }, [data])
 
   const filtered = data.filter(row =>
     !query || columns.some(col =>
@@ -134,7 +163,7 @@ export default function DataTable({
                   </td>
                   {columns.map(col => (
                     <td key={col.key}>
-                      {col.render ? col.render(row[col.key], row) : row[col.key] ?? '—'}
+                      {col.render ? col.render(row[col.key], row) : (row[col.key] !== null && row[col.key] !== undefined ? highlightMatch(row[col.key], query) : '—')}
                     </td>
                   ))}
                   {actions && (
