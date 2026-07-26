@@ -3,7 +3,7 @@ const prisma      = require('../config/database')
 const redis       = require('../config/redis')
 const { AppError } = require('../middleware/errorHandler')
 const { orgScope, paginate } = require('../utils/helpers')
-const { deviceWhereForUser } = require('../utils/deviceAccess')
+const { deviceWhereForUser, assertDeviceAccess } = require('../utils/deviceAccess')
 const { hashKey, generateDeviceIngestKey } = require('../utils/ingestAuth')
 const { isDeleteQueueEnabled, enqueueDeviceDelete } = require('../workers/jobQueues')
 const refCache = require('../utils/referenceCache')
@@ -215,19 +215,26 @@ const switchToggle = async (req, res, next) => {
     const { action } = req.body
     if (!['ON', 'OFF'].includes(action)) return next(new AppError('action must be ON or OFF', 400))
 
-    const where    = { id: req.params.id, ...orgScope(req.user) }
-    const existing = await prisma.device.findFirst({ where })
-    if (!existing) return next(new AppError('Device not found', 404))
+    // Enforces org scope for managers and DeviceUser/AccessGroup ACL for USER.
+    const existing = await assertDeviceAccess(req.params.id, req.user)
 
-    const command = await prisma.deviceCommand.create({
-      data: {
-        deviceId:       req.params.id,
-        organizationId: existing.organizationId,
-        action,
-        status:         'PENDING',
-        requestedBy:    req.user.id,
-      },
-    })
+    const [command, device] = await prisma.$transaction([
+      prisma.deviceCommand.create({
+        data: {
+          deviceId:       req.params.id,
+          organizationId: existing.organizationId,
+          action,
+          status:         'PENDING',
+          requestedBy:    req.user.id,
+        },
+      }),
+      // Persist switch intent so dashboards don't revert on reload before gateway ack.
+      prisma.device.update({
+        where: { id: req.params.id },
+        data: { switchState: action },
+        select: { id: true, switchState: true, status: true },
+      }),
+    ])
 
     setTimeout(async () => {
       try {
@@ -248,10 +255,11 @@ const switchToggle = async (req, res, next) => {
         deviceId:  req.params.id,
         action,
         status:    'PENDING',
+        switchState: action,
       })
     } catch (_) {}
 
-    res.json({ success: true, data: command })
+    res.json({ success: true, data: { ...command, device } })
   } catch (err) { next(err) }
 }
 
