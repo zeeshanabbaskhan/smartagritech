@@ -39,8 +39,8 @@ export const isSwitchOff = (d) => {
   return s === 'OFF'
 }
 
-/** Device contributes live metrics only when switch is ON and not offline for KPI purposes. */
-export const isTelemetryActive = (d) => !isSwitchOff(d) && !isOffline(d)
+/** Device contributes live metrics when switch is ON (recent values OK even if Offline). */
+export const isTelemetryActive = (d) => !isSwitchOff(d)
 
 function parseMetricRaw(raw) {
   if (raw == null || raw === '') return NaN
@@ -94,7 +94,8 @@ export function readDeviceMetric(device, type) {
 
 /** Formatted display string for a metric ('—' when unavailable). */
 export function formatDeviceMetric(device, type, { offline = false } = {}) {
-  if (offline || isSwitchOff(device)) return type === 'status' ? 'Offline' : '—'
+  if (isSwitchOff(device)) return type === 'status' ? 'Offline' : '—'
+  if (offline && type === 'status') return 'Offline'
   const n = readDeviceMetric(device, type)
   if (!Number.isFinite(n)) return '—'
   if (/powerfactor|\bpf\b/i.test(String(type))) return n.toFixed(2)

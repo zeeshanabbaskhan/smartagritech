@@ -359,9 +359,7 @@ export default function DashboardTelemetry({
                       </p>
                     ) : tiles.length === 0 ? (
                       <p className="text-[11px] text-surface-500 py-3 text-center">
-                        {offline
-                          ? 'No live readings yet — device offline or MQTT bridge not ingesting.'
-                          : 'Waiting for first reading from this device’s variables…'}
+                        Waiting for first reading from this device’s variables…
                       </p>
                     ) : (
                       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
@@ -369,16 +367,16 @@ export default function DashboardTelemetry({
                           <div key={name} className="p-3 bg-white dark:bg-surface-900 rounded-lg border border-surface-200 dark:border-surface-800/80 flex flex-col justify-between min-h-[5.5rem] hover:border-primary-300 dark:hover:border-primary-800 transition-all duration-200">
                             <div className="flex justify-between items-start text-surface-400 gap-1">
                               <span className="text-[10px] font-black uppercase tracking-wide truncate" title={name}>{name}</span>
-                              <Zap size={13} className={offline ? '' : 'text-primary-500'} />
+                              <Zap size={13} className={offline ? 'text-surface-400' : 'text-primary-500'} />
                             </div>
                             <div className="mt-1">
                               <span className="text-base font-black text-surface-900 dark:text-surface-100 leading-none">
-                                {offline ? '—' : formatTileValue(value, name)}
+                                {formatTileValue(value, name)}
                               </span>
                               {unit ? <span className="text-[10px] text-surface-400 font-semibold ml-1">{unit}</span> : null}
                             </div>
                             <div className="text-[9px] text-surface-400/80 mt-1 truncate border-t border-surface-100 dark:border-surface-800/40 pt-1.5 font-bold uppercase tracking-widest">
-                              for {d.name}
+                              {offline ? 'last reading · ' : ''}{d.name}
                             </div>
                           </div>
                         ))}

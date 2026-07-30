@@ -246,6 +246,15 @@ const handleMessage = async (bridgeId, organizationId, topic, buf) => {
 
 const stopBridge = async (bridgeId, { updateDb = true } = {}) => {
   const entry = live.get(bridgeId)
+  let organizationId = null
+  try {
+    const row = await prisma.mqttBridge.findUnique({
+      where: { id: bridgeId },
+      select: { organizationId: true },
+    })
+    organizationId = row?.organizationId || null
+  } catch (_) {}
+
   if (entry) {
     try {
       entry.client.end(true)
@@ -254,6 +263,10 @@ const stopBridge = async (bridgeId, { updateDb = true } = {}) => {
   }
   if (updateDb) {
     await setStatus(bridgeId, 'STOPPED', { enabled: false, lastError: null })
+    if (organizationId) {
+      const { markOrgDevicesOffline } = require('./devicePresenceService')
+      await markOrgDevicesOffline(organizationId, 'bridge_stopped')
+    }
   }
 }
 
@@ -287,6 +300,24 @@ const startBridge = async (bridgeId) => {
         host: bridge.brokerHost,
         topic: bridge.subscribeTopic,
       })
+      // Bridge is up — restore ONLINE for devices that already have readings (keep last values visible as live)
+      try {
+        const restored = await prisma.device.updateMany({
+          where: {
+            organizationId: bridge.organizationId,
+            switchState: 'ON',
+            lastDataReceivedAt: { not: null },
+            status: 'OFFLINE',
+          },
+          data: { status: 'ONLINE' },
+        })
+        if (restored.count) {
+          logger.info('devicePresence: restored ONLINE after bridge connect', {
+            organizationId: bridge.organizationId,
+            count: restored.count,
+          })
+        }
+      } catch (_) {}
     })
   })
 

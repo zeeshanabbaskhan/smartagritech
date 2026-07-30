@@ -8,6 +8,7 @@
     "prisma:generate": "prisma generate",
     "seed": "node utils/dummyDataSeeder.js",
     "seed:fleet": "node scripts/seedFleet.js",
+    "provision:mqtt-fleet": "node scripts/provisionMqttFleet.js",
     "db:ensure-cf": "npx prisma db execute --file prisma/add_cf_features.sql",
     "db:ensure-timescale": "npx prisma db execute --file scripts/setup-timescaledb.sql",
     "simulate:devices": "node scripts/deviceSimulator.js",
