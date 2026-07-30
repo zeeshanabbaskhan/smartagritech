@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Plus, Pencil, Trash2 } from 'lucide-react'
+import { ArrowLeft, Plus, Pencil, Trash2, RefreshCw } from 'lucide-react'
 import DataTable from '../../components/ui/DataTable'
 import Modal from '../../components/ui/Modal'
 import PageState from '../../components/ui/PageState'
@@ -25,6 +25,7 @@ export default function TemplateDetailPage({ basePath }) {
   const [modal, setModal] = useState(null)
   const [form, setForm] = useState({})
   const [saving, setSaving] = useState(false)
+  const [syncing, setSyncing] = useState(false)
 
   const load = useCallback(async () => {
     if (!templateId) return
@@ -99,6 +100,24 @@ export default function TemplateDetailPage({ basePath }) {
     }
   }
 
+  const syncDevices = async () => {
+    setSyncing(true)
+    try {
+      const res = await emsApi.syncDeviceTemplate(templateId)
+      const s = res?.sync
+      showToast(
+        s
+          ? `Synced to ${s.devices} device(s): +${s.slavesAdded} slaves, +${s.variablesAdded} variables`
+          : 'Template synced to devices',
+        'success'
+      )
+    } catch (e) {
+      showToast(e.message || 'Sync failed', 'error')
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   const removeSlave = async (id) => {
     if (!confirm('Delete this slave?')) return
     try {
@@ -141,10 +160,16 @@ export default function TemplateDetailPage({ basePath }) {
           <button type="button" className="btn-ghost p-2" onClick={() => navigate(`${basePath}/device-templates`)}>
             <ArrowLeft size={18} />
           </button>
-          <div>
+          <div className="flex-1 min-w-0">
             <h2 className="page-title">{template?.name ?? 'Template'}</h2>
             <p className="breadcrumb">{template?.acquisitionMethod ?? '—'} · {slaves.length} slaves</p>
           </div>
+          {canEdit && (
+            <button type="button" className="btn-secondary text-xs" disabled={syncing} onClick={syncDevices}>
+              <RefreshCw size={14} className={syncing ? 'animate-spin' : ''} />
+              {syncing ? 'Syncing…' : 'Sync to devices'}
+            </button>
+          )}
         </div>
 
         <div className="card p-4">

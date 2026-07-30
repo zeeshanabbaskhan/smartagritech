@@ -5,6 +5,7 @@ const prisma      = require('../config/database')
 const { AppError } = require('../middleware/errorHandler')
 const { paginate } = require('../utils/helpers')
 const refCache = require('../utils/referenceCache')
+const { syncTemplateToDevices } = require('../utils/syncTemplateToDevices')
 
 // Variables change the template's totalVariables count shown in the cached
 // templates list — clear both viewer-org buckets + the single-template cache.
@@ -75,7 +76,8 @@ const createVariable = async (req, res, next) => {
     })
 
     await invalidateTemplateCaches(slave.organizationId, templateId)
-    res.status(201).json({ success: true, data })
+    const sync = await syncTemplateToDevices(templateId)
+    res.status(201).json({ success: true, data, sync })
   } catch (err) { next(err) }
 }
 
@@ -97,7 +99,8 @@ const updateVariable = async (req, res, next) => {
       },
     })
     await invalidateTemplateCaches(existing.organizationId, req.params.templateId)
-    res.json({ success: true, data })
+    const sync = await syncTemplateToDevices(req.params.templateId)
+    res.json({ success: true, data, sync })
   } catch (err) { next(err) }
 }
 

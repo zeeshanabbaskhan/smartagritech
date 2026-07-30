@@ -98,6 +98,7 @@ const emsApi = {
   updateDeviceTemplate: (id, body) => api.put(`/device-templates/${id}`, body),
   deleteDeviceTemplate: (id) => api.delete(`/device-templates/${id}`),
   cloneDeviceTemplate: (id) => api.post(`/device-templates/${id}/clone`),
+  syncDeviceTemplate: (id) => api.post(`/device-templates/${id}/sync-devices`),
 
   // ─── Sensor data ────────────────────────────────────────────────────────
   getLatestReadings: (params) => api.get('/sensor-data/latest', params),

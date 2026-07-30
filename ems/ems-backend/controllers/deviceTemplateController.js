@@ -6,6 +6,7 @@ const prisma         = require('../config/database')
 const { AppError }   = require('../middleware/errorHandler')
 const { orgScope, paginate } = require('../utils/helpers')
 const refCache = require('../utils/referenceCache')
+const { syncTemplateToDevices } = require('../utils/syncTemplateToDevices')
 
 // The templates list is cached per viewer-org bucket: SUPER_ADMIN reads land in
 // the 'all' bucket, ORG_ADMIN reads in their own org bucket. Any create / update /
@@ -186,8 +187,21 @@ const cloneDeviceTemplate = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
+// @desc  Push current template slaves/variables onto all devices using this template
+// @access SUPER_ADMIN | ORG_ADMIN
+const syncDeviceTemplate = async (req, res, next) => {
+  try {
+    const where = { id: req.params.id, ...orgScope(req.user) }
+    const existing = await prisma.deviceTemplate.findFirst({ where })
+    if (!existing) return next(new AppError('Device template not found', 404))
+
+    const sync = await syncTemplateToDevices(existing.id)
+    res.json({ success: true, sync })
+  } catch (err) { next(err) }
+}
+
 module.exports = {
   getDeviceTemplates, getDeviceTemplate,
   createDeviceTemplate, updateDeviceTemplate, deleteDeviceTemplate,
-  cloneDeviceTemplate,
+  cloneDeviceTemplate, syncDeviceTemplate,
 }

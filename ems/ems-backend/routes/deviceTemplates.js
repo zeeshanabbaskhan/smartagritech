@@ -4,7 +4,7 @@ const { protect, authorize } = require('../middleware/auth');
 const {
   getDeviceTemplates, getDeviceTemplate,
   createDeviceTemplate, updateDeviceTemplate,
-  deleteDeviceTemplate, cloneDeviceTemplate,
+  deleteDeviceTemplate, cloneDeviceTemplate, syncDeviceTemplate,
 } = require('../controllers/deviceTemplateController');
 
 router.use(protect);
@@ -19,5 +19,6 @@ router.route('/:id')
   .delete(authorize('SUPER_ADMIN', 'ORG_ADMIN'), deleteDeviceTemplate);
 
 router.post('/:id/clone', authorize('SUPER_ADMIN', 'ORG_ADMIN'), cloneDeviceTemplate);
+router.post('/:id/sync-devices', authorize('SUPER_ADMIN', 'ORG_ADMIN'), syncDeviceTemplate);
 
 module.exports = router;

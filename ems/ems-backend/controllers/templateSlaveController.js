@@ -5,6 +5,7 @@ const prisma      = require('../config/database')
 const { AppError } = require('../middleware/errorHandler')
 const { paginate } = require('../utils/helpers')
 const refCache = require('../utils/referenceCache')
+const { syncTemplateToDevices } = require('../utils/syncTemplateToDevices')
 
 // Slaves change the template's totalSlaves/totalVariables counts, which the
 // cached templates list reflects — clear both viewer-org buckets + the template.
@@ -55,7 +56,8 @@ const createSlave = async (req, res, next) => {
     })
 
     await invalidateTemplateCaches(template.organizationId, templateId)
-    res.status(201).json({ success: true, data })
+    const sync = await syncTemplateToDevices(templateId)
+    res.status(201).json({ success: true, data, sync })
   } catch (err) { next(err) }
 }
 
