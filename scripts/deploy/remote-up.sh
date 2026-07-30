@@ -34,8 +34,17 @@ TARGET="${DEPLOY_PATH}/${SERVICE}"
 mkdir -p "$TARGET"
 # Clear previous source (keep nothing that could stale the Docker build context)
 find "$TARGET" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-# Archive includes "./"; restoring utime/mode on TARGET fails if we don't own it.
-tar -xzf "$TARBALL" -C "$TARGET" --no-same-owner --no-same-permissions -m
+
+# Extract into a user-owned temp dir first. Archives pack "." which makes tar try to
+# chmod/utime the extract root — that fails when TARGET is not owned by the SSH user.
+STAGE="$(mktemp -d /tmp/ems-extract-XXXXXX)"
+cleanup() { rm -rf "$STAGE"; }
+trap cleanup EXIT
+tar -xzf "$TARBALL" -C "$STAGE" --no-same-owner --no-same-permissions
+# Move contents (including hidden files) into TARGET
+shopt -s dotglob nullglob
+mv "$STAGE"/* "$TARGET"/
+shopt -u dotglob nullglob
 rm -f "$TARBALL"
 
 cd "$DEPLOY_PATH"
