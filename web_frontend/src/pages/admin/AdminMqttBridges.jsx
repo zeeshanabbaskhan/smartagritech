@@ -250,7 +250,7 @@ export default function AdminMqttBridges({ basePath = '/admin' }) {
           </div>
         )}
 
-        <DataTable columns={columns} rows={rows} emptyMessage="No MQTT bridges yet" />
+        <DataTable columns={columns} data={rows} emptyMessage="No MQTT bridges yet" />
       </div>
 
       <Modal
