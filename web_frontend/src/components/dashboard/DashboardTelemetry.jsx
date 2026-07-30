@@ -2,24 +2,18 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Zap, Activity, Gauge, TrendingUp, Radio, Search, ChevronRight, Cpu } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
 import { mapDevice } from '../../utils/mappers'
-import { readDeviceMetric, computeKpis, isOffline } from '../../utils/deviceMetrics'
+import {
+  readDeviceMetric,
+  computeDynamicKpis,
+  listDeviceMetricEntries,
+  isOffline,
+  unitForVariable,
+} from '../../utils/deviceMetrics'
 import DrillDownModal from '../ui/DrillDownModal'
 import { useToast } from '../../context/ToastContext'
 
-const DEFAULT_KPI_CONFIG = [
-  { key: 'power',   label: 'Total Power',      metric: 'power',   unit: 'kW', Icon: Zap,        color: '#F5A623', gaugeMax: 135, agg: 'Sum',  aggKey: 'totalPower' },
-  { key: 'current', label: 'Total Current',    metric: 'current', unit: 'A',  Icon: Activity,   color: '#3B82F6', gaugeMax: 80,  agg: 'Sum',  aggKey: 'totalCurrent' },
-  { key: 'voltage', label: 'Avg Voltage',      metric: 'voltage', unit: 'V',  Icon: Gauge,      color: '#22C55E', gaugeMax: 240, agg: 'Mean', aggKey: 'avgVoltage' },
-  { key: 'pf',      label: 'Avg Power Factor', metric: 'pf',      unit: '',   Icon: TrendingUp, color: '#8B5CF6', gaugeMax: 1,   agg: 'Mean', aggKey: 'avgPF' },
-]
-
-const TILE_CONFIG = [
-  { key: 'power',       label: 'Active Power',       unit: 'kW',  Icon: Zap,        cls: 'text-amber-500' },
-  { key: 'current',     label: 'Current',            unit: 'A',   Icon: Activity,   cls: 'text-info-500' },
-  { key: 'voltage',     label: 'Voltage',            unit: 'V',   Icon: Gauge,      cls: 'text-success-500' },
-  { key: 'pf',          label: 'Power Factor',       unit: '',    Icon: TrendingUp, cls: 'text-primary-500' },
-  { key: 'consumption', label: 'Energy Consumption', unit: 'kWh', Icon: Zap,        cls: 'text-primary-500', span: true },
-]
+const KPI_ICONS = [Zap, Activity, Gauge, TrendingUp]
+const KPI_COLORS = ['#F5A623', '#3B82F6', '#22C55E', '#8B5CF6']
 
 function highlightMatch(text, search) {
   if (!search || !text) return text
@@ -35,18 +29,17 @@ function highlightMatch(text, search) {
   )
 }
 
-function tileValue(device, key, offline) {
-  if (offline) return '—'
-  const n = readDeviceMetric(device, key)
-  if (!Number.isFinite(n)) return '—'
-  return key === 'pf' ? n.toFixed(2) : n.toFixed(1)
+function formatTileValue(value, name) {
+  if (!Number.isFinite(value)) return '—'
+  if (/powerfactor|\bpf\b/i.test(String(name))) return value.toFixed(2)
+  if (Math.abs(value) >= 1000) return value.toFixed(0)
+  return value.toFixed(1)
 }
 
 export default function DashboardTelemetry({
   panelTitle = 'Master Executive Device Control',
   showAccessFilter = true,
   highlightQuery = '',
-  /** 'all' | 'kpis' | 'telemetry' — lets pages match CF section order */
   sections = 'all',
   allDevicesLabel = 'All Devices',
   powerKpiLabel,
@@ -63,11 +56,6 @@ export default function DashboardTelemetry({
   const filterRef = useRef(null)
   const showKpis = sections === 'all' || sections === 'kpis'
   const showTelemetry = sections === 'all' || sections === 'telemetry'
-  const KPI_CONFIG = useMemo(() => (
-    powerKpiLabel
-      ? DEFAULT_KPI_CONFIG.map((k) => (k.key === 'power' ? { ...k, label: powerKpiLabel } : k))
-      : DEFAULT_KPI_CONFIG
-  ), [powerKpiLabel])
 
   const loadDevices = () => {
     emsApi.getDevices({ limit: 100, withMetrics: true })
@@ -107,7 +95,18 @@ export default function DashboardTelemetry({
     return devices.filter((d) => group.deviceIds.includes(d.id))
   }, [devices, groups, groupFilter])
 
-  const kpis = useMemo(() => computeKpis(activeDevices), [activeDevices])
+  const kpiState = useMemo(() => computeDynamicKpis(activeDevices), [activeDevices])
+
+  const KPI_CONFIG = useMemo(() => (
+    kpiState.cards.map((c, i) => ({
+      ...c,
+      Icon: KPI_ICONS[i % KPI_ICONS.length],
+      color: KPI_COLORS[i % KPI_COLORS.length],
+      label: powerKpiLabel && (c.key === 'power' || /activepower/i.test(c.key))
+        ? powerKpiLabel
+        : c.label,
+    }))
+  ), [kpiState.cards, powerKpiLabel])
 
   const activeGroupLabel = useMemo(() => {
     if (groupFilter === 'all') return allDevicesLabel
@@ -125,10 +124,10 @@ export default function DashboardTelemetry({
     const q = deviceSearch.toLowerCase().trim()
     if (q) {
       return activeDevices.filter((d) =>
-        d.name.toLowerCase().includes(q) ||
-        (d.gateway ?? '').toLowerCase().includes(q) ||
-        (d.org ?? '').toLowerCase().includes(q) ||
-        (d.template ?? '').toLowerCase().includes(q)
+        d.name.toLowerCase().includes(q)
+        || (d.gateway ?? '').toLowerCase().includes(q)
+        || (d.org ?? '').toLowerCase().includes(q)
+        || (d.template ?? '').toLowerCase().includes(q)
       )
     }
     return [...activeDevices].slice(0, 5)
@@ -212,10 +211,13 @@ export default function DashboardTelemetry({
             </div>
           )}
 
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            {KPI_CONFIG.map(({ key, label, unit, Icon, color, agg, aggKey }) => {
-              const value = kpis[aggKey]
-              return (
+          <div className={`grid grid-cols-2 gap-4 ${KPI_CONFIG.length >= 4 ? 'lg:grid-cols-4' : KPI_CONFIG.length === 3 ? 'lg:grid-cols-3' : 'lg:grid-cols-2'}`}>
+            {KPI_CONFIG.length === 0 ? (
+              <div className="col-span-2 lg:col-span-4 card p-4 text-xs text-surface-500">
+                No live variables yet — start the MQTT bridge so device readings appear here.
+              </div>
+            ) : (
+              KPI_CONFIG.map(({ key, label, unit, Icon, color, agg, value }) => (
                 <button
                   key={key}
                   type="button"
@@ -223,22 +225,22 @@ export default function DashboardTelemetry({
                   className="card p-4 text-left hover:shadow-elevated hover:border-primary-200 dark:hover:border-primary-800 transition-all duration-200 cursor-pointer group border border-surface-200 dark:border-surface-800 w-full"
                 >
                   <div className="flex items-start justify-between mb-2">
-                    <span className="text-[10px] font-black text-surface-600 dark:text-surface-400 uppercase tracking-wider leading-tight">{label}</span>
+                    <span className="text-[10px] font-black text-surface-600 dark:text-surface-400 uppercase tracking-wider leading-tight truncate pr-2">{label}</span>
                     <Icon size={13} style={{ color }} className="flex-shrink-0 mt-0.5" />
                   </div>
                   <div className="flex items-baseline gap-1">
                     <span className="text-2xl font-black text-surface-900 dark:text-surface-100 leading-none">
-                      {Number.isFinite(value) && value > 0 ? value.toFixed(key === 'pf' ? 2 : 1) : '—'}
+                      {Number.isFinite(value) ? formatTileValue(value, key) : '—'}
                     </span>
-                    {unit && <span className="text-xs font-bold text-surface-400">{unit}</span>}
+                    {unit ? <span className="text-xs font-bold text-surface-400">{unit}</span> : null}
                   </div>
                   <div className="mt-2 flex items-center justify-between">
-                    <span className="text-[10px] text-surface-400 font-semibold">{agg} · {kpis.onlineCount} online</span>
+                    <span className="text-[10px] text-surface-400 font-semibold">{agg} · {kpiState.onlineCount} online</span>
                     <ChevronRight size={11} className="text-surface-300 group-hover:text-primary-500 transition-colors flex-shrink-0" />
                   </div>
                 </button>
-              )
-            })}
+              ))
+            )}
           </div>
         </div>
       )}
@@ -251,7 +253,9 @@ export default function DashboardTelemetry({
               <div>
                 <h3 className="text-base font-extrabold text-surface-900 dark:text-surface-100 tracking-tight leading-tight">{panelTitle}</h3>
                 <p className="text-xs text-surface-400 font-semibold mt-0.5">
-                  {deviceSearch.trim() ? `Search results for "${deviceSearch}"` : 'Showing 5 latest devices. Use search to find more.'}
+                  {deviceSearch.trim()
+                    ? `Search results for "${deviceSearch}"`
+                    : 'Live variables from each device. Use search to find more.'}
                 </p>
               </div>
             </div>
@@ -275,6 +279,7 @@ export default function DashboardTelemetry({
             ) : (
               filteredDevices.map((d) => {
                 const offline = isOffline(d)
+                const tiles = listDeviceMetricEntries(d, { limit: 24 })
                 return (
                   <div key={d.id} className="p-4 bg-surface-50/50 dark:bg-surface-900/40 rounded-xl border border-surface-200 dark:border-surface-800 space-y-3 hover:border-primary-300 dark:hover:border-primary-800 transition-all duration-200">
                     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-surface-100 dark:border-surface-800/80 pb-2.5">
@@ -306,23 +311,33 @@ export default function DashboardTelemetry({
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-                      {TILE_CONFIG.map(({ key, label, unit, Icon, cls, span }) => (
-                        <div key={key} className={`p-3 bg-white dark:bg-surface-900 rounded-lg border border-surface-200 dark:border-surface-800/80 flex flex-col justify-between min-h-[5.5rem] hover:border-primary-300 dark:hover:border-primary-800 transition-all duration-200${span ? ' col-span-2 sm:col-span-1' : ''}`}>
-                          <div className="flex justify-between items-start text-surface-400">
-                            <span className="text-[10px] font-black uppercase tracking-wide">{label}</span>
-                            <Icon size={13} className={offline ? '' : cls} />
+                    {tiles.length === 0 ? (
+                      <p className="text-[11px] text-surface-500 py-3 text-center">
+                        {offline
+                          ? 'No live readings yet — device offline or MQTT bridge not ingesting.'
+                          : 'Waiting for first reading from this device’s variables…'}
+                      </p>
+                    ) : (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                        {tiles.map(({ name, value, unit }) => (
+                          <div key={name} className="p-3 bg-white dark:bg-surface-900 rounded-lg border border-surface-200 dark:border-surface-800/80 flex flex-col justify-between min-h-[5.5rem] hover:border-primary-300 dark:hover:border-primary-800 transition-all duration-200">
+                            <div className="flex justify-between items-start text-surface-400 gap-1">
+                              <span className="text-[10px] font-black uppercase tracking-wide truncate" title={name}>{name}</span>
+                              <Zap size={13} className={offline ? '' : 'text-primary-500'} />
+                            </div>
+                            <div className="mt-1">
+                              <span className="text-base font-black text-surface-900 dark:text-surface-100 leading-none">
+                                {offline ? '—' : formatTileValue(value, name)}
+                              </span>
+                              {unit ? <span className="text-[10px] text-surface-400 font-semibold ml-1">{unit}</span> : null}
+                            </div>
+                            <div className="text-[9px] text-surface-400/80 mt-1 truncate border-t border-surface-100 dark:border-surface-800/40 pt-1.5 font-bold uppercase tracking-widest">
+                              for {d.name}
+                            </div>
                           </div>
-                          <div className="mt-1">
-                            <span className="text-base font-black text-surface-900 dark:text-surface-100 leading-none">{tileValue(d, key, offline)}</span>
-                            {unit && <span className="text-[10px] text-surface-400 font-semibold ml-1">{unit}</span>}
-                          </div>
-                          <div className="text-[9px] text-surface-400/80 mt-1 truncate border-t border-surface-100 dark:border-surface-800/40 pt-1.5 font-bold uppercase tracking-widest">
-                            for {d.name}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )
               })
@@ -336,11 +351,11 @@ export default function DashboardTelemetry({
           open
           onClose={() => setDrillMetric(null)}
           metric={drillCfg.label}
-          unit={drillCfg.unit}
-          aggregate={kpis[drillCfg.aggKey]}
+          unit={drillCfg.unit || unitForVariable(drillCfg.metric)}
+          aggregate={drillCfg.value}
           aggregateLabel={drillCfg.agg}
           devices={activeDevices}
-          getDeviceValue={(d) => readDeviceMetric(d, drillCfg.metric)}
+          getDeviceValue={(device) => readDeviceMetric(device, drillCfg.metric)}
           gaugeMax={drillCfg.gaugeMax}
           gaugeColor={drillCfg.color}
         />

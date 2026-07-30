@@ -15,17 +15,42 @@ const invalidateTemplateCaches = async (organizationId) => {
   if (organizationId) await refCache.invalidateOrg(organizationId)
 }
 
+/** Attach live Redis values merged with configured device variables (units + schema). */
 const attachLatestMetrics = async (devices) => {
+  if (!devices?.length) return devices
   const c = redis.getClient()
-  if (!c) return devices
   const enriched = []
   for (const d of devices) {
-    try {
-      const hot = await c.hGetAll(`device:${d.id}:latest`)
-      enriched.push({ ...d, latestMetrics: hot })
-    } catch (_) {
-      enriched.push(d)
+    let hot = {}
+    if (c) {
+      try {
+        hot = await c.hGetAll(`device:${d.id}:latest`)
+      } catch (_) {
+        hot = {}
+      }
     }
+    let vars = []
+    try {
+      vars = await prisma.deviceConfigVariable.findMany({
+        where: { deviceId: d.id, isActive: true },
+        select: { name: true, currentValue: true, unit: true },
+        orderBy: { name: 'asc' },
+      })
+    } catch (_) {
+      vars = []
+    }
+    const latestMetrics = {}
+    for (const v of vars) {
+      if (!v?.name) continue
+      const redisVal = hot[v.name]
+      const value = redisVal != null && redisVal !== '' ? redisVal : v.currentValue
+      latestMetrics[v.name] = { value: value ?? null, unit: v.unit ?? null }
+    }
+    for (const [name, value] of Object.entries(hot || {})) {
+      if (latestMetrics[name]) continue
+      latestMetrics[name] = { value, unit: null }
+    }
+    enriched.push({ ...d, latestMetrics })
   }
   return enriched
 }

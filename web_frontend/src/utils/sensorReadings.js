@@ -129,12 +129,9 @@ export async function fetchDeviceDashboardCharts(deviceId, timeRange = '24h', sl
     power: p.value,
   }))
 
-  const preferred = ['VoltageA', 'VoltageB', 'VoltageC', 'SoilMoisture', 'BatteryLevel', 'ActivePower', 'CurrentA']
+  const preferred = []
   const fromLatest = readings.map((r) => r.variableName).filter(Boolean)
-  const varNames = [...new Set([
-    ...preferred.filter((n) => fromLatest.includes(n)),
-    ...fromLatest.filter((n) => n !== 'PowerConsumption'),
-  ])].slice(0, 3)
+  const varNames = [...new Set(fromLatest)].slice(0, 6)
 
   const aggregates = await Promise.all(
     varNames.map(async (variableName) => {

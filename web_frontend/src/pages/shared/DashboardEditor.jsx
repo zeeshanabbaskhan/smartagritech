@@ -285,6 +285,7 @@ export default function DashboardEditor() {
         onClose={() => setAddOpen(false)}
         onAdd={handleAddWidget}
         devices={devices}
+        dashboardDeviceId={dashboard.targetDeviceId}
       />
 
       <WidgetSettingsModal
@@ -293,6 +294,7 @@ export default function DashboardEditor() {
         widget={settingsWidget}
         hierarchy={hierarchy}
         devices={devices}
+        dashboardDeviceId={dashboard.targetDeviceId}
         onSave={(patch) => handleUpdateWidget(settingsWidget.id, patch)}
       />
     </div>

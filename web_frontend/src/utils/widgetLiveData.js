@@ -6,6 +6,7 @@ import emsApi, { list, one } from '../api/emsApi'
 import {
   METRICS, getScopeChildren, collectDeviceIdsFromNode, resolveScopeDeviceIds, findNodeInTree,
 } from '../data/facilitiesHierarchy'
+import { unitForVariable } from './deviceMetrics'
 
 export const WIDGET_TIME_TO_API = {
   today: '24h',
@@ -26,6 +27,28 @@ export const METRIC_TO_VARIABLE = {
 
 const FALLBACK_COST_PER_KWH = 45
 const CARBON_KG_PER_KWH = 0.45
+
+/** Resolve the real sensor variable name for a widget (dynamic first, catalog fallback). */
+export function resolveWidgetVariableName(widget) {
+  if (!widget) return null
+  if (widget.variableName && widget.variableName !== '_none') return widget.variableName
+  const metric = widget.metric
+  if (!metric || metric === '_none' || metric === 'devicesOnline' || metric === 'activeAlarms') return null
+  return METRIC_TO_VARIABLE[metric] || metric
+}
+
+function metricMeta(widget) {
+  const variableName = resolveWidgetVariableName(widget)
+  const metric = widget?.metric || 'energyConsumption'
+  const fromCatalog = METRICS[metric]
+  if (fromCatalog) return { ...fromCatalog, variableName }
+  return {
+    label: variableName || metric,
+    unit: widget?.unit || unitForVariable(variableName || metric),
+    color: '#F5A623',
+    variableName,
+  }
+}
 
 let cachedTariff = { at: 0, rate: FALLBACK_COST_PER_KWH }
 
@@ -62,13 +85,14 @@ function formatBucketLabel(iso, widgetRange) {
   return `${d.getDate()}`
 }
 
-function pickLatestValue(latestMap, metric, tariffRate) {
+function pickLatestValue(latestMap, metricOrVar, tariffRate, scaleMetric) {
   if (!latestMap || typeof latestMap !== 'object') return null
-  const primary = METRIC_TO_VARIABLE[metric]
+  const primary = METRIC_TO_VARIABLE[metricOrVar] || metricOrVar
   const candidates = [
     primary,
-    metric === 'activePower' ? 'PowerConsumption' : null,
-    metric === 'energyConsumption' ? 'ActivePower' : null,
+    metricOrVar,
+    metricOrVar === 'activePower' ? 'PowerConsumption' : null,
+    metricOrVar === 'energyConsumption' ? 'ActivePower' : null,
   ].filter(Boolean)
 
   for (const key of candidates) {
@@ -76,21 +100,22 @@ function pickLatestValue(latestMap, metric, tariffRate) {
     const raw = entry && typeof entry === 'object' ? entry.value : entry
     if (raw != null && raw !== '') {
       const n = parseFloat(raw)
-      if (!Number.isNaN(n)) return applyMetricScaleSync(metric, n, tariffRate)
+      if (!Number.isNaN(n)) return applyMetricScaleSync(scaleMetric || metricOrVar, n, tariffRate)
     }
   }
   return null
 }
 
-function metricFromDeviceHot(hot, metric, tariffRate) {
+function metricFromDeviceHot(hot, metricOrVar, tariffRate, scaleMetric) {
   if (!hot) return null
-  const primary = METRIC_TO_VARIABLE[metric]
+  const primary = METRIC_TO_VARIABLE[metricOrVar] || metricOrVar
   const raw = hot[primary]
-    ?? (metric === 'activePower' ? hot.PowerConsumption : null)
-    ?? (metric === 'energyConsumption' ? hot.ActivePower : null)
+    ?? hot[metricOrVar]
+    ?? (metricOrVar === 'activePower' ? hot.PowerConsumption : null)
+    ?? (metricOrVar === 'energyConsumption' ? hot.ActivePower : null)
   if (raw == null || raw === '') return null
   const n = parseFloat(raw)
-  return Number.isNaN(n) ? null : applyMetricScaleSync(metric, n, tariffRate)
+  return Number.isNaN(n) ? null : applyMetricScaleSync(scaleMetric || metricOrVar, n, tariffRate)
 }
 
 export function resolveDeviceId(widget, dashboardContext) {
@@ -112,15 +137,16 @@ function resolveScope(widget, dashboardContext) {
  */
 export async function fetchWidgetLiveBundle({ widget, dashboardContext, hierarchy, orgName }) {
   const metric = widget.metric || 'energyConsumption'
-  const cfg = METRICS[metric] || METRICS.energyConsumption
+  const variableName = resolveWidgetVariableName(widget)
+  const cfg = metricMeta(widget)
   const timeRange = widget.timeRange === 'inherit' || !widget.timeRange
     ? (dashboardContext?.timeRange || 'today')
     : widget.timeRange
   const apiRange = WIDGET_TIME_TO_API[timeRange] || '24h'
   const deviceId = resolveDeviceId(widget, dashboardContext)
-  const variableName = METRIC_TO_VARIABLE[metric]
   const tariffRate = await resolveTariffRate()
   const scope = resolveScope(widget, dashboardContext)
+  const scaleMetric = metric === 'cost' || metric === 'carbonEmissions' ? metric : 'raw'
 
   const empty = {
     series: [],
@@ -176,9 +202,10 @@ export async function fetchWidgetLiveBundle({ widget, dashboardContext, hierarch
   const devicesRes = await emsApi.getDevices({ limit: 100, withMetrics: 'true' }).catch(() => null)
   const devices = devicesRes ? list(devicesRes) : []
   const deviceById = Object.fromEntries(devices.map((d) => [d.id, d]))
+  const hotKey = variableName || metric
 
   const tableRows = devices.map((d) => {
-    const val = metricFromDeviceHot(d.latestMetrics, metric, tariffRate)
+    const val = metricFromDeviceHot(d.latestMetrics, hotKey, tariffRate, scaleMetric === 'raw' ? metric : scaleMetric)
     return {
       device: d.name,
       value: val ?? 0,
@@ -200,7 +227,7 @@ export async function fetchWidgetLiveBundle({ widget, dashboardContext, hierarch
         let sum = 0
         for (const id of ids) {
           const d = deviceById[id]
-          sum += metricFromDeviceHot(d?.latestMetrics, metric, tariffRate) ?? 0
+          sum += metricFromDeviceHot(d?.latestMetrics, hotKey, tariffRate, scaleMetric === 'raw' ? metric : scaleMetric) ?? 0
         }
         return { name: child.name, value: Math.round(sum * 100) / 100, unit: cfg.unit }
       })
@@ -236,6 +263,7 @@ export async function fetchWidgetLiveBundle({ widget, dashboardContext, hierarch
       tableRows: scopedRows.length ? scopedRows : tableRows,
       alarms: mapAlarms(alarmsRaw),
       source: 'org-devices',
+      unit: cfg.unit,
     }
   }
 
@@ -246,13 +274,13 @@ export async function fetchWidgetLiveBundle({ widget, dashboardContext, hierarch
   ])
 
   const latestMap = one(latestRes) || {}
-  let current = pickLatestValue(latestMap, metric, tariffRate) ?? 0
+  let current = pickLatestValue(latestMap, variableName, tariffRate, scaleMetric === 'raw' ? metric : scaleMetric) ?? 0
 
   const aggPoints = list(aggRes)
-  let series = await Promise.all(aggPoints.map(async (p) => ({
+  let series = aggPoints.map((p) => ({
     label: formatBucketLabel(p.timestamp, timeRange),
-    value: applyMetricScaleSync(metric, p.value, tariffRate),
-  })))
+    value: applyMetricScaleSync(scaleMetric === 'raw' ? metric : scaleMetric, p.value, tariffRate),
+  }))
 
   // Collapse year weekly buckets into monthly labels when needed
   if (timeRange === 'year' && series.length > 12) {
@@ -267,22 +295,23 @@ export async function fetchWidgetLiveBundle({ widget, dashboardContext, hierarch
     })
     series = Object.keys(byMonth).sort((a, b) => a - b).map((m) => ({
       label: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][m],
-      value: applyMetricScaleSync(metric, byMonth[m].sum / Math.max(1, byMonth[m].n), tariffRate),
+      value: applyMetricScaleSync(scaleMetric === 'raw' ? metric : scaleMetric, byMonth[m].sum / Math.max(1, byMonth[m].n), tariffRate),
     }))
   }
 
   if (!series.length && summaryRes?.data) {
     const s = summaryRes.data
     const chart =
-      (metric === 'energyConsumption' && s.totalPowerConsumption?.chartData)
+      (variableName && s.charts?.[variableName])
+      || (metric === 'energyConsumption' && s.totalPowerConsumption?.chartData)
       || (metric === 'activePower' && s.totalPowerConsumption?.chartData)
       || (metric === 'voltage' && s.voltageImbalance?.chartData)
       || (metric === 'current' && s.currentImbalance?.chartData)
       || (metric === 'powerFactor' && s.powerFactor?.chartData)
       || []
-    series = chart.map((p) => ({
+    series = (chart || []).map((p) => ({
       label: formatBucketLabel(p.timestamp, timeRange),
-      value: applyMetricScaleSync(metric, p.value, tariffRate),
+      value: applyMetricScaleSync(scaleMetric === 'raw' ? metric : scaleMetric, p.value, tariffRate),
     }))
     if (!current && s.totalPowerConsumption?.value != null && (metric === 'energyConsumption' || metric === 'cost' || metric === 'carbonEmissions')) {
       current = applyMetricScaleSync(metric, s.totalPowerConsumption.value, tariffRate)
@@ -293,15 +322,11 @@ export async function fetchWidgetLiveBundle({ widget, dashboardContext, hierarch
 
   const previous = series.length > 1 ? series[series.length - 2].value : current
 
-  const multiKeys = (widget.metrics || []).map((m) => m.key).filter(Boolean)
+  const multiKeys = (widget.metrics || []).map((m) => m.variableName || m.key).filter(Boolean)
   const multiSeries = {}
   if (widget.type === 'multiseries' && multiKeys.length) {
     await Promise.all(multiKeys.map(async (key) => {
-      const vName = METRIC_TO_VARIABLE[key]
-      if (!vName) {
-        multiSeries[key] = series
-        return
-      }
+      const vName = METRIC_TO_VARIABLE[key] || key
       const res = await emsApi.getSensorAggregate({
         deviceId: effectiveDeviceId,
         variableName: vName,
@@ -309,7 +334,7 @@ export async function fetchWidgetLiveBundle({ widget, dashboardContext, hierarch
       }).catch(() => null)
       multiSeries[key] = list(res).map((p) => ({
         label: formatBucketLabel(p.timestamp, timeRange),
-        value: applyMetricScaleSync(key, p.value, tariffRate),
+        value: applyMetricScaleSync(scaleMetric === 'raw' ? metric : scaleMetric, p.value, tariffRate),
       }))
     }))
   }
@@ -321,7 +346,7 @@ export async function fetchWidgetLiveBundle({ widget, dashboardContext, hierarch
       variableName,
       timeRange: '7d',
     }).catch(() => null))
-    heatmap = buildHeatmapMatrix(heatAgg, metric, tariffRate)
+    heatmap = buildHeatmapMatrix(heatAgg, scaleMetric === 'raw' ? metric : scaleMetric, tariffRate)
   }
 
   return {

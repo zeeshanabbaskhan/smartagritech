@@ -1,92 +1,78 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Modal from '../ui/Modal'
 import { WIDGET_TYPES, METRIC_OPTIONS, GROUP_BY_OPTIONS, COLOR_THEMES, widgetTypeMeta } from '../../data/widgetCatalog'
-import { Database, Cpu } from 'lucide-react'
+import { Cpu } from 'lucide-react'
+import { fetchDeviceVariables } from '../../utils/sensorReadings'
 
-const DB_TABLES = [
-  {
-    value: 'telemetry_data',
-    label: 'telemetry_data',
-    description: 'Raw sensor readings (energy, temperature, humidity, CO₂)',
-    columns: [
-      { value: 'value', label: 'value — FLOAT', hint: 'Raw sensor reading' },
-      { value: 'metric_type', label: 'metric_type — VARCHAR', hint: 'energy / temp / humidity / co2' },
-    ],
-  },
-  {
-    value: 'energy_meters',
-    label: 'energy_meters',
-    description: 'Power meter readings — kWh, kW, voltage, current, PF',
-    columns: [
-      { value: 'kWh', label: 'kWh — FLOAT', hint: 'Cumulative energy' },
-      { value: 'kW', label: 'kW — FLOAT', hint: 'Instantaneous power' },
-      { value: 'power_factor', label: 'power_factor — FLOAT', hint: '0.0 – 1.0' },
-    ],
-  },
-]
+const SYSTEM_METRICS = METRIC_OPTIONS.filter((m) =>
+  ['devicesOnline', 'activeAlarms', '_none', 'cost', 'carbonEmissions'].includes(m.value)
+)
 
-const POLL_INTERVALS = [
-  { value: '5s', label: 'Every 5 seconds' },
-  { value: '30s', label: 'Every 30 seconds' },
-  { value: '1m', label: 'Every 1 minute' },
-  { value: '5m', label: 'Every 5 minutes' },
-]
-
-const AGGREGATIONS = [
-  { value: 'last', label: 'Last value' },
-  { value: 'avg', label: 'Average' },
-  { value: 'sum', label: 'Sum' },
-  { value: 'min', label: 'Minimum' },
-  { value: 'max', label: 'Maximum' },
-]
-
-const TIME_WINDOWS = [
-  { value: '1h', label: 'Last 1 hour' },
-  { value: '24h', label: 'Last 24 hours' },
-  { value: '7d', label: 'Last 7 days' },
-  { value: '30d', label: 'Last 30 days' },
-]
-
-export default function AddWidgetModal({ open, onClose, onAdd, devices = [] }) {
+export default function AddWidgetModal({ open, onClose, onAdd, devices = [], dashboardDeviceId = null }) {
   const [type, setType] = useState('line')
   const [title, setTitle] = useState('')
   const [metric, setMetric] = useState('energyConsumption')
+  const [variableName, setVariableName] = useState('')
   const [groupBy, setGroupBy] = useState('none')
   const [color, setColor] = useState('primary')
   const [targetDeviceId, setTargetDeviceId] = useState('')
-  const [dbTable, setDbTable] = useState(DB_TABLES[0].value)
-  const [dbColumn, setDbColumn] = useState(DB_TABLES[0].columns[0].value)
-  const [pollInterval, setPollInterval] = useState('30s')
-  const [aggregation, setAggregation] = useState('last')
-  const [timeWindow, setTimeWindow] = useState('1h')
+  const [deviceVars, setDeviceVars] = useState([])
+  const [varsLoading, setVarsLoading] = useState(false)
 
   const supportsGroupBy = ['bar', 'pie', 'table'].includes(type)
-  const selectedTable = DB_TABLES.find((t) => t.value === dbTable)
-  const selectedColumn = selectedTable?.columns.find((c) => c.value === dbColumn)
+  const effectiveDeviceId = targetDeviceId || dashboardDeviceId || ''
 
-  function handleTableChange(val) {
-    setDbTable(val)
-    const table = DB_TABLES.find((t) => t.value === val)
-    if (table) setDbColumn(table.columns[0].value)
-  }
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    if (!effectiveDeviceId) {
+      setDeviceVars([])
+      return undefined
+    }
+    setVarsLoading(true)
+    fetchDeviceVariables(effectiveDeviceId)
+      .then((vars) => {
+        if (cancelled) return
+        setDeviceVars(vars)
+        if (vars[0]?.name) {
+          setVariableName((prev) => prev || vars[0].name)
+          setMetric(vars[0].name)
+        }
+      })
+      .catch(() => { if (!cancelled) setDeviceVars([]) })
+      .finally(() => { if (!cancelled) setVarsLoading(false) })
+    return () => { cancelled = true }
+  }, [open, effectiveDeviceId])
 
-  const mockQuery = `SELECT ${aggregation === 'raw' ? dbColumn : `${aggregation.toUpperCase()}(${dbColumn})`} FROM ${dbTable} WHERE time >= NOW() - INTERVAL '${timeWindow}';`
+  const metricOptions = useMemo(() => {
+    const fromDevice = deviceVars.map((v) => ({
+      value: v.name,
+      label: `${v.name}${v.unit ? ` (${v.unit})` : ''}${v.slaveName ? ` · ${v.slaveName}` : ''}`,
+      unit: v.unit || '',
+    }))
+    return [...fromDevice, ...SYSTEM_METRICS]
+  }, [deviceVars])
 
   function handleAdd() {
     const meta = widgetTypeMeta(type)
     const device = devices.find((d) => d.id === targetDeviceId)
+    const selected = metricOptions.find((m) => m.value === metric)
+    const isSystem = SYSTEM_METRICS.some((m) => m.value === metric)
+    const resolvedVar = isSystem ? null : (variableName || metric)
     onAdd({
       type,
-      title: title.trim() || `${meta.label} — ${METRIC_OPTIONS.find((m) => m.value === metric)?.label}`,
-      metric,
+      title: title.trim() || `${meta.label} — ${selected?.label || metric}`,
+      metric: isSystem ? metric : (resolvedVar || 'activePower'),
+      variableName: resolvedVar,
+      unit: selected?.unit || null,
       groupBy: supportsGroupBy ? groupBy : 'none',
       color,
       targetDeviceId: targetDeviceId || null,
       targetDevice: device?.name || null,
-      dbMapping: { table: dbTable, column: dbColumn, pollInterval, aggregation, timeWindow },
     })
     setTitle('')
     setTargetDeviceId('')
+    setVariableName('')
     onClose()
   }
 
@@ -129,7 +115,7 @@ export default function AddWidgetModal({ open, onClose, onAdd, devices = [] }) {
 
         <div>
           <label className="label">Widget Title (optional)</label>
-          <input className="input" placeholder="e.g. Building A Energy Consumption" value={title} onChange={(e) => setTitle(e.target.value)} />
+          <input className="input" placeholder="e.g. VoltageA live" value={title} onChange={(e) => setTitle(e.target.value)} />
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -146,10 +132,28 @@ export default function AddWidgetModal({ open, onClose, onAdd, devices = [] }) {
             </select>
           </div>
           <div>
-            <label className="label">Data / Metric</label>
-            <select className="select" value={metric} onChange={(e) => setMetric(e.target.value)}>
-              {METRIC_OPTIONS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+            <label className="label">Device Variable / Metric</label>
+            <select
+              className="select"
+              value={metric}
+              onChange={(e) => {
+                const v = e.target.value
+                setMetric(v)
+                if (!SYSTEM_METRICS.some((m) => m.value === v)) setVariableName(v)
+                else setVariableName('')
+              }}
+            >
+              {!effectiveDeviceId && (
+                <option value="energyConsumption">Select a device to load its variables</option>
+              )}
+              {varsLoading && <option value="">Loading variables…</option>}
+              {metricOptions.map((m) => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
             </select>
+            <p className="text-[11px] text-surface-400 mt-1">
+              Options come from the device template variables (live MQTT registers).
+            </p>
           </div>
         </div>
 
@@ -177,60 +181,6 @@ export default function AddWidgetModal({ open, onClose, onAdd, devices = [] }) {
             </select>
           </div>
         )}
-
-        <div className="rounded-xl inset-panel p-4 space-y-4">
-          <div className="flex items-center gap-2">
-            <Database size={15} className="text-primary-600" />
-            <span className="text-sm font-semibold text-surface-700">Database Mapping</span>
-            <span className="ml-auto text-[10px] font-medium uppercase tracking-wide bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">Mock</span>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="label">Table</label>
-              <select className="select text-xs" value={dbTable} onChange={(e) => handleTableChange(e.target.value)}>
-                {DB_TABLES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-              </select>
-              {selectedTable && <p className="text-[11px] text-surface-400 mt-1">{selectedTable.description}</p>}
-            </div>
-            <div>
-              <label className="label">Column</label>
-              <select className="select text-xs" value={dbColumn} onChange={(e) => setDbColumn(e.target.value)}>
-                {(selectedTable?.columns ?? []).map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
-              </select>
-              {selectedColumn && <p className="text-[11px] text-surface-400 mt-1">{selectedColumn.hint}</p>}
-            </div>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="label">Aggregation</label>
-              <select className="select text-xs" value={aggregation} onChange={(e) => setAggregation(e.target.value)}>
-                {AGGREGATIONS.map((a) => <option key={a.value} value={a.value}>{a.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="label">Time Window</label>
-              <select className="select text-xs" value={timeWindow} onChange={(e) => setTimeWindow(e.target.value)}>
-                {TIME_WINDOWS.map((w) => <option key={w.value} value={w.value}>{w.label}</option>)}
-              </select>
-            </div>
-          </div>
-          <div>
-            <label className="label">Polling Interval</label>
-            <div className="flex flex-wrap gap-1.5">
-              {POLL_INTERVALS.map((p) => (
-                <button
-                  key={p.value}
-                  type="button"
-                  onClick={() => setPollInterval(p.value)}
-                  className={pollInterval === p.value ? 'filter-chip-active !text-[11px] !px-2.5 !py-1' : 'filter-chip !text-[11px] !px-2.5 !py-1'}
-                >
-                  {p.value}
-                </button>
-              ))}
-            </div>
-          </div>
-          <pre className="text-[11px] font-mono bg-surface-900 text-green-400 rounded-lg px-3 py-2.5 overflow-x-auto">{mockQuery}</pre>
-        </div>
       </div>
     </Modal>
   )

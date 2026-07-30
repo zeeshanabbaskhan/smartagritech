@@ -6,7 +6,8 @@ import {
 import { TrendingUp, TrendingDown, AlertTriangle, Bell, Info, Loader2 } from 'lucide-react'
 import { METRICS } from '../../data/facilitiesHierarchy'
 import { COLOR_THEMES } from '../../data/widgetCatalog'
-import { fetchWidgetLiveBundle, mergeMultiSeries, resolveDeviceId } from '../../utils/widgetLiveData'
+import { fetchWidgetLiveBundle, mergeMultiSeries, resolveDeviceId, resolveWidgetVariableName } from '../../utils/widgetLiveData'
+import { unitForVariable } from '../../utils/deviceMetrics'
 import { onSocketEvent, subscribeDevice, isSocketEnabled } from '../../services/socketService'
 
 const POLL_MS = 30_000
@@ -153,7 +154,15 @@ function useLiveBundle(widget, orgName, hierarchy, dashboardContext) {
 }
 
 export default function WidgetRenderer({ widget, orgName, hierarchy, dashboardContext }) {
-  const cfg = METRICS[widget.metric] || METRICS.energyConsumption
+  const variableName = resolveWidgetVariableName(widget)
+  const catalog = METRICS[widget.metric]
+  const cfg = {
+    label: catalog?.label || variableName || widget.metric || 'Metric',
+    unit: widget.unit || catalog?.unit || unitForVariable(variableName || widget.metric),
+    base: catalog?.base ?? 100,
+    variance: catalog?.variance ?? 40,
+    color: catalog?.color || '#F5A623',
+  }
   const color = themeHex(widget.color)
   const { bundle, loading } = useLiveBundle(widget, orgName, hierarchy, dashboardContext)
 
@@ -168,6 +177,7 @@ export default function WidgetRenderer({ widget, orgName, hierarchy, dashboardCo
 
   if (loading) return <LoadingCell />
   if (!bundle) return <EmptyCell message="Failed to load live data" />
+  if (bundle.unit) cfg.unit = bundle.unit
 
   const series = bundle.series || []
   const comparison = bundle.comparison || []
@@ -263,7 +273,9 @@ export default function WidgetRenderer({ widget, orgName, hierarchy, dashboardCo
   }
 
   if (widget.type === 'gauge') {
-    const max = widget.metric === 'powerFactor' ? 1 : Math.max(cfg.base + cfg.variance, value * 1.2, 1)
+    const max = /powerfactor|\bpf\b/i.test(String(variableName || widget.metric))
+      ? 1
+      : Math.max(cfg.base + cfg.variance, value * 1.2, 1)
     const pct = Math.min(100, Math.round((value / max) * 100))
     const activeColor = resolveThresholdColor(value, widget.thresholds, color)
     const data = [{ name: cfg.label, value: pct, fill: activeColor }]

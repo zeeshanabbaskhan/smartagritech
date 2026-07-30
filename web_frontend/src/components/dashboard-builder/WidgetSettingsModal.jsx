@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import Modal from '../ui/Modal'
 import { WIDGET_TYPES, METRIC_OPTIONS, GROUP_BY_OPTIONS, COLOR_THEMES } from '../../data/widgetCatalog'
 import { TIME_RANGES, findNodeInTree } from '../../data/facilitiesHierarchy'
 import { Network, Building, Layers, Folder, Cpu, Activity, HelpCircle } from 'lucide-react'
+import { fetchDeviceVariables } from '../../utils/sensorReadings'
 
 function getNodeIcon(type) {
   switch (type) {
@@ -21,8 +22,9 @@ function getNodeIcon(type) {
   }
 }
 
-export default function WidgetSettingsModal({ open, onClose, widget, hierarchy, onSave, devices = [] }) {
+export default function WidgetSettingsModal({ open, onClose, widget, hierarchy, onSave, devices = [], dashboardDeviceId = null }) {
   const [form, setForm] = useState(null)
+  const [deviceVars, setDeviceVars] = useState([])
 
   useEffect(() => {
     if (widget) {
@@ -35,7 +37,9 @@ export default function WidgetSettingsModal({ open, onClose, widget, hierarchy, 
       setForm({
         type: widget.type || 'line',
         title: widget.title,
-        metric: widget.metric,
+        metric: widget.variableName || widget.metric,
+        variableName: widget.variableName || '',
+        unit: widget.unit || '',
         content: widget.content ?? '',
         thresholds: widget.thresholds || [],
         metrics: widget.metrics || null,
@@ -48,6 +52,33 @@ export default function WidgetSettingsModal({ open, onClose, widget, hierarchy, 
       })
     }
   }, [widget])
+
+  const effectiveDeviceId = form?.targetDeviceId || dashboardDeviceId || ''
+
+  useEffect(() => {
+    if (!open || !effectiveDeviceId) {
+      setDeviceVars([])
+      return undefined
+    }
+    let cancelled = false
+    fetchDeviceVariables(effectiveDeviceId)
+      .then((vars) => { if (!cancelled) setDeviceVars(vars) })
+      .catch(() => { if (!cancelled) setDeviceVars([]) })
+    return () => { cancelled = true }
+  }, [open, effectiveDeviceId])
+
+  const metricOptions = useMemo(() => {
+    const fromDevice = deviceVars.map((v) => ({
+      value: v.name,
+      label: `${v.name}${v.unit ? ` (${v.unit})` : ''}`,
+      unit: v.unit || '',
+    }))
+    const system = METRIC_OPTIONS.filter((m) =>
+      ['devicesOnline', 'activeAlarms', '_none', 'cost', 'carbonEmissions'].includes(m.value)
+      || !fromDevice.length
+    )
+    return fromDevice.length ? [...fromDevice, ...system.filter((m) => ['devicesOnline', 'activeAlarms', '_none', 'cost', 'carbonEmissions'].includes(m.value))] : METRIC_OPTIONS
+  }, [deviceVars])
 
   if (!open || !form) return null
 
@@ -102,10 +133,15 @@ export default function WidgetSettingsModal({ open, onClose, widget, hierarchy, 
     }
 
     const device = devices.find((d) => d.id === form.targetDeviceId)
+    const selected = metricOptions.find((m) => m.value === form.metric)
+    const isSystem = ['devicesOnline', 'activeAlarms', '_none', 'cost', 'carbonEmissions'].includes(form.metric)
+    const resolvedVar = isSystem ? null : (form.variableName || form.metric)
     onSave({
       type: form.type,
       title: form.title,
-      metric: form.metric,
+      metric: isSystem ? form.metric : (resolvedVar || 'activePower'),
+      variableName: resolvedVar,
+      unit: selected?.unit || form.unit || null,
       content: form.content ?? '',
       thresholds: form.thresholds || [],
       metrics: form.type === 'multiseries' ? (form.metrics || []) : undefined,
@@ -184,10 +220,16 @@ export default function WidgetSettingsModal({ open, onClose, widget, hierarchy, 
                   <button
                     type="button"
                     className="text-[10px] font-bold text-primary-600"
-                    onClick={() => setForm((f) => ({
-                      ...f,
-                      metrics: [...(f.metrics || [{ key: form.metric || 'energyConsumption', label: '', color: activeColorTheme }]), { key: 'activePower', label: '', color: '#16A34A' }],
-                    }))}
+                    onClick={() => setForm((f) => {
+                      const first = deviceVars[0]?.name || 'activePower'
+                      return {
+                        ...f,
+                        metrics: [
+                          ...(f.metrics || [{ key: form.metric || first, variableName: form.variableName || first, label: '', color: activeColorTheme }]),
+                          { key: first, variableName: first, label: '', color: '#16A34A' },
+                        ],
+                      }
+                    })}
                   >
                     + Add series
                   </button>
@@ -208,14 +250,21 @@ export default function WidgetSettingsModal({ open, onClose, widget, hierarchy, 
                     />
                     <select
                       className="select flex-1 text-xs"
-                      value={s.key}
+                      value={s.variableName || s.key}
                       onChange={(e) => setForm((f) => {
                         const next = [...(f.metrics || [])]
-                        next[i] = { ...next[i], key: e.target.value }
+                        const v = e.target.value
+                        const isSys = ['devicesOnline', 'activeAlarms', 'cost', 'carbonEmissions'].includes(v)
+                        next[i] = {
+                          ...next[i],
+                          key: v,
+                          variableName: isSys ? null : v,
+                          label: metricOptions.find((m) => m.value === v)?.label || v,
+                        }
                         return { ...f, metrics: next }
                       })}
                     >
-                      {METRIC_OPTIONS.filter((m) => m.value !== '_none').map((m) => (
+                      {metricOptions.filter((m) => m.value !== '_none').map((m) => (
                         <option key={m.value} value={m.value}>{m.label}</option>
                       ))}
                     </select>
@@ -235,8 +284,21 @@ export default function WidgetSettingsModal({ open, onClose, widget, hierarchy, 
           ) : (
             <div>
               <label className="label">Data / Metric</label>
-              <select className="select" value={form.metric} onChange={(e) => setForm((f) => ({ ...f, metric: e.target.value }))}>
-                {METRIC_OPTIONS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+              <select
+                className="select"
+                value={form.metric}
+                onChange={(e) => {
+                  const v = e.target.value
+                  const selected = metricOptions.find((m) => m.value === v)
+                  setForm((f) => ({
+                    ...f,
+                    metric: v,
+                    variableName: ['devicesOnline', 'activeAlarms', '_none', 'cost', 'carbonEmissions'].includes(v) ? '' : v,
+                    unit: selected?.unit || '',
+                  }))
+                }}
+              >
+                {metricOptions.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
               </select>
             </div>
           )}
