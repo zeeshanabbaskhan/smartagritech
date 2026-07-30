@@ -103,7 +103,10 @@ const persistIngest = async ({ deviceId, slaveId, readings, organizationId }) =>
     const reading = await tx.sensorReading.create({
       data: { deviceId, deviceConfigSlaveId: slaveId || null, organizationId, readings, timestamp: ts },
     })
-    await tx.device.update({ where: { id: deviceId }, data: { lastDataReceivedAt: ts } })
+    await tx.device.update({
+      where: { id: deviceId },
+      data: { lastDataReceivedAt: ts, status: 'ONLINE' },
+    })
     await tx.deviceTimestamp.upsert({
       where:  { deviceId },
       update: { lastActiveAt: ts },
@@ -177,7 +180,7 @@ const processIngestBatch = async (payloads) => {
   const deviceIds = [...new Set(payloads.map((p) => p.deviceId))]
   await prisma.$transaction([
     ...deviceIds.map((id) =>
-      prisma.device.update({ where: { id }, data: { lastDataReceivedAt: now } })
+      prisma.device.update({ where: { id }, data: { lastDataReceivedAt: now, status: 'ONLINE' } })
     ),
     ...deviceIds.map((id) => {
       const orgId = payloads.find((p) => p.deviceId === id).organizationId
