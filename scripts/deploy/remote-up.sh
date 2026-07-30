@@ -34,7 +34,8 @@ TARGET="${DEPLOY_PATH}/${SERVICE}"
 mkdir -p "$TARGET"
 # Clear previous source (keep nothing that could stale the Docker build context)
 find "$TARGET" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-tar -xzf "$TARBALL" -C "$TARGET"
+# Archive includes "./"; restoring utime/mode on TARGET fails if we don't own it.
+tar -xzf "$TARBALL" -C "$TARGET" --no-same-owner --no-same-permissions -m
 rm -f "$TARBALL"
 
 cd "$DEPLOY_PATH"
