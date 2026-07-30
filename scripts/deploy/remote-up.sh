@@ -48,6 +48,22 @@ shopt -u dotglob nullglob
 rm -f "$TARBALL"
 
 cd "$DEPLOY_PATH"
+
+# Keep enough free space for docker layer export (CI fails with "no space left on device")
+echo "Disk before prune:"
+df -h / | tail -1 || true
+docker builder prune -af >/dev/null 2>&1 || true
+docker image prune -af >/dev/null 2>&1 || true
+# Old CapRover / dangling leftovers are safe to drop if unused
+docker container prune -f >/dev/null 2>&1 || true
+rm -f /tmp/ems-backend-*.tgz /tmp/ems-frontend-*.tgz /tmp/ems-remote-up.sh 2>/dev/null || true
+# MQTT bridge debug log can grow to multi-GB and starve deploys
+if [ -f /opt/mqtt/mqtt_to_http.log ]; then
+  truncate -s 0 /opt/mqtt/mqtt_to_http.log 2>/dev/null || true
+fi
+echo "Disk after prune:"
+df -h / | tail -1 || true
+
 docker compose up -d --build --remove-orphans "$SERVICE"
 
 echo "Deployed ${SERVICE} from ${TARGET}"
