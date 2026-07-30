@@ -173,7 +173,7 @@ const handleMessage = async (bridgeId, organizationId, topic, buf) => {
   const maps = await loadDeviceMaps(organizationId)
   const device = resolveDevice(maps, payload)
   if (!device) {
-    logger.debug('mqtt bridge: no matching device', {
+    logger.warn('mqtt bridge: no matching device', {
       bridgeId,
       serial: payload.serial_number,
       device: payload.device,
@@ -181,6 +181,7 @@ const handleMessage = async (bridgeId, organizationId, topic, buf) => {
     await setStatus(bridgeId, 'CONNECTED', {
       lastMessageAt: new Date(),
       messagesReceived: { increment: 1 },
+      lastError: `No matching device for serial=${payload.serial_number || '—'} device=${payload.device || '—'}`,
     })
     return
   }
@@ -231,10 +232,12 @@ const handleMessage = async (bridgeId, organizationId, topic, buf) => {
   await setStatus(bridgeId, 'CONNECTED', {
     lastMessageAt: new Date(),
     messagesReceived: { increment: 1 },
-    lastError: ingested ? null : undefined,
+    lastError: ingested
+      ? null
+      : `Matched ${device.name} but 0 registers mapped — check slave names / registerAddress`,
   })
 
-  logger.debug('mqtt bridge ingested', {
+  logger.info('mqtt bridge ingested', {
     bridgeId,
     deviceId: device.id,
     readings: ingested,
@@ -287,6 +290,11 @@ const startBridge = async (bridgeId) => {
     })
   })
 
+  // mqtt.js reconnects automatically — keep DB status accurate and re-subscribe
+  client.on('reconnect', () => {
+    setStatus(bridgeId, 'STARTING', { lastError: 'Reconnecting to broker…' })
+  })
+
   client.on('message', (topic, message) => {
     handleMessage(bridgeId, bridge.organizationId, topic, message).catch((err) => {
       logger.error('mqtt bridge message handler failed', { bridgeId, message: err.message })
@@ -299,8 +307,13 @@ const startBridge = async (bridgeId) => {
     setStatus(bridgeId, 'ERROR', { lastError: err.message })
   })
 
+  client.on('offline', () => {
+    setStatus(bridgeId, 'ERROR', { lastError: 'Broker connection offline' })
+  })
+
   client.on('close', () => {
-    if (live.get(bridgeId)?.client === client) {
+    // Only mark STOPPED if we intentionally removed this client (stopBridge)
+    if (!live.has(bridgeId)) {
       setStatus(bridgeId, 'STOPPED')
     }
   })
