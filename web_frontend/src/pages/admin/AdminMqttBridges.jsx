@@ -80,6 +80,10 @@ export default function AdminMqttBridges({ basePath = '/admin' }) {
       showToast('Broker host is required', 'error')
       return
     }
+    if (isAdmin && modal === 'add' && !form.organizationId) {
+      showToast('Organization is required', 'error')
+      return
+    }
     setSaving(true)
     try {
       const body = {
@@ -101,7 +105,7 @@ export default function AdminMqttBridges({ basePath = '/admin' }) {
         showToast('MQTT bridge updated', 'success')
       }
       setModal(null)
-      reload()
+      await reload()
     } catch (err) {
       showToast(err?.message || 'Save failed', 'error')
     } finally {

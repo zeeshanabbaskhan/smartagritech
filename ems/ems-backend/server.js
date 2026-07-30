@@ -95,6 +95,12 @@ const start = async () => {
   const { initRedis } = require('./config/redis');
   await initRedis();
 
+  // Drop stale list caches from older builds (KEYS-based invalidation often failed).
+  try {
+    const refCache = require('./utils/referenceCache');
+    await refCache.invalidateAll();
+  } catch (_) {}
+
   const { rateLimitingEnabled } = require('./middleware/rateLimiter');
   logger.info(rateLimitingEnabled()
     ? 'Rate limiting: ENABLED (RATE_LIMITING_ENABLED=true)'

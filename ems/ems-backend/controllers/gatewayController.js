@@ -4,24 +4,17 @@ const { AppError } = require('../middleware/errorHandler')
 const { orgScope, paginate } = require('../utils/helpers')
 const refCache = require('../utils/referenceCache')
 
-// The gateways list is cached per org bucket (see getGateways). Any create /
-// update / delete must clear that org's cache so the next fetch is fresh —
-// otherwise a deleted gateway keeps reappearing until the TTL expires.
+// Bust any leftover ref-cache entries from older builds (lists are no longer cached).
 const invalidateGatewayCaches = async (organizationId) => {
+  await refCache.invalidateOrg('all')
   if (organizationId) await refCache.invalidateOrg(organizationId)
 }
 
 // @desc  List gateways; response headers carry online/offline counts
 // @access SUPER_ADMIN | ORG_ADMIN
+// Note: not Redis-cached — create/update must show immediately in the UI.
 const getGateways = async (req, res, next) => {
   try {
-    const orgId = req.user.role === 'SUPER_ADMIN' ? req.query.organizationId : req.user.organizationId
-    const cacheKey = orgId ? `org:${orgId}:gateways:${req.query.page || 1}` : null
-    if (cacheKey) {
-      const hit = await refCache.get(cacheKey)
-      if (hit) return res.json(hit)
-    }
-
     const { page, limit, skip }            = paginate(req.query)
     const { search, status, organizationId } = req.query
 
@@ -46,9 +39,7 @@ const getGateways = async (req, res, next) => {
 
     res.set('X-Total-Online',  String(totalOnline))
     res.set('X-Total-Offline', String(totalOffline))
-    const payload = { success: true, data, total, page, pages: Math.ceil(total / limit) }
-    if (cacheKey) await refCache.set(cacheKey, payload)
-    res.json(payload)
+    res.json({ success: true, data, total, page, pages: Math.ceil(total / limit) })
   } catch (err) { next(err) }
 }
 

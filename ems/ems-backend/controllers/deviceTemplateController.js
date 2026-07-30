@@ -19,13 +19,9 @@ const invalidateTemplateCaches = async (organizationId, templateId) => {
 
 // @desc  List device templates; includes per-template totalVariables count
 // @access SUPER_ADMIN | ORG_ADMIN
+// Note: not Redis-cached — create/update must show immediately in the UI.
 const getDeviceTemplates = async (req, res, next) => {
   try {
-    const orgKey = req.user.organizationId || req.query.organizationId || 'all'
-    const cacheKey = `org:${orgKey}:templates:${req.query.page || 1}`
-    const hit = await refCache.get(cacheKey)
-    if (hit) return res.json(hit)
-
     const { page, limit, skip } = paginate(req.query)
     const { search }            = req.query
 
@@ -47,9 +43,7 @@ const getDeviceTemplates = async (req, res, next) => {
       return { ...t, totalVariables }
     }))
 
-    const payload = { success: true, data, total, page, pages: Math.ceil(total / limit) }
-    await refCache.set(cacheKey, payload)
-    res.json(payload)
+    res.json({ success: true, data, total, page, pages: Math.ceil(total / limit) })
   } catch (err) { next(err) }
 }
 
