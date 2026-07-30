@@ -7,10 +7,12 @@ import {
   computeDynamicKpis,
   listDeviceMetricEntries,
   isOffline,
+  isSwitchOff,
   unitForVariable,
 } from '../../utils/deviceMetrics'
 import DrillDownModal from '../ui/DrillDownModal'
 import { useToast } from '../../context/ToastContext'
+import { onSocketEvent, isSocketEnabled } from '../../services/socketService'
 
 const KPI_ICONS = [Zap, Activity, Gauge, TrendingUp]
 const KPI_COLORS = ['#F5A623', '#3B82F6', '#22C55E', '#8B5CF6']
@@ -67,6 +69,38 @@ export default function DashboardTelemetry({
     loadDevices()
     const interval = setInterval(loadDevices, 15000)
     return () => clearInterval(interval)
+  }, [])
+
+  useEffect(() => {
+    if (!isSocketEnabled()) return undefined
+    return onSocketEvent((event, data) => {
+      if (event === 'device:status' && data?.deviceId) {
+        setDevices((prev) => prev.map((d) => {
+          if (d.id !== data.deviceId) return d
+          const statusRaw = data.status
+          return {
+            ...d,
+            statusRaw,
+            status: statusRaw === 'ONLINE' ? 'Online' : 'Offline',
+          }
+        }))
+      }
+      if (event === 'device:switch' && data?.deviceId) {
+        setDevices((prev) => prev.map((d) => {
+          if (d.id !== data.deviceId) return d
+          const action = data.action || data.switchState
+          return {
+            ...d,
+            switchOn: action === 'ON',
+            switchState: action,
+            ...(action === 'OFF' || data.status === 'OFFLINE'
+              ? { status: 'Offline', statusRaw: 'OFFLINE' }
+              : {}),
+          }
+        }))
+      }
+      if (event === 'reading:new') loadDevices()
+    })
   }, [])
 
   useEffect(() => {
@@ -137,7 +171,14 @@ export default function DashboardTelemetry({
     const action = device.switchOn ? 'OFF' : 'ON'
     setDevices((prev) => prev.map((d) => (
       d.id === device.id
-        ? { ...d, switchOn: action === 'ON', switchState: action }
+        ? {
+            ...d,
+            switchOn: action === 'ON',
+            switchState: action,
+            ...(action === 'OFF'
+              ? { status: 'Offline', statusRaw: 'OFFLINE', latestMetrics: {} }
+              : {}),
+          }
         : d
     )))
     try {
@@ -279,12 +320,13 @@ export default function DashboardTelemetry({
             ) : (
               filteredDevices.map((d) => {
                 const offline = isOffline(d)
-                const tiles = listDeviceMetricEntries(d, { limit: 24 })
+                const switchOff = isSwitchOff(d)
+                const tiles = switchOff ? [] : listDeviceMetricEntries(d, { limit: 24 })
                 return (
                   <div key={d.id} className="p-4 bg-surface-50/50 dark:bg-surface-900/40 rounded-xl border border-surface-200 dark:border-surface-800 space-y-3 hover:border-primary-300 dark:hover:border-primary-800 transition-all duration-200">
                     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-surface-100 dark:border-surface-800/80 pb-2.5">
                       <div className="flex items-center gap-2.5">
-                        <div className={`p-2 rounded-lg ${offline ? 'bg-surface-200 dark:bg-surface-800 text-surface-400' : 'bg-primary-50 dark:bg-primary-950/20 text-primary-600'}`}>
+                        <div className={`p-2 rounded-lg ${offline || switchOff ? 'bg-surface-200 dark:bg-surface-800 text-surface-400' : 'bg-primary-50 dark:bg-primary-950/20 text-primary-600'}`}>
                           <Cpu size={16} />
                         </div>
                         <div>
@@ -295,8 +337,8 @@ export default function DashboardTelemetry({
                         </div>
                       </div>
                       <div className="flex items-center gap-3">
-                        <span className={`badge ${offline ? 'badge-danger' : 'badge-success'} text-[9px] font-black uppercase tracking-wider`}>
-                          {offline ? 'Offline' : 'Online'}
+                        <span className={`badge ${offline || switchOff ? 'badge-danger' : 'badge-success'} text-[9px] font-black uppercase tracking-wider`}>
+                          {switchOff ? 'Switch Off' : offline ? 'Offline' : 'Online'}
                         </span>
                         <label className="flex items-center gap-1.5 cursor-pointer">
                           <span className="text-[10px] text-surface-600 dark:text-surface-400 font-black uppercase select-none">Switch</span>
@@ -311,7 +353,11 @@ export default function DashboardTelemetry({
                       </div>
                     </div>
 
-                    {tiles.length === 0 ? (
+                    {switchOff ? (
+                      <p className="text-[11px] text-surface-500 py-3 text-center">
+                        Switch is off — live telemetry hidden for this device.
+                      </p>
+                    ) : tiles.length === 0 ? (
                       <p className="text-[11px] text-surface-500 py-3 text-center">
                         {offline
                           ? 'No live readings yet — device offline or MQTT bridge not ingesting.'

@@ -103,9 +103,17 @@ const persistIngest = async ({ deviceId, slaveId, readings, organizationId }) =>
     const reading = await tx.sensorReading.create({
       data: { deviceId, deviceConfigSlaveId: slaveId || null, organizationId, readings, timestamp: ts },
     })
+    const existing = await tx.device.findUnique({
+      where: { id: deviceId },
+      select: { switchState: true },
+    })
+    const goOnline = existing?.switchState !== 'OFF'
     await tx.device.update({
       where: { id: deviceId },
-      data: { lastDataReceivedAt: ts, status: 'ONLINE' },
+      data: {
+        lastDataReceivedAt: ts,
+        ...(goOnline ? { status: 'ONLINE' } : {}),
+      },
     })
     await tx.deviceTimestamp.upsert({
       where:  { deviceId },
@@ -114,11 +122,20 @@ const persistIngest = async ({ deviceId, slaveId, readings, organizationId }) =>
     })
     await bulkUpdateVariables(tx, deviceId, varUpdates, ts)
     await insertReadingValues(tx, reading.id, { deviceId, slaveId, readings, organizationId }, ts)
-    return reading
+    return { reading, goOnline }
   })
 
   await cacheLatestValues(deviceId, readings)
-  return { sensorReading, now: ts }
+  if (sensorReading.goOnline) {
+    try {
+      const { emitDeviceStatus } = require('./devicePresenceService')
+      emitDeviceStatus(organizationId, deviceId, 'ONLINE', {
+        reason: 'ingest',
+        lastDataReceivedAt: ts,
+      })
+    } catch (_) {}
+  }
+  return { sensorReading: sensorReading.reading, now: ts, goOnline: sensorReading.goOnline }
 }
 
 /** Batch persist for BullMQ worker (P-08, P-10). */
@@ -178,9 +195,21 @@ const processIngestBatch = async (payloads) => {
   }
 
   const deviceIds = [...new Set(payloads.map((p) => p.deviceId))]
+  const switchRows = await prisma.device.findMany({
+    where: { id: { in: deviceIds } },
+    select: { id: true, switchState: true },
+  })
+  const switchById = Object.fromEntries(switchRows.map((d) => [d.id, d.switchState]))
+
   await prisma.$transaction([
     ...deviceIds.map((id) =>
-      prisma.device.update({ where: { id }, data: { lastDataReceivedAt: now, status: 'ONLINE' } })
+      prisma.device.update({
+        where: { id },
+        data: {
+          lastDataReceivedAt: now,
+          ...(switchById[id] !== 'OFF' ? { status: 'ONLINE' } : {}),
+        },
+      })
     ),
     ...deviceIds.map((id) => {
       const orgId = payloads.find((p) => p.deviceId === id).organizationId
@@ -195,6 +224,15 @@ const processIngestBatch = async (payloads) => {
   for (const p of payloads) {
     await cacheLatestValues(p.deviceId, p.readings)
     emitReading(p.organizationId, p.deviceId, p.readings, now)
+    if (switchById[p.deviceId] !== 'OFF') {
+      try {
+        const { emitDeviceStatus } = require('./devicePresenceService')
+        emitDeviceStatus(p.organizationId, p.deviceId, 'ONLINE', {
+          reason: 'ingest',
+          lastDataReceivedAt: now,
+        })
+      } catch (_) {}
+    }
     enqueueAnomaly({
       deviceId: p.deviceId,
       organizationId: p.organizationId,

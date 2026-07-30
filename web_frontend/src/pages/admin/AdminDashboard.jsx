@@ -92,7 +92,14 @@ export default function AdminDashboard() {
       setData((prev) => prev ? {
         ...prev,
         devices: prev.devices.map((d) =>
-          d.id === device.id ? { ...d, switchOn: !d.switchOn, switchState: action } : d
+          d.id === device.id
+            ? {
+                ...d,
+                switchOn: action === 'ON',
+                switchState: action,
+                ...(action === 'OFF' ? { status: 'Offline', statusRaw: 'OFFLINE' } : {}),
+              }
+            : d
         ),
       } : prev)
     } catch (e) {

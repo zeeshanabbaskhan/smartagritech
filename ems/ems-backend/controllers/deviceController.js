@@ -21,6 +21,11 @@ const attachLatestMetrics = async (devices) => {
   const c = redis.getClient()
   const enriched = []
   for (const d of devices) {
+    // Switch OFF — hide all live/current readings from API consumers.
+    if (String(d.switchState || '').toUpperCase() === 'OFF') {
+      enriched.push({ ...d, latestMetrics: {} })
+      continue
+    }
     let hot = {}
     if (c) {
       try {
@@ -254,9 +259,13 @@ const switchToggle = async (req, res, next) => {
         },
       }),
       // Persist switch intent so dashboards don't revert on reload before gateway ack.
+      // Switch OFF also marks the device OFFLINE; Switch ON waits for live data to go ONLINE.
       prisma.device.update({
         where: { id: req.params.id },
-        data: { switchState: action },
+        data: {
+          switchState: action,
+          ...(action === 'OFF' ? { status: 'OFFLINE' } : {}),
+        },
         select: {
           id: true,
           name: true,
@@ -267,6 +276,16 @@ const switchToggle = async (req, res, next) => {
         },
       }),
     ])
+
+    if (action === 'OFF') {
+      try {
+        const { emitDeviceStatus } = require('../services/devicePresenceService')
+        emitDeviceStatus(existing.organizationId, req.params.id, 'OFFLINE', {
+          reason: 'switch_off',
+          switchState: 'OFF',
+        })
+      } catch (_) {}
+    }
 
     setTimeout(async () => {
       try {
@@ -301,6 +320,12 @@ const switchToggle = async (req, res, next) => {
         action,
         status:    'PENDING',
         switchState: action,
+      })
+      getIO().to(`org_${existing.organizationId}`).emit('device:switch', {
+        deviceId: req.params.id,
+        action,
+        switchState: action,
+        status: action === 'OFF' ? 'OFFLINE' : device.status,
       })
     } catch (_) {}
 

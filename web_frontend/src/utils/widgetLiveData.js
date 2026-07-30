@@ -203,8 +203,26 @@ export async function fetchWidgetLiveBundle({ widget, dashboardContext, hierarch
   const devices = devicesRes ? list(devicesRes) : []
   const deviceById = Object.fromEntries(devices.map((d) => [d.id, d]))
   const hotKey = variableName || metric
+  const isDevSwitchOff = (d) => String(d?.switchState || '').toUpperCase() === 'OFF'
 
-  const tableRows = devices.map((d) => {
+  if (deviceId) {
+    let target = deviceById[deviceId]
+    if (!target) {
+      target = one(await emsApi.getDevice(deviceId).catch(() => null))
+    }
+    if (isDevSwitchOff(target)) {
+      return {
+        ...empty,
+        source: 'switch-off',
+        unit: cfg.unit,
+        message: 'Device switch is OFF — data hidden',
+      }
+    }
+  }
+
+  const tableRows = devices
+    .filter((d) => !isDevSwitchOff(d))
+    .map((d) => {
     const val = metricFromDeviceHot(d.latestMetrics, hotKey, tariffRate, scaleMetric === 'raw' ? metric : scaleMetric)
     return {
       device: d.name,
@@ -227,6 +245,7 @@ export async function fetchWidgetLiveBundle({ widget, dashboardContext, hierarch
         let sum = 0
         for (const id of ids) {
           const d = deviceById[id]
+          if (isDevSwitchOff(d)) continue
           sum += metricFromDeviceHot(d?.latestMetrics, hotKey, tariffRate, scaleMetric === 'raw' ? metric : scaleMetric) ?? 0
         }
         return { name: child.name, value: Math.round(sum * 100) / 100, unit: cfg.unit }

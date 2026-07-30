@@ -24,6 +24,26 @@ const startOfRange = (timeRange) => {
 /** Verify the device exists and belongs to the caller's org (non-SUPER_ADMIN). */
 const authoriseDevice = (deviceId, user) => assertDeviceAccess(deviceId, user)
 
+const isSwitchOff = (device) => String(device?.switchState || '').toUpperCase() === 'OFF'
+
+const emptyDashboardSummary = () => ({
+  totalPowerConsumption: { value: 0, chartData: [] },
+  totalExportPower:      { value: 0, chartData: [] },
+  voltageImbalance:      { value: null, chartData: [] },
+  currentImbalance:      { value: null, chartData: [] },
+  powerFactor:           { value: null, chartData: [] },
+  thdV:                  { value: null, chartData: [] },
+  thdI:                  { value: null, chartData: [] },
+  frequency:             { value: null, chartData: [] },
+  anomalies: { count: 0, breakdown: [], chartData: [] },
+  energySavingsComparison: {
+    daily:   { current: 0, previous: 0, percentage: 0 },
+    weekly:  { current: 0, previous: 0, percentage: 0 },
+    monthly: { current: 0, previous: 0, percentage: 0 },
+  },
+  switchOff: true,
+})
+
 /**
  * Group raw SensorReading rows by a fixed bucket width and return avg per bucket.
  *
@@ -61,7 +81,16 @@ const getLatest = async (req, res, next) => {
     const { deviceId, slaveId } = req.query
     if (!deviceId) return next(new AppError('deviceId is required', 400))
 
-    await authoriseDevice(deviceId, req.user)
+    const device = await authoriseDevice(deviceId, req.user)
+    if (isSwitchOff(device)) {
+      return res.json({
+        success: true,
+        data: {},
+        timestamp: null,
+        switchOff: true,
+        message: 'Device switch is OFF — live data hidden',
+      })
+    }
 
     // P-09: serve hot latest values from Redis when available
     const redisClient = redis.getClient()
@@ -84,8 +113,7 @@ const getLatest = async (req, res, next) => {
               lastUpdatedAt: meta[name]?.lastUpdatedAt ?? null,
             }
           }
-          const device = await prisma.device.findUnique({ where: { id: deviceId }, select: { lastDataReceivedAt: true } })
-          return res.json({ success: true, data, timestamp: device?.lastDataReceivedAt ?? null, source: 'redis' })
+          return res.json({ success: true, data, timestamp: device.lastDataReceivedAt ?? null, source: 'redis' })
         }
       } catch (_) { /* fall through to Postgres */ }
     }
@@ -101,8 +129,7 @@ const getLatest = async (req, res, next) => {
     const data = {}
     for (const v of vars) data[v.name] = { value: v.currentValue, unit: v.unit, lastUpdatedAt: v.lastUpdatedAt }
 
-    const device = await prisma.device.findUnique({ where: { id: deviceId }, select: { lastDataReceivedAt: true } })
-    res.json({ success: true, data, timestamp: device?.lastDataReceivedAt ?? null })
+    res.json({ success: true, data, timestamp: device.lastDataReceivedAt ?? null })
   } catch (err) { next(err) }
 }
 
@@ -113,7 +140,10 @@ const getHistory = async (req, res, next) => {
     const { deviceId, slaveId, variableName, startDate, endDate, limit = 50 } = req.query
     if (!deviceId || !variableName) return next(new AppError('deviceId and variableName are required', 400))
 
-    await authoriseDevice(deviceId, req.user)
+    const device = await authoriseDevice(deviceId, req.user)
+    if (isSwitchOff(device)) {
+      return res.json({ success: true, count: 0, data: [], switchOff: true })
+    }
 
     const where = { deviceId }
     if (slaveId) where.deviceConfigSlaveId = slaveId
@@ -150,7 +180,10 @@ const getAggregate = async (req, res, next) => {
       return next(new AppError('deviceId, variableName, and timeRange are required', 400))
     }
 
-    await authoriseDevice(deviceId, req.user)
+    const device = await authoriseDevice(deviceId, req.user)
+    if (isSwitchOff(device)) {
+      return res.json({ success: true, timeRange, data: [], switchOff: true })
+    }
 
     const startDate = startOfRange(timeRange)
     const bucketMs  = BUCKET_MS[timeRange]
@@ -257,7 +290,10 @@ const getDashboardSummary = async (req, res, next) => {
     const { deviceId, slaveId, timeRange = '24h' } = req.query
     if (!deviceId) return next(new AppError('deviceId is required', 400))
 
-    await authoriseDevice(deviceId, req.user)
+    const device = await authoriseDevice(deviceId, req.user)
+    if (isSwitchOff(device)) {
+      return res.json({ success: true, timeRange, data: emptyDashboardSummary(), switchOff: true })
+    }
 
     const cacheKey = `dash:${deviceId}:${slaveId || 'all'}:${timeRange}`
     const summary  = await cached(cacheKey, 45, () => buildDashboardSummary(deviceId, slaveId, timeRange))
@@ -273,7 +309,18 @@ const getReadingsBrowse = async (req, res, next) => {
     const { deviceId, slaveId, timeRange = '24h', before } = req.query
     if (!deviceId) return next(new AppError('deviceId is required', 400))
 
-    await authoriseDevice(deviceId, req.user)
+    const device = await authoriseDevice(deviceId, req.user)
+    if (isSwitchOff(device)) {
+      return res.json({
+        success: true,
+        data: [],
+        total: 0,
+        page: 1,
+        pages: 0,
+        hasMore: false,
+        switchOff: true,
+      })
+    }
 
     const startDate = startOfRange(timeRange)
     const { page, limit, skip } = paginate(req.query)
@@ -311,7 +358,12 @@ const downloadCSV = async (req, res, next) => {
     const { deviceId, slaveId, variableName, startDate, endDate } = req.query
     if (!deviceId || !variableName) return next(new AppError('deviceId and variableName are required', 400))
 
-    await authoriseDevice(deviceId, req.user)
+    const device = await authoriseDevice(deviceId, req.user)
+    if (isSwitchOff(device)) {
+      res.setHeader('Content-Type', 'text/csv')
+      res.setHeader('Content-Disposition', 'attachment; filename=readings.csv')
+      return res.end('variableName,value,unit,timestamp\n')
+    }
 
     const where = { deviceId }
     if (slaveId) where.deviceConfigSlaveId = slaveId

@@ -11,6 +11,12 @@ const resolveOrgId = (req, bodyOrgId) => {
 
 /** Prefer ActivePower, then PowerConsumption from Redis or DB current values. */
 const readDeviceLoadKw = async (deviceId) => {
+  const device = await prisma.device.findUnique({
+    where: { id: deviceId },
+    select: { switchState: true },
+  })
+  if (String(device?.switchState || '').toUpperCase() === 'OFF') return 0
+
   const c = redis.getClient()
   if (c) {
     try {
@@ -44,6 +50,12 @@ const sumLoadsForDeviceIds = async (deviceIds) => {
 
 /** Read ExportPower (solar/export) for a device — Redis then DB. */
 const readDeviceExportKw = async (deviceId) => {
+  const device = await prisma.device.findUnique({
+    where: { id: deviceId },
+    select: { switchState: true },
+  })
+  if (String(device?.switchState || '').toUpperCase() === 'OFF') return 0
+
   const c = redis.getClient()
   if (c) {
     try {

@@ -152,7 +152,9 @@ export default function DeviceDetailPage({ basePath }) {
               </div>
               <div className="card p-5">
                 <h3 className="text-sm font-bold mb-3">Latest Readings</h3>
-                {readings.length ? (
+                {!device.switchOn ? (
+                  <p className="text-xs text-surface-500">Switch is off — live telemetry is hidden for this device.</p>
+                ) : readings.length ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {readings.slice(0, 6).map((r) => (
                       <div key={r.variableName} className="bg-surface-50 dark:bg-surface-950 rounded-lg p-3">
@@ -170,7 +172,9 @@ export default function DeviceDetailPage({ basePath }) {
 
           {tab === 'Metrics' && (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-              {readings.length ? readings.map((r) => (
+              {!device.switchOn ? (
+                <div className="col-span-full card p-8 text-center text-sm text-surface-500">Switch is off — live telemetry is hidden</div>
+              ) : readings.length ? readings.map((r) => (
                 <div key={r.variableName} className="card p-4">
                   <p className="text-[10px] font-bold text-surface-400 uppercase">{r.variableName}</p>
                   <p className="text-lg font-bold mt-1">{r.value} <span className="text-xs text-surface-400">{r.unit}</span></p>

@@ -14,7 +14,7 @@ export default function SocketBridge({ onAlarm }) {
     }
     connectSocket()
     const unsub = onSocketEvent((event, data) => {
-      if (event === 'reading:new' || event === 'device:switch') {
+      if (event === 'reading:new' || event === 'device:switch' || event === 'device:status') {
         loadDevices()
       }
       if (event === 'alarm:new') onAlarm?.(data)

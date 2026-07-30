@@ -35,11 +35,28 @@ const executeTask = async (task) => {
   let errorMessage
 
   try {
-    await prisma.device.update({ where: { id: task.deviceId }, data: { switchState: task.action } })
+    await prisma.device.update({
+      where: { id: task.deviceId },
+      data: {
+        switchState: task.action,
+        ...(task.action === 'OFF' ? { status: 'OFFLINE' } : {}),
+      },
+    })
 
     try {
       const { getIO } = require('../socket')
-      getIO().to(`org_${task.organizationId}`).emit('device:switch', { deviceId: task.deviceId, action: task.action })
+      getIO().to(`org_${task.organizationId}`).emit('device:switch', {
+        deviceId: task.deviceId,
+        action: task.action,
+        status: task.action === 'OFF' ? 'OFFLINE' : undefined,
+      })
+      if (task.action === 'OFF') {
+        const { emitDeviceStatus } = require('./devicePresenceService')
+        emitDeviceStatus(task.organizationId, task.deviceId, 'OFFLINE', {
+          reason: 'schedule_switch_off',
+          switchState: 'OFF',
+        })
+      }
     } catch (_) { /* socket may not be ready on first boot */ }
 
     // ONCE tasks deactivate themselves after the first execution

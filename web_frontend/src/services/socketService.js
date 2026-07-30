@@ -51,6 +51,7 @@ export function connectSocket() {
   socket.on('alarm:new', (data) => emitLocal('alarm:new', data))
   socket.on('device:switch', (data) => emitLocal('device:switch', data))
   socket.on('device:command', (data) => emitLocal('device:command', data))
+  socket.on('device:status', (data) => emitLocal('device:status', data))
 }
 
 export function subscribeDevice(deviceId) {

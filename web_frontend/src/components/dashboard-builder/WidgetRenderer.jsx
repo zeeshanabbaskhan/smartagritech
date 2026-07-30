@@ -177,6 +177,9 @@ export default function WidgetRenderer({ widget, orgName, hierarchy, dashboardCo
 
   if (loading) return <LoadingCell />
   if (!bundle) return <EmptyCell message="Failed to load live data" />
+  if (bundle.source === 'switch-off') {
+    return <EmptyCell message="Device switch is off — data hidden" />
+  }
   if (bundle.unit) cfg.unit = bundle.unit
 
   const series = bundle.series || []

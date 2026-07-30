@@ -31,6 +31,17 @@ export function unitForVariable(name) {
 
 const isOffline = (d) => d.status === 'Offline' || d.status === 'OFFLINE' || d.status === 'offline'
 
+/** True when remote switch is OFF — live telemetry must be hidden. */
+export const isSwitchOff = (d) => {
+  if (!d) return false
+  if (d.switchOn === false) return true
+  const s = String(d.switchState || '').toUpperCase()
+  return s === 'OFF'
+}
+
+/** Device contributes live metrics only when switch is ON and not offline for KPI purposes. */
+export const isTelemetryActive = (d) => !isSwitchOff(d) && !isOffline(d)
+
 function parseMetricRaw(raw) {
   if (raw == null || raw === '') return NaN
   if (typeof raw === 'object' && raw !== null && 'value' in raw) {
@@ -41,6 +52,7 @@ function parseMetricRaw(raw) {
 
 /** All device variables (live + configured), sorted by name. */
 export function listDeviceMetricEntries(device, { limit = 24, includeEmpty = true } = {}) {
+  if (isSwitchOff(device)) return []
   const metrics = device?.latestMetrics
   if (!metrics || typeof metrics !== 'object') return []
   const entries = []
@@ -62,6 +74,7 @@ export function listDeviceMetricEntries(device, { limit = 24, includeEmpty = tru
 
 /** Return a numeric metric value from a device, or NaN if unavailable. */
 export function readDeviceMetric(device, type) {
+  if (isSwitchOff(device)) return NaN
   const metrics = device?.latestMetrics
   if (!metrics || typeof metrics !== 'object') return NaN
 
@@ -81,7 +94,7 @@ export function readDeviceMetric(device, type) {
 
 /** Formatted display string for a metric ('—' when unavailable). */
 export function formatDeviceMetric(device, type, { offline = false } = {}) {
-  if (offline) return type === 'status' ? 'Offline' : '—'
+  if (offline || isSwitchOff(device)) return type === 'status' ? 'Offline' : '—'
   const n = readDeviceMetric(device, type)
   if (!Number.isFinite(n)) return '—'
   if (/powerfactor|\bpf\b/i.test(String(type))) return n.toFixed(2)
@@ -93,7 +106,7 @@ export function formatDeviceMetric(device, type, { offline = false } = {}) {
  * Falls back to classic EMS aliases when no live metrics yet.
  */
 export function computeDynamicKpis(devices = []) {
-  const online = devices.filter((d) => !isOffline(d))
+  const online = devices.filter((d) => isTelemetryActive(d))
   const nameCounts = new Map()
   for (const d of online) {
     for (const { name, value } of listDeviceMetricEntries(d, { limit: 0 })) {

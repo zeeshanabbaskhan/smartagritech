@@ -9,6 +9,7 @@ const prisma = require('./config/database');
 const { initSocket } = require('./socket');
 const { initScheduler } = require('./services/schedulerService');
 const { startValueFlush } = require('./services/valueFlushService');
+const { startDevicePresence } = require('./services/devicePresenceService');
 const routes = require('./routes');
 const { apiLimiter } = require('./middleware/rateLimiter');
 const { errorHandler } = require('./middleware/errorHandler');
@@ -113,6 +114,7 @@ const start = async () => {
     : 'Ingest mode: sync (set REDIS_URL and start Redis for batch ingest)');
 
   startValueFlush();
+  startDevicePresence();
   initSocket(server, app);
   await initScheduler();
 
