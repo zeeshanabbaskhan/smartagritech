@@ -50,6 +50,7 @@ router.use('/organizations/me',    require('./organizationSelf'));
 router.use('/organizations',     require('./organizations'));
 router.use('/users',             require('./users'));
 router.use('/gateways',          require('./gateways'));
+router.use('/mqtt-bridges',      require('./mqttBridges'));
 
 // ─── Other resources ─────────────────────────────────────────────────────────
 router.use('/slab-rates',        require('./slabRates'));

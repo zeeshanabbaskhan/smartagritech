@@ -18,6 +18,7 @@ export const adminNav = [
   { to: '/admin/organizations', label: 'Organizations',    icon: Building2 },
   { to: '/admin/users',         label: 'Users',            icon: Users },
   { to: '/admin/gateways',      label: 'Manage Gateway',   icon: Wifi },
+  { to: '/admin/mqtt-bridges',  label: 'MQTT Bridges',     icon: Radio },
   { to: '/admin/devices',       label: 'Devices',          icon: Cpu },
   { to: '/admin/device-templates', label: 'Device Templates', icon: FileCode2 },
   { to: '/admin/access-groups', label: 'Access Groups',    icon: ShieldCheck },
@@ -49,6 +50,7 @@ export const orgNav = [
   { to: '/org/access-groups',      label: 'Access Groups',   icon: ShieldCheck },
   { to: '/org/device-groups',      label: 'Device Groups',   icon: Boxes },
   { to: '/org/gateways',           label: 'Gateways',        icon: Wifi },
+  { to: '/org/mqtt-bridges',       label: 'MQTT Bridges',    icon: Radio },
   { to: '/org/device-templates',   label: 'Device Templates',icon: FileCode2 },
   { divider: true, label: 'Data' },
   {

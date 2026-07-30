@@ -232,7 +232,14 @@ const switchToggle = async (req, res, next) => {
       prisma.device.update({
         where: { id: req.params.id },
         data: { switchState: action },
-        select: { id: true, switchState: true, status: true },
+        select: {
+          id: true,
+          name: true,
+          switchState: true,
+          status: true,
+          organizationId: true,
+          gateway: { select: { serialNumber: true, name: true } },
+        },
       }),
     ])
 
@@ -248,6 +255,19 @@ const switchToggle = async (req, res, next) => {
       } catch (_) {}
     }, 30_000)
 
+    let mqttPublish = null
+    try {
+      const { publishDeviceCommand } = require('../services/mqttBridgeService')
+      mqttPublish = await publishDeviceCommand({
+        organizationId: existing.organizationId,
+        device,
+        action,
+        commandId: command.id,
+      })
+    } catch (_) {
+      mqttPublish = { published: false, reason: 'publish_failed' }
+    }
+
     try {
       const { getIO } = require('../socket')
       getIO().to(`device_${req.params.id}`).emit('device:command', {
@@ -259,7 +279,7 @@ const switchToggle = async (req, res, next) => {
       })
     } catch (_) {}
 
-    res.json({ success: true, data: { ...command, device } })
+    res.json({ success: true, data: { ...command, device, mqttPublish } })
   } catch (err) { next(err) }
 }
 

@@ -110,6 +110,14 @@ const start = async () => {
   initSocket(server, app);
   await initScheduler();
 
+  try {
+    const { startEnabledBridges } = require('./services/mqttBridgeService');
+    await startEnabledBridges();
+    logger.info('MQTT bridges: enabled bridges started');
+  } catch (err) {
+    logger.error('MQTT bridges auto-start failed', { message: err.message });
+  }
+
   const PORT = process.env.PORT || 5000;
   server.listen(PORT, '0.0.0.0', () => {
     logger.info(`Server running on port ${PORT}`);

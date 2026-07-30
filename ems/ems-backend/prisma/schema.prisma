@@ -26,6 +26,7 @@ model Organization {
   templateTriggers    TemplateTrigger[]
   widgetTemplates     WidgetTemplate[]
   mqttConfigs         MqttConfig[]
+  mqttBridges         MqttBridge[]
   subscriptions       Subscription[]
   accessGroups        AccessGroup[]
   deviceGroups        DeviceGroup[]
@@ -888,6 +889,32 @@ model MqttConfig {
   device       Device?
 
   @@map("mqtt_configs")
+}
+
+/// Org-level MQTT → EMS ingest bridge (replaces standalone Python mqtt_to_http.py)
+model MqttBridge {
+  id               String    @id @default(uuid())
+  organizationId   String
+  name             String    @default("MQTT Bridge")
+  brokerHost       String
+  brokerPort       Int       @default(1883)
+  username         String?
+  password         String?
+  subscribeTopic   String    @default("/UploadTopic")
+  commandTopic     String?
+  enabled          Boolean   @default(false)
+  status           String    @default("STOPPED")
+  lastError        String?
+  lastMessageAt    DateTime?
+  messagesReceived Int       @default(0)
+  createdBy        String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId])
+  @@map("mqtt_bridges")
 }
 
 model PasswordResetCode {

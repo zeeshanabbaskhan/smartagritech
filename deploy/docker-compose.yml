@@ -1,0 +1,96 @@
+# Smart AgriTech EMS — Linux server (Docker Compose)
+#
+# Default: PostgreSQL + Redis on the Linux host (not in Docker).
+# Optional bundled DB/Redis: docker compose --profile bundled-db up -d
+#
+# First-time:
+#   1. Install/configure host Postgres + Redis (see deploy/linux.env.example)
+#   2. Copy this file + .env to DEPLOY_PATH
+#   3. Extract backend/ + frontend/ tarballs
+#   4. docker compose up -d --build
+
+services:
+  postgres:
+    profiles: ['bundled-db']
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ems}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-ems}
+    volumes:
+      - ems-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ems
+
+  redis:
+    profiles: ['bundled-db']
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes']
+    volumes:
+      - ems-redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ems
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    # Reach Postgres/Redis on the Linux host from inside the container
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: 9001
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env}
+      REDIS_URL: ${REDIS_URL:?set REDIS_URL in .env}
+    ports:
+      - '${BACKEND_HOST_PORT:-9001}:9001'
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:9001/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    networks:
+      - ems
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - '${FRONTEND_HOST_PORT:-8080}:80'
+    networks:
+      - ems
+
+volumes:
+  ems-postgres-data:
+  ems-redis-data:
+
+networks:
+  ems:
+    driver: bridge

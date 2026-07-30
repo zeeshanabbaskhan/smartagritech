@@ -62,6 +62,15 @@ const emsApi = {
   updateGateway: (id, body) => api.put(`/gateways/${id}`, body),
   deleteGateway: (id) => api.delete(`/gateways/${id}`),
 
+  // ─── MQTT bridges ───────────────────────────────────────────────────────
+  getMqttBridges: (params) => api.get('/mqtt-bridges', q(params)),
+  getMqttBridge: (id) => api.get(`/mqtt-bridges/${id}`),
+  createMqttBridge: (body) => api.post('/mqtt-bridges', body),
+  updateMqttBridge: (id, body) => api.put(`/mqtt-bridges/${id}`, body),
+  deleteMqttBridge: (id) => api.delete(`/mqtt-bridges/${id}`),
+  startMqttBridge: (id) => api.post(`/mqtt-bridges/${id}/start`),
+  stopMqttBridge: (id) => api.post(`/mqtt-bridges/${id}/stop`),
+
   // ─── Devices ────────────────────────────────────────────────────────────
   getDevices: (params) => api.get('/devices', q(params)),
   getDevice: (id) => api.get(`/devices/${id}`),

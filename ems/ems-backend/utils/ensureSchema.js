@@ -56,6 +56,11 @@ const ensureTimescale = async () => {
   logger.info('TimescaleDB setup applied (sensor_readings_hourly)')
 }
 
+const ensureMqttBridge = async () => {
+  await runSqlFile('prisma/add_mqtt_bridge.sql')
+  logger.info('MQTT bridge schema ensured (add_mqtt_bridge.sql)')
+}
+
 const ensureSchemaOnStart = async () => {
   if (process.env.ENSURE_SCHEMA_ON_START === 'false') {
     logger.info('Schema ensure skipped (ENSURE_SCHEMA_ON_START=false)')
@@ -66,6 +71,13 @@ const ensureSchemaOnStart = async () => {
     await ensureCfFeatures()
   } catch (err) {
     logger.error('CF schema ensure failed', { message: err.message })
+    throw err
+  }
+
+  try {
+    await ensureMqttBridge()
+  } catch (err) {
+    logger.error('MQTT bridge schema ensure failed', { message: err.message })
     throw err
   }
 

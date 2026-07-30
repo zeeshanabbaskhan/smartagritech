@@ -15,6 +15,7 @@ import AdminDashboard      from './pages/admin/AdminDashboard'
 import AdminOrganizations  from './pages/admin/AdminOrganizations'
 import AdminUsers          from './pages/admin/AdminUsers'
 import AdminGateways       from './pages/admin/AdminGateways'
+import AdminMqttBridges       from './pages/admin/AdminMqttBridges'
 import AdminDevices           from './pages/admin/AdminDevices'
 import AdminDeviceTemplates   from './pages/admin/AdminDeviceTemplates'
 import AdminManageIcons       from './pages/admin/AdminManageIcons'
@@ -109,6 +110,7 @@ function AppRoutes() {
         <Route path="organizations"     element={<AdminOrganizations />} />
         <Route path="users"             element={<AdminUsers />} />
         <Route path="gateways"          element={<AdminGateways />} />
+        <Route path="mqtt-bridges"      element={<AdminMqttBridges basePath="/admin" />} />
         <Route path="devices"           element={<AdminDevices />} />
         <Route path="devices/:deviceId" element={<DeviceDetailPage basePath="/admin" />} />
         <Route path="device-templates"  element={<AdminDeviceTemplates />} />
@@ -146,6 +148,7 @@ function AppRoutes() {
         <Route path="access-groups"     element={<OrgAccessGroups />} />
         <Route path="device-groups"     element={<OrgDeviceGroups />} />
         <Route path="gateways"          element={<OrgGateways />} />
+        <Route path="mqtt-bridges"      element={<AdminMqttBridges basePath="/org" />} />
         <Route path="device-templates"  element={<OrgDeviceTemplates />} />
         <Route path="device-templates/:templateId" element={<TemplateDetailPage basePath="/org" />} />
         <Route path="ai-analytics"      element={<Navigate to="/org/ai-analytics/voltage-imbalance" replace />} />

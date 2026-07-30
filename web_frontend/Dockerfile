@@ -6,7 +6,7 @@ RUN npm ci
 
 COPY . .
 
-# Set at pack/deploy time (GitHub secret CAPROVER_API_HOST or manual edit)
+# Set at pack/deploy time (GitHub secret BACKEND_PUBLIC_HOST or manual edit)
 ARG VITE_API_URL=https://ems-api.CHANGE_ME.com/api
 ARG VITE_SOCKET_URL=https://ems-api.CHANGE_ME.com
 ENV VITE_API_URL=$VITE_API_URL

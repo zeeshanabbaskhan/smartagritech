@@ -1,0 +1,64 @@
+name: Deploy Frontend
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'web_frontend/**'
+      - '.github/workflows/deploy-frontend.yml'
+      - 'scripts/deploy/pack-frontend.sh'
+      - 'scripts/deploy/remote-up.sh'
+      - 'deploy/docker-compose.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-frontend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy frontend to Linux server
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Pack frontend tarball
+        env:
+          BACKEND_PUBLIC_HOST: ${{ secrets.BACKEND_PUBLIC_HOST }}
+        run: |
+          if [ -z "$BACKEND_PUBLIC_HOST" ]; then
+            echo "Missing BACKEND_PUBLIC_HOST (hostname only, e.g. api.yourdomain.com — no https://)"
+            exit 1
+          fi
+          chmod +x scripts/deploy/pack-frontend.sh
+          ./scripts/deploy/pack-frontend.sh "$BACKEND_PUBLIC_HOST"
+
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.9.1
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+
+      - name: Deploy over SSH
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          DEPLOY_SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
+        run: |
+          set -euo pipefail
+          if [ -z "$DEPLOY_HOST" ] || [ -z "$DEPLOY_USER" ] || [ -z "$DEPLOY_PATH" ]; then
+            echo "Missing required secrets: DEPLOY_HOST, DEPLOY_USER, DEPLOY_PATH (and DEPLOY_SSH_KEY for ssh-agent)"
+            exit 1
+          fi
+          SSH_PORT="${DEPLOY_SSH_PORT:-22}"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          ssh-keyscan -p "$SSH_PORT" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+          REMOTE_TAR="/tmp/ems-frontend-${GITHUB_SHA}.tgz"
+          scp -P "$SSH_PORT" dist/ems-frontend.tgz "${DEPLOY_USER}@${DEPLOY_HOST}:${REMOTE_TAR}"
+          scp -P "$SSH_PORT" scripts/deploy/remote-up.sh "${DEPLOY_USER}@${DEPLOY_HOST}:/tmp/ems-remote-up.sh"
+          ssh -p "$SSH_PORT" "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "chmod +x /tmp/ems-remote-up.sh && /tmp/ems-remote-up.sh frontend '${REMOTE_TAR}' '${DEPLOY_PATH}'"
