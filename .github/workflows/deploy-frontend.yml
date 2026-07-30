@@ -12,8 +12,9 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: deploy-frontend-${{ github.ref }}
-  cancel-in-progress: true
+  # Serialize with backend — both share the server compose stack
+  group: deploy-linux-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   deploy:
@@ -59,6 +60,7 @@ jobs:
 
           REMOTE_TAR="/tmp/ems-frontend-${GITHUB_SHA}.tgz"
           scp -P "$SSH_PORT" dist/ems-frontend.tgz "${DEPLOY_USER}@${DEPLOY_HOST}:${REMOTE_TAR}"
-          scp -P "$SSH_PORT" scripts/deploy/remote-up.sh "${DEPLOY_USER}@${DEPLOY_HOST}:/tmp/ems-remote-up.sh"
+          # Pipe script over SSH (avoids shared /tmp file race + shebang/CRLF issues)
           ssh -p "$SSH_PORT" "${DEPLOY_USER}@${DEPLOY_HOST}" \
-            "chmod +x /tmp/ems-remote-up.sh && /tmp/ems-remote-up.sh frontend '${REMOTE_TAR}' '${DEPLOY_PATH}'"
+            "bash -s -- frontend '${REMOTE_TAR}' '${DEPLOY_PATH}'" \
+            < scripts/deploy/remote-up.sh
