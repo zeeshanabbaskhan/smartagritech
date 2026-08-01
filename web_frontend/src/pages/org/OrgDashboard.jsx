@@ -502,6 +502,11 @@ export default function OrgDashboard() {
             onClose={closeGroupDetails}
             size="lg"
             title={openGroup ? `${openGroup.name} — Devices` : 'Devices'}
+            headerActions={
+              <button type="button" className="btn-primary py-1.5 px-3 text-xs" onClick={openEditGroup}>
+                <Pencil size={13} /> Edit
+              </button>
+            }
             footer={
               <>
                 <button type="button" className="btn-secondary" onClick={closeGroupDetails}>Close</button>
