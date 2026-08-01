@@ -61,6 +61,8 @@ export default function PowerFlowMindMap({
   orgName,
   groups = [],
   onGroupClick,
+  onGroupEdit,
+  onGroupDelete,
   onSourcesChange,
   editable = true,
   groupsPath = '/org/device-groups',
@@ -427,28 +429,56 @@ export default function PowerFlowMindMap({
               {groups.map((g) => {
                 const Icon = iconForGroup(g.name)
                 return (
-                  <button
-                    type="button"
+                  <div
                     key={g.id}
-                    onClick={() => onGroupClick?.(g.id)}
                     className="group relative flex items-center gap-2.5 rounded-2xl px-3.5 py-2.5 bg-white dark:bg-surface-900 border border-surface-200 dark:border-surface-800 shadow-md min-w-[9.5rem] text-left hover:border-primary-300 hover:shadow-lg"
                   >
+                    <button
+                      type="button"
+                      onClick={() => onGroupClick?.(g.id)}
+                      className="absolute inset-0 rounded-2xl z-0"
+                      aria-label={`Open ${g.name}`}
+                    />
                     <span
-                      className={`absolute top-2 right-2 w-2 h-2 rounded-full ${g.active ? 'bg-success-500 animate-pulse' : 'bg-surface-300 dark:bg-surface-600'}`}
+                      className={`absolute top-2 right-2 w-2 h-2 rounded-full z-[1] ${g.active ? 'bg-success-500 animate-pulse' : 'bg-surface-300 dark:bg-surface-600'} ${(editable && (onGroupEdit || onGroupDelete)) ? 'group-hover:opacity-0' : ''}`}
                       title={g.active ? 'Active' : 'Idle'}
                     />
-                    <div className="w-8 h-8 rounded-lg bg-primary-50 dark:bg-primary-950/20 text-primary-600 flex items-center justify-center">
+                    {editable && (onGroupEdit || onGroupDelete) && (
+                      <div className="absolute -top-1.5 -right-1.5 z-[2] flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        {onGroupEdit && (
+                          <button
+                            type="button"
+                            title="Edit group"
+                            onClick={(e) => { e.stopPropagation(); onGroupEdit(g.id) }}
+                            className="w-5 h-5 rounded-full bg-primary-500 border-2 border-white dark:border-surface-900 text-white flex items-center justify-center shadow-sm hover:bg-primary-600"
+                          >
+                            <Edit3 size={9} strokeWidth={2.5} />
+                          </button>
+                        )}
+                        {onGroupDelete && (
+                          <button
+                            type="button"
+                            title="Delete group"
+                            onClick={(e) => { e.stopPropagation(); onGroupDelete(g.id) }}
+                            className="w-5 h-5 rounded-full bg-danger-500 border-2 border-white dark:border-surface-900 text-white flex items-center justify-center shadow-sm hover:bg-danger-600"
+                          >
+                            <X size={9} strokeWidth={3} />
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    <div className="w-8 h-8 rounded-lg bg-primary-50 dark:bg-primary-950/20 text-primary-600 flex items-center justify-center relative z-[1] pointer-events-none">
                       <Icon size={15} />
                     </div>
-                    <div className="leading-tight flex-1 min-w-0">
+                    <div className="leading-tight flex-1 min-w-0 relative z-[1] pointer-events-none">
                       <p className="text-xs font-bold text-surface-800 dark:text-surface-100 truncate max-w-[7rem]">{g.name}</p>
                       <p className="text-[11px] font-black text-primary-600">{(g.load ?? 0).toFixed?.(2) ?? g.load ?? '0.00'} kW</p>
                       <p className="text-[9px] text-surface-400 font-semibold">
                         {g.deviceCount ?? g.deviceIds?.length ?? 0} device{(g.deviceCount ?? g.deviceIds?.length ?? 0) !== 1 ? 's' : ''}
                       </p>
                     </div>
-                    <ChevronRight size={12} className="text-surface-300 group-hover:text-primary-500" />
-                  </button>
+                    <ChevronRight size={12} className="text-surface-300 group-hover:text-primary-500 relative z-[1] pointer-events-none" />
+                  </div>
                 )
               })}
               <Link

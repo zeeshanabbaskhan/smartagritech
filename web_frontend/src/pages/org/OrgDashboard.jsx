@@ -7,7 +7,7 @@ import Modal from '../../components/ui/Modal'
 import { TextInput } from '../../components/ui/FormFields'
 import DashboardTelemetry from '../../components/dashboard/DashboardTelemetry'
 import PowerFlowMindMap from '../../components/ui/PowerFlowMindMap'
-import { Cpu, AlertTriangle, Zap, CheckCircle, Pencil, Users } from 'lucide-react'
+import { Cpu, AlertTriangle, Zap, CheckCircle, Users } from 'lucide-react'
 import { Skeleton } from 'boneyard-js/react'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
@@ -35,9 +35,12 @@ export default function OrgDashboard() {
   const [liveDevices, setLiveDevices] = useState([])
   const [orgUsers, setOrgUsers] = useState([])
   const [openGroupId, setOpenGroupId] = useState(null)
+  const [editGroupId, setEditGroupId] = useState(null)
   const [editOpen, setEditOpen] = useState(false)
   const [editForm, setEditForm] = useState(EMPTY_GROUP_FORM)
   const [editSaving, setEditSaving] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleting, setDeleting] = useState(false)
   const [energy, setEnergy] = useState(null)
 
   const { data: stats, loading, error, reload } = useFetch(async () => {
@@ -141,26 +144,33 @@ export default function OrgDashboard() {
 
   const closeGroupDetails = () => {
     setOpenGroupId(null)
+  }
+
+  const closeEditGroup = () => {
     setEditOpen(false)
+    setEditGroupId(null)
     setEditForm(EMPTY_GROUP_FORM)
   }
 
-  const openEditGroup = async () => {
-    if (!openGroup) return
+  const openEditGroupById = async (groupId) => {
+    const targetId = groupId || openGroupId
+    if (!targetId) return
+    const fallback = groupLoads.find((g) => g.id === targetId)
     try {
       const res = await emsApi.getDeviceGroups({ limit: 100 })
-      const full = list(res).find((g) => g.id === openGroup.id)
+      const full = list(res).find((g) => g.id === targetId)
       const deviceIds = full?.deviceIds
         ?? (full?.devices || []).map((d) => d.id ?? d.deviceId).filter(Boolean)
-        ?? openGroup.deviceIds
+        ?? fallback?.deviceIds
         ?? []
       const userIds = full?.userIds
         ?? (full?.users || []).map((u) => u.id ?? u.userId).filter(Boolean)
-        ?? openGroup.userIds
+        ?? fallback?.userIds
         ?? []
+      setEditGroupId(targetId)
       setEditForm({
-        name: full?.name || openGroup.name || '',
-        description: full?.description || openGroup.description || '',
+        name: full?.name || fallback?.name || '',
+        description: full?.description || fallback?.description || '',
         deviceIds: [...deviceIds],
         userIds: [...userIds],
       })
@@ -189,7 +199,7 @@ export default function OrgDashboard() {
   }
 
   const handleSaveGroupEdit = async () => {
-    if (!openGroup) return
+    if (!editGroupId) return
     if (!editForm.name.trim()) {
       showToast('Group name is required', 'error')
       return
@@ -200,17 +210,16 @@ export default function OrgDashboard() {
     }
     setEditSaving(true)
     try {
-      await emsApi.updateDeviceGroup(openGroup.id, {
+      await emsApi.updateDeviceGroup(editGroupId, {
         name: editForm.name.trim(),
         description: editForm.description.trim() || null,
         deviceIds: editForm.deviceIds,
         userIds: editForm.userIds,
       })
       showToast('Device group updated', 'success')
-      setEditOpen(false)
+      closeEditGroup()
       reloadPowerFlow()
       refreshFallbackGroups()
-      // Refresh live devices so membership tiles update
       emsApi.getDevices({ limit: 100, withMetrics: true })
         .then((res) => setLiveDevices(list(res).map(mapDevice)))
         .catch(() => {})
@@ -218,6 +227,24 @@ export default function OrgDashboard() {
       showToast(e.message || 'Failed to update group', 'error')
     } finally {
       setEditSaving(false)
+    }
+  }
+
+  const handleDeleteGroup = async () => {
+    if (!deleteTarget) return
+    setDeleting(true)
+    try {
+      await emsApi.deleteDeviceGroup(deleteTarget.id)
+      showToast('Device group deleted', 'success')
+      if (openGroupId === deleteTarget.id) setOpenGroupId(null)
+      if (editGroupId === deleteTarget.id) closeEditGroup()
+      setDeleteTarget(null)
+      reloadPowerFlow()
+      refreshFallbackGroups()
+    } catch (e) {
+      showToast(e.message || 'Failed to delete group', 'error')
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -343,6 +370,11 @@ export default function OrgDashboard() {
                 orgName={orgName}
                 onSourcesChange={handleSourcesChange}
                 onGroupClick={setOpenGroupId}
+                onGroupEdit={openEditGroupById}
+                onGroupDelete={(id) => {
+                  const g = groupLoads.find((x) => x.id === id)
+                  if (g) setDeleteTarget(g)
+                }}
                 groupsPath="/org/device-groups"
               />
               <div className="flex items-center justify-center gap-5 mt-2 pt-3 border-t border-surface-100 dark:border-surface-800 flex-wrap">
@@ -502,19 +534,6 @@ export default function OrgDashboard() {
             onClose={closeGroupDetails}
             size="lg"
             title={openGroup ? `${openGroup.name} — Devices` : 'Devices'}
-            headerActions={
-              <button type="button" className="btn-primary py-1.5 px-3 text-xs" onClick={openEditGroup}>
-                <Pencil size={13} /> Edit
-              </button>
-            }
-            footer={
-              <>
-                <button type="button" className="btn-secondary" onClick={closeGroupDetails}>Close</button>
-                <button type="button" className="btn-primary" onClick={openEditGroup}>
-                  <Pencil size={14} /> Edit Group
-                </button>
-              </>
-            }
           >
             {openGroupDevices.length === 0 ? (
               <p className="text-xs text-surface-500 p-3 inset-panel">
@@ -551,13 +570,13 @@ export default function OrgDashboard() {
           </Modal>
 
           <Modal
-            open={editOpen && openGroup !== null}
-            onClose={() => setEditOpen(false)}
+            open={editOpen && editGroupId !== null}
+            onClose={closeEditGroup}
             size="md"
             title="Edit Device Group"
             footer={
               <>
-                <button type="button" className="btn-secondary" onClick={() => setEditOpen(false)}>Cancel</button>
+                <button type="button" className="btn-secondary" onClick={closeEditGroup}>Cancel</button>
                 <button
                   type="button"
                   className="btn-primary"
@@ -657,6 +676,26 @@ export default function OrgDashboard() {
                 )}
               </div>
             </div>
+          </Modal>
+
+          <Modal
+            open={Boolean(deleteTarget)}
+            onClose={() => setDeleteTarget(null)}
+            size="sm"
+            variant="danger"
+            title="Delete Device Group"
+            footer={
+              <>
+                <button type="button" className="btn-secondary" onClick={() => setDeleteTarget(null)}>Cancel</button>
+                <button type="button" className="btn-danger" onClick={handleDeleteGroup} disabled={deleting}>
+                  {deleting ? 'Deleting...' : 'Delete'}
+                </button>
+              </>
+            }
+          >
+            <p className="text-sm text-surface-700 dark:text-surface-300">
+              Delete <span className="font-bold">&quot;{deleteTarget?.name}&quot;</span>? This cannot be undone.
+            </p>
           </Modal>
         </div>
       </Skeleton>
