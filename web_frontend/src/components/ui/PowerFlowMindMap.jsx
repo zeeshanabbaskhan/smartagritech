@@ -18,8 +18,10 @@ function iconForGroup(name = '') {
 }
 
 function formatPKR(n = 0) {
-  return `₨${Math.round(n).toLocaleString()}`
+  return `Rs${Math.round(Number(n) || 0).toLocaleString()}`
 }
+
+const TARIFF_PKR_PER_KWH = 28
 
 function downloadCSV(filename, rows) {
   const content = rows.map((r) => r.join(',')).join('\n')
@@ -144,89 +146,108 @@ export default function PowerFlowMindMap({
 
   const customs = localSources.filter((s) => !['grid', 'solar', 'generator'].includes(s.type || s.id))
 
-  const savingsView = savings && typeof savings === 'object' ? {
-    daily: savings.daily ?? 0,
-    weekly: savings.weekly ?? 0,
-    monthly: savings.monthly ?? 0,
-    dailyKWh: savings.dailyKWh ?? 0,
-  } : null
+  // Always show the savings card — use prop values, else estimate from Solar source kW
+  const solarKw = Number(
+    localSources.find((s) => s.type === 'solar' || s.id === 'solar')?.valueKw,
+  ) || 0
+  const fallbackDailyKWh = +(solarKw * 24).toFixed(1)
+  const savingsView = {
+    daily: Number(savings?.daily) || Math.round(fallbackDailyKWh * TARIFF_PKR_PER_KWH),
+    weekly: Number(savings?.weekly) || Math.round(fallbackDailyKWh * 7 * TARIFF_PKR_PER_KWH),
+    monthly: Number(savings?.monthly) || Math.round(fallbackDailyKWh * 30 * TARIFF_PKR_PER_KWH),
+    dailyKWh: Number(savings?.dailyKWh) || fallbackDailyKWh,
+  }
+  const weeklyKWh = +(savingsView.dailyKWh * 7).toFixed(1)
+  const monthlyKWh = +(savingsView.dailyKWh * 30).toFixed(1)
 
   return (
     <div className="w-full select-none space-y-4">
-      <div className="flex justify-between items-center w-full relative pb-2">
-        <div className="flex items-center gap-1.5 text-xs font-bold text-surface-400">
+      <div className="flex justify-between items-start w-full relative pb-2 gap-3">
+        <div className="flex items-center gap-1.5 text-xs font-bold text-surface-400 pt-2">
           <Clock3 size={14} />
           <span>{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
           <span className="w-1.5 h-1.5 rounded-full bg-success-500 animate-pulse ml-1" />
         </div>
 
-        {savingsView && (
-          <div className="relative w-full max-w-[200px] z-[99]">
-            <button
-              type="button"
-              onClick={() => setSavingsOpen((o) => !o)}
-              className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-white transition-all hover:opacity-95 text-left shadow-md"
-              style={{ background: 'linear-gradient(135deg, #4F46E5 0%, #7C3AED 55%, #9333EA 100%)' }}
-            >
-              <div className="flex items-center gap-2 min-w-0">
-                <PiggyBank size={14} className="flex-shrink-0" />
-                <div className="leading-tight min-w-0">
-                  <p className="text-[8px] font-bold opacity-75 uppercase tracking-wider">Today&apos;s Savings</p>
-                  <p className="text-xs font-black truncate">{formatPKR(savingsView.daily)}</p>
-                </div>
+        <div className="relative w-full max-w-[220px] z-[99] ml-auto">
+          <button
+            type="button"
+            onClick={() => setSavingsOpen((o) => !o)}
+            className="w-full flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-2xl text-white transition-all hover:opacity-95 text-left shadow-lg"
+            style={{ background: 'linear-gradient(135deg, #6366F1 0%, #7C3AED 50%, #9333EA 100%)' }}
+            aria-expanded={savingsOpen}
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <PiggyBank size={16} className="flex-shrink-0 opacity-95" />
+              <div className="leading-tight min-w-0">
+                <p className="text-[9px] font-bold opacity-80 uppercase tracking-wider">Today&apos;s Savings</p>
+                <p className="text-sm font-black truncate">{formatPKR(savingsView.daily)}</p>
               </div>
-              <ChevronDown size={12} className={`flex-shrink-0 transition-transform ${savingsOpen ? 'rotate-180' : ''}`} />
-            </button>
+            </div>
+            <ChevronDown size={14} className={`flex-shrink-0 transition-transform ${savingsOpen ? 'rotate-180' : ''}`} />
+          </button>
 
-            {savingsOpen && (
-              <div className="absolute right-0 top-full mt-2 w-64 bg-white border border-surface-200 shadow-floating rounded-xl overflow-hidden z-[999] p-1">
-                <div className="px-3 py-1.5 bg-primary-50 border-b border-primary-100 rounded-t-lg">
-                  <p className="text-[9px] font-black text-primary-600 uppercase tracking-widest">Savings Reports</p>
+          {savingsOpen && (
+            <>
+              <button
+                type="button"
+                className="fixed inset-0 z-[998] cursor-default"
+                aria-label="Close savings"
+                onClick={() => setSavingsOpen(false)}
+              />
+              <div className="absolute right-0 top-full mt-2 w-72 bg-white dark:bg-surface-900 border border-surface-200 dark:border-surface-700 shadow-floating rounded-2xl overflow-hidden z-[999]">
+                <div className="px-4 py-2.5 bg-primary-50 dark:bg-primary-950/40 border-b border-primary-100 dark:border-primary-900">
+                  <p className="text-[10px] font-black text-primary-600 uppercase tracking-widest">Savings Reports</p>
                 </div>
-                <div className="flex flex-col divide-y divide-surface-100">
-                  <div className="p-3 space-y-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <div>
-                        <p className="text-[9px] font-black text-surface-400 uppercase tracking-wider">Weekly</p>
-                        <p className="text-base font-black text-primary-600">{formatPKR(savingsView.weekly)}</p>
-                        <p className="text-[9px] text-surface-400 font-semibold">{(savingsView.dailyKWh * 7).toFixed(1)} kWh offset</p>
+                <div className="flex flex-col divide-y divide-surface-100 dark:divide-surface-800">
+                  <div className="p-3.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-[9px] font-black text-surface-400 uppercase tracking-wider">Weekly Savings</p>
+                        <p className="text-lg font-black text-primary-600 leading-tight">{formatPKR(savingsView.weekly)}</p>
+                        <p className="text-[10px] text-surface-400 font-semibold mt-0.5">{weeklyKWh} kWh offset / week</p>
                       </div>
                       <button
                         type="button"
-                        onClick={() => downloadCSV(`${orgName}_weekly_savings.csv`, [
+                        onClick={() => downloadCSV(`${orgName || 'org'}_weekly_savings.csv`, [
                           ['Period', 'Offset kWh', 'Savings PKR'],
-                          ['Weekly', (savingsView.dailyKWh * 7).toFixed(1), savingsView.weekly],
+                          ['Weekly', weeklyKWh, savingsView.weekly],
                         ])}
-                        className="flex items-center gap-1 px-2 py-1 text-[9px] font-black uppercase rounded-lg bg-primary-50 text-primary-600"
+                        className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-black uppercase rounded-lg bg-primary-50 text-primary-600 hover:bg-primary-100 flex-shrink-0"
                       >
-                        <Download size={10} /> CSV
+                        <Download size={11} /> CSV
                       </button>
                     </div>
                   </div>
-                  <div className="p-3 space-y-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <div>
-                        <p className="text-[9px] font-black text-surface-400 uppercase tracking-wider">Monthly</p>
-                        <p className="text-base font-black text-primary-700">{formatPKR(savingsView.monthly)}</p>
-                        <p className="text-[9px] text-surface-400 font-semibold">{(savingsView.dailyKWh * 30).toFixed(1)} kWh offset</p>
+                  <div className="p-3.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-[9px] font-black text-surface-400 uppercase tracking-wider">Monthly Savings</p>
+                        <p className="text-lg font-black text-primary-700 leading-tight">{formatPKR(savingsView.monthly)}</p>
+                        <p className="text-[10px] text-surface-400 font-semibold mt-0.5">{monthlyKWh} kWh offset / month</p>
                       </div>
                       <button
                         type="button"
-                        onClick={() => downloadCSV(`${orgName}_monthly_savings.csv`, [
+                        onClick={() => downloadCSV(`${orgName || 'org'}_monthly_savings.csv`, [
                           ['Period', 'Offset kWh', 'Savings PKR'],
-                          ['Monthly', (savingsView.dailyKWh * 30).toFixed(1), savingsView.monthly],
+                          ['Monthly', monthlyKWh, savingsView.monthly],
                         ])}
-                        className="flex items-center gap-1 px-2 py-1 text-[9px] font-black uppercase rounded-lg bg-primary-50 text-primary-700"
+                        className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-black uppercase rounded-lg bg-primary-50 text-primary-700 hover:bg-primary-100 flex-shrink-0"
                       >
-                        <Download size={10} /> CSV
+                        <Download size={11} /> CSV
                       </button>
                     </div>
                   </div>
+                </div>
+                <div className="px-4 py-2.5 border-t border-surface-100 dark:border-surface-800 bg-surface-50/80 dark:bg-surface-950/40">
+                  <p className="text-[10px] font-semibold text-surface-400">
+                    ~{Number(savingsView.dailyKWh || 0).toFixed(1)} kWh/day offset at PKR {TARIFF_PKR_PER_KWH}/kWh
+                  </p>
                 </div>
               </div>
-            )}
-          </div>
-        )}
+            </>
+          )}
+        </div>
       </div>
 
       <div>
@@ -384,9 +405,9 @@ export default function PowerFlowMindMap({
           </div>
         </div>
 
-        {savingsView && savingsView.dailyKWh > 0 && (
+        {savingsView.dailyKWh > 0 && (
           <p className="text-center text-[10px] font-bold text-surface-400 mt-2">
-            ~{savingsView.dailyKWh.toFixed(1)} kWh/day offset by clean sources · saving {formatPKR(savingsView.daily)} at PKR 28/unit
+            ~{Number(savingsView.dailyKWh).toFixed(1)} kWh/day offset by clean sources · saving {formatPKR(savingsView.daily)} at PKR {TARIFF_PKR_PER_KWH}/unit
           </p>
         )}
 

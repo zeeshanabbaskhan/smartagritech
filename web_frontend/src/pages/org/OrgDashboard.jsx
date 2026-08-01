@@ -260,20 +260,35 @@ export default function OrgDashboard() {
     ? `${Math.round(energy.monthlyEnergyKwh).toLocaleString()} kWh`
     : '—'
 
-  // Savings come from stored config; otherwise from the real exported (solar) energy
+  // Savings: stored config → solar export history → live solarKw estimate (always an object so the card shows)
   const savings = useMemo(() => {
     const stored = powerFlow?.savings
     const storedTotal = (Number(stored?.daily) || 0) + (Number(stored?.weekly) || 0) + (Number(stored?.monthly) || 0)
-    if (storedTotal > 0) return { dailyKWh: Number(stored.dailyKWh) || 0, ...stored, unit: stored.unit || 'PKR' }
+    if (storedTotal > 0) {
+      return { dailyKWh: Number(stored.dailyKWh) || 0, ...stored, unit: stored.unit || 'PKR' }
+    }
     const bucketHours = energy?.bucketHours || 0
-    if (!bucketHours || !sourceSeries.length) return null
-    const offsetKWh = sourceSeries.reduce((sum, row) => sum + row.solar * bucketHours, 0)
-    if (offsetKWh <= 0) return null
+    if (bucketHours && sourceSeries.length) {
+      const offsetKWh = sourceSeries.reduce((sum, row) => sum + (Number(row.solar) || 0) * bucketHours, 0)
+      if (offsetKWh > 0) {
+        return {
+          dailyKWh: +offsetKWh.toFixed(1),
+          daily: Math.round(offsetKWh * TARIFF_PKR_PER_KWH),
+          weekly: Math.round(offsetKWh * 7 * TARIFF_PKR_PER_KWH),
+          monthly: Math.round(offsetKWh * 30 * TARIFF_PKR_PER_KWH),
+          unit: 'PKR',
+        }
+      }
+    }
+    const solarKw = Number(powerFlow?.solarKw)
+      || Number((powerFlow?.sources || []).find((s) => s.type === 'solar' || s.id === 'solar')?.valueKw)
+      || 0
+    const dailyKWh = +(solarKw * 24).toFixed(1)
     return {
-      dailyKWh: +offsetKWh.toFixed(1),
-      daily: Math.round(offsetKWh * TARIFF_PKR_PER_KWH),
-      weekly: Math.round(offsetKWh * 7 * TARIFF_PKR_PER_KWH),
-      monthly: Math.round(offsetKWh * 30 * TARIFF_PKR_PER_KWH),
+      dailyKWh,
+      daily: Math.round(dailyKWh * TARIFF_PKR_PER_KWH),
+      weekly: Math.round(dailyKWh * 7 * TARIFF_PKR_PER_KWH),
+      monthly: Math.round(dailyKWh * 30 * TARIFF_PKR_PER_KWH),
       unit: 'PKR',
     }
   }, [powerFlow, energy, sourceSeries])
