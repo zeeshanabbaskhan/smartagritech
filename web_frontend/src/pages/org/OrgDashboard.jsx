@@ -17,6 +17,11 @@ import { readDeviceMetric, isOffline, isSwitchOff } from '../../utils/deviceMetr
 import emsApi, { list, one } from '../../api/emsApi'
 
 const GROUP_LINE_COLORS = ['#8B5CF6', '#F5A623', '#3B82F6', '#22C55E', '#EC4899', '#14B8A6', '#F97316', '#6366F1']
+const SOURCE_TYPE_COLORS = {
+  grid: '#3B82F6',
+  solar: '#F5A623',
+  generator: '#22C55E',
+}
 const TARIFF_PKR_PER_KWH = 28
 const EMPTY_GROUP_FORM = { name: '', description: '', deviceIds: [], userIds: [] }
 
@@ -331,6 +336,33 @@ export default function OrgDashboard() {
   const orgName = user?.organization?.name ?? 'your organization'
   const sourceSeries = energy?.series ?? []
 
+  // Chart: only power sources that have linked devices (not fleet "Load")
+  const powerSourceChart = useMemo(() => {
+    const loadByDevice = energy?.loadByDevice ?? {}
+    const timestamps = energy?.timestamps ?? []
+    const linked = (liveSources || []).filter((s) => (s.deviceIds || []).length > 0)
+    if (!timestamps.length || !linked.length) return { rows: [], series: [] }
+
+    const series = linked.map((s, i) => ({
+      key: String(s.id || s.type || `src_${i}`),
+      name: s.name || s.type || `Source ${i + 1}`,
+      color: SOURCE_TYPE_COLORS[s.type] || GROUP_LINE_COLORS[i % GROUP_LINE_COLORS.length],
+      deviceIds: s.deviceIds || [],
+    })).filter((s) => s.deviceIds.some((id) => loadByDevice[id]))
+
+    if (!series.length) return { rows: [], series: [] }
+
+    const rows = timestamps.map((ts) => {
+      const row = { time: sourceSeries.find((s) => s.ts === ts)?.time ?? '', ts }
+      series.forEach((ser) => {
+        const total = ser.deviceIds.reduce((sum, id) => sum + (loadByDevice[id]?.get(ts) ?? 0), 0)
+        row[ser.key] = +total.toFixed(2)
+      })
+      return row
+    })
+    return { rows, series }
+  }, [energy, liveSources, sourceSeries])
+
   // One row per real bucket; a group only gets a series when its devices reported data
   const groupSeriesData = useMemo(() => {
     const loadByDevice = energy?.loadByDevice ?? {}
@@ -480,36 +512,51 @@ export default function OrgDashboard() {
             <StatCard label="Monthly Energy" value={monthlyEnergy} icon={Zap} color="info" />
           </div>
 
-          {/* 4. Power Sources — Last 24 Hours */}
+          {/* 4. Power Sources — Last 24 Hours (linked sources only) */}
           <div className="card p-5">
             <h3 className="text-sm font-bold text-surface-900 dark:text-surface-100 leading-none">Power Sources — Last 24 Hours</h3>
             <p className="text-xs text-surface-400 mt-1 mb-4">
-              Fleet load from device power variables (ActivePower / PowerConsumption), plus export when available; Grid is load − export
+              Live history for each power source from its linked devices (ActivePower)
             </p>
-            {sourceSeries.length === 0 ? (
-              <EmptyChart>No logged readings in the last 24 hours yet.</EmptyChart>
+            {!(liveSources || []).some((s) => (s.deviceIds || []).length > 0) ? (
+              <EmptyChart>Link devices to Grid, Solar, Generator, or a custom source above to see their 24h history here.</EmptyChart>
+            ) : powerSourceChart.series.length === 0 ? (
+              <EmptyChart>No logged readings for linked power sources in the last 24 hours yet.</EmptyChart>
             ) : (
               <>
                 <ResponsiveContainer width="100%" height={260}>
-                  <AreaChart data={sourceSeries}>
+                  <AreaChart data={powerSourceChart.rows}>
                     <defs>
-                      <linearGradient id="srcSolar" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#F5A623" stopOpacity={0.3} /><stop offset="95%" stopColor="#F5A623" stopOpacity={0} /></linearGradient>
-                      <linearGradient id="srcGrid" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3} /><stop offset="95%" stopColor="#3B82F6" stopOpacity={0} /></linearGradient>
-                      <linearGradient id="srcLoad" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#8B5CF6" stopOpacity={0.25} /><stop offset="95%" stopColor="#8B5CF6" stopOpacity={0} /></linearGradient>
+                      {powerSourceChart.series.map((s) => (
+                        <linearGradient key={s.key} id={`srcGrad${s.key}`} x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor={s.color} stopOpacity={0.3} />
+                          <stop offset="95%" stopColor={s.color} stopOpacity={0} />
+                        </linearGradient>
+                      ))}
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
                     <XAxis dataKey="time" tick={{ fontSize: 10, fill: '#9AA09A' }} stroke="#D1D5C8" />
                     <YAxis tick={{ fontSize: 10, fill: '#9AA09A' }} stroke="#D1D5C8" />
                     <Tooltip content={<CustomTooltip />} />
-                    <Area type="monotone" dataKey="load" stroke="#8B5CF6" fill="url(#srcLoad)" strokeWidth={2} name="Load" unit="kW" />
-                    <Area type="monotone" dataKey="solar" stroke="#F5A623" fill="url(#srcSolar)" strokeWidth={2} name="Solar" unit="kW" />
-                    <Area type="monotone" dataKey="grid" stroke="#3B82F6" fill="url(#srcGrid)" strokeWidth={2} name="Grid" unit="kW" />
+                    {powerSourceChart.series.map((s) => (
+                      <Area
+                        key={s.key}
+                        type="monotone"
+                        dataKey={s.key}
+                        stroke={s.color}
+                        fill={`url(#srcGrad${s.key})`}
+                        strokeWidth={2}
+                        name={s.name}
+                        unit="kW"
+                      />
+                    ))}
                   </AreaChart>
                 </ResponsiveContainer>
                 <div className="flex items-center justify-center gap-4 mt-3 flex-wrap">
-                  {[{ label: 'Load', color: '#8B5CF6' }, { label: 'Solar', color: '#F5A623' }, { label: 'Grid', color: '#3B82F6' }].map((l) => (
-                    <span key={l.label} className="flex items-center gap-1.5 text-[10px] font-bold text-surface-500">
-                      <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: l.color }} />{l.label}
+                  {powerSourceChart.series.map((s) => (
+                    <span key={s.key} className="flex items-center gap-1.5 text-[10px] font-bold text-surface-500">
+                      <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: s.color }} />
+                      {s.name}
                     </span>
                   ))}
                 </div>
