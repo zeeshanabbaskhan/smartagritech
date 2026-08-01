@@ -162,7 +162,7 @@ export default function OrgDashboard() {
 
   /**
    * Sources linked to real devices → live ActivePower (kW).
-   * Grid with no devices = fleet − other linked sources (derived).
+   * Sources with no linked devices stay at 0 kW (including Grid).
    */
   const liveSources = useMemo(() => {
     const builtins = [
@@ -191,23 +191,12 @@ export default function OrgDashboard() {
       return +sum.toFixed(2)
     }
 
-    sources = sources.map((s) => {
+    return sources.map((s) => {
       const ids = s.deviceIds || []
-      if (!ids.length) return { ...s, valueKw: 0 }
-      return { ...s, valueKw: powerOf(ids), deviceCount: ids.length }
+      if (!ids.length) return { ...s, valueKw: 0, derived: false }
+      return { ...s, valueKw: powerOf(ids), deviceCount: ids.length, derived: false }
     })
-
-    const grid = sources.find((s) => s.type === 'grid' || s.id === 'grid')
-    if (grid && !(grid.deviceIds || []).length) {
-      const others = sources
-        .filter((s) => !(s.type === 'grid' || s.id === 'grid'))
-        .reduce((a, s) => a + (Number(s.valueKw) || 0), 0)
-      grid.valueKw = Math.max(0, +(liveFleetKw - others).toFixed(2))
-      grid.derived = true
-    }
-
-    return sources
-  }, [powerFlow, liveDevices, liveFleetKw])
+  }, [powerFlow, liveDevices])
 
   const openGroup = useMemo(
     () => groupLoads.find((g) => g.id === openGroupId) || null,

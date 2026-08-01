@@ -116,8 +116,8 @@ export default function PowerFlowMindMap({
   function saveSourceForm() {
     if (!sourceForm.name.trim()) return
     const isBuiltin = ['grid', 'solar', 'generator'].includes(sourceForm.type)
-    // Custom sources must link at least one device; grid may stay derived (no devices)
-    if (sourceForm.type !== 'grid' && !sourceForm.deviceIds.length) return
+    // All sources must link at least one device (Grid included — otherwise stays 0 kW)
+    if (!sourceForm.deviceIds.length) return
 
     if (sourceModal === 'create') {
       const idx = localSources.filter((s) => !['grid', 'solar', 'generator'].includes(s.type || s.id)).length
@@ -186,7 +186,7 @@ export default function PowerFlowMindMap({
       from: meta.from,
       to: meta.to,
       deviceIds,
-      derived: type === 'grid' && !deviceIds.length,
+      derived: false,
     }
   })
 
@@ -207,9 +207,7 @@ export default function PowerFlowMindMap({
 
   const editingBuiltin = sourceModal && sourceModal !== 'create'
     && ['grid', 'solar', 'generator'].includes(sourceModal.type || sourceModal.id)
-  const formRequiresDevice = sourceForm.type !== 'grid'
-  const canSaveSource = sourceForm.name.trim()
-    && (!formRequiresDevice || sourceForm.deviceIds.length > 0)
+  const canSaveSource = sourceForm.name.trim() && sourceForm.deviceIds.length > 0
 
   return (
     <div className="w-full select-none space-y-4">
@@ -314,11 +312,9 @@ export default function PowerFlowMindMap({
                 <p className="text-[11px] font-bold opacity-90">{s.label}</p>
                 <p className="text-sm font-black leading-tight">{Number(s.rawVal).toFixed(1)} kW</p>
                 <p className="text-[9px] opacity-70 font-semibold mt-0.5">
-                  {s.derived
-                    ? 'Auto (fleet − other sources)'
-                    : s.deviceIds.length
-                      ? `${s.deviceIds.length} device${s.deviceIds.length !== 1 ? 's' : ''}`
-                      : 'No device linked'}
+                  {s.deviceIds.length
+                    ? `${s.deviceIds.length} device${s.deviceIds.length !== 1 ? 's' : ''}`
+                    : 'No device linked'}
                 </p>
               </div>
               {editable && (
@@ -536,13 +532,11 @@ export default function PowerFlowMindMap({
           <div>
             <label className="label">
               Link Devices
-              {formRequiresDevice && <span className="text-danger-600 font-bold ml-0.5">*</span>}
+              <span className="text-danger-600 font-bold ml-0.5">*</span>
               <span className="ml-1 text-surface-400 font-normal">({sourceForm.deviceIds.length})</span>
             </label>
             <p className="text-[11px] text-surface-400 mb-2">
-              {sourceForm.type === 'grid'
-                ? 'Optional — leave empty to auto-calculate Grid as fleet load minus other sources. Or link grid meter device(s).'
-                : 'Select the real device(s) that feed this source. Live kW comes from their ActivePower.'}
+              Select the real device(s) for this source. Live kW comes from their ActivePower. With no devices linked, the source stays at 0 kW.
             </p>
             {devices.length === 0 ? (
               <div className="p-3 inset-panel space-y-3">
@@ -577,7 +571,7 @@ export default function PowerFlowMindMap({
                 ))}
               </div>
             )}
-            {formRequiresDevice && devices.length > 0 && sourceForm.deviceIds.length === 0 && (
+            {devices.length > 0 && sourceForm.deviceIds.length === 0 && (
               <p className="text-[11px] text-danger-600 mt-1.5 font-semibold">Select at least one device</p>
             )}
           </div>

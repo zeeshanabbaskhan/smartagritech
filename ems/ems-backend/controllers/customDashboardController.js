@@ -336,7 +336,7 @@ const getPowerFlow = async (req, res, next) => {
       }
     }
 
-    // Fill live kW from linked devices when present
+    // Fill live kW from linked devices when present; otherwise 0 (including Grid)
     for (const s of sources) {
       const ids = Array.isArray(s.deviceIds)
         ? s.deviceIds.filter((id) => id && (!allowedSet || allowedSet.has(id)))
@@ -345,24 +345,14 @@ const getPowerFlow = async (req, res, next) => {
       if (ids.length) {
         s.valueKw = await sumLoadsForDeviceIds(ids)
         s.liveDerived = true
-      } else if (!(s.type === 'grid' || s.id === 'grid')) {
-        s.valueKw = Number(s.valueKw) || 0
+      } else {
+        s.valueKw = 0
+        s.derived = false
       }
     }
 
-    // Grid without linked meters = fleet load − other sources
-    const grid = sources.find((s) => s.type === 'grid' || s.id === 'grid')
-    if (grid && !(grid.deviceIds || []).length) {
-      const others = sources
-        .filter((s) => !(s.type === 'grid' || s.id === 'grid'))
-        .reduce((acc, s) => acc + (parseFloat(s.valueKw) || 0), 0)
-      grid.valueKw = Math.max(0, Math.round((totalLoadKw - others) * 100) / 100)
-      grid.derived = true
-      grid.liveDerived = true
-    }
-
     const solarKw = Number(sources.find((s) => s.type === 'solar' || s.id === 'solar')?.valueKw) || 0
-    const gridKw = Number(grid?.valueKw) || 0
+    const gridKw = Number(sources.find((s) => s.type === 'grid' || s.id === 'grid')?.valueKw) || 0
 
     res.json({
       success: true,
