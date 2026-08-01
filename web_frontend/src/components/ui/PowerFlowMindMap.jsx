@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   Zap, Sun, Fuel, Building2, Boxes, Plus, ChevronDown, PiggyBank, ChevronRight,
   UtensilsCrossed, Flame, Car, Shirt, Snowflake, Refrigerator, Download,
-  Edit3, Check, X, Wind, Droplets, Atom, Clock3,
+  Edit3, X, Wind, Droplets, Atom, Clock3, Cpu,
 } from 'lucide-react'
+import Modal from './Modal'
+import { TextInput, SelectInput } from './FormFields'
 
 function iconForGroup(name = '') {
   const n = name.toLowerCase()
@@ -22,6 +24,7 @@ function formatPKR(n = 0) {
 }
 
 const TARIFF_PKR_PER_KWH = 28
+const EMPTY_SOURCE_FORM = { name: '', type: 'custom', deviceIds: [] }
 
 function downloadCSV(filename, rows) {
   const content = rows.map((r) => r.join(',')).join('\n')
@@ -52,28 +55,28 @@ const BUILTIN_META = {
 }
 
 /**
- * Power Flow mind map — Sources → Total Load → Device Groups.
- * Sources/savings come from emsApi (getPowerFlow / updatePowerFlow).
+ * Power Flow mind map — Sources (linked to real devices) → Total Load → Device Groups.
  */
 export default function PowerFlowMindMap({
   sources = [],
   savings,
   orgName,
   groups = [],
+  devices = [],
+  totalLoadKw = null,
   onGroupClick,
   onGroupEdit,
   onGroupDelete,
   onSourcesChange,
   editable = true,
   groupsPath = '/org/device-groups',
+  devicesPath = '/org/devices',
 }) {
+  const navigate = useNavigate()
   const [savingsOpen, setSavingsOpen] = useState(false)
   const [localSources, setLocalSources] = useState(sources)
-  const [editingKey, setEditingKey] = useState(null)
-  const [editValue, setEditValue] = useState('')
-  const [addingSource, setAddingSource] = useState(false)
-  const [newLabel, setNewLabel] = useState('')
-  const [newValue, setNewValue] = useState('0.0')
+  const [sourceModal, setSourceModal] = useState(null) // 'create' | source object
+  const [sourceForm, setSourceForm] = useState(EMPTY_SOURCE_FORM)
 
   useEffect(() => { setLocalSources(sources) }, [sources])
 
@@ -82,73 +85,113 @@ export default function PowerFlowMindMap({
     onSourcesChange?.(next)
   }
 
-  function startEdit(key, rawVal) {
-    if (!editable) return
-    setEditingKey(key)
-    setEditValue(String(rawVal).replace(/[^\d.]/g, ''))
+  function openCreateSource() {
+    setSourceForm({ ...EMPTY_SOURCE_FORM })
+    setSourceModal('create')
   }
 
-  function commitEdit(key) {
-    const num = parseFloat(editValue)
-    if (!isNaN(num)) {
+  function openEditSource(source) {
+    setSourceForm({
+      name: source.name || BUILTIN_META[source.type]?.label || '',
+      type: source.type || 'custom',
+      deviceIds: [...(source.deviceIds || [])],
+    })
+    setSourceModal(source)
+  }
+
+  function closeSourceModal() {
+    setSourceModal(null)
+    setSourceForm(EMPTY_SOURCE_FORM)
+  }
+
+  function toggleSourceDevice(id) {
+    setSourceForm((prev) => ({
+      ...prev,
+      deviceIds: prev.deviceIds.includes(id)
+        ? prev.deviceIds.filter((x) => x !== id)
+        : [...prev.deviceIds, id],
+    }))
+  }
+
+  function saveSourceForm() {
+    if (!sourceForm.name.trim()) return
+    const isBuiltin = ['grid', 'solar', 'generator'].includes(sourceForm.type)
+    // Custom sources must link at least one device; grid may stay derived (no devices)
+    if (sourceForm.type !== 'grid' && !sourceForm.deviceIds.length) return
+
+    if (sourceModal === 'create') {
+      const idx = localSources.filter((s) => !['grid', 'solar', 'generator'].includes(s.type || s.id)).length
+      const grad = CUSTOM_GRADIENTS[idx % CUSTOM_GRADIENTS.length]
+      const type = sourceForm.type
+      // Don't create a second builtin — update existing if type is builtin
+      if (isBuiltin) {
+        const existing = localSources.find((s) => s.type === type || s.id === type)
+        if (existing) {
+          commitSources(localSources.map((s) => (
+            s.id === existing.id || s.type === type
+              ? { ...s, name: sourceForm.name.trim(), deviceIds: [...sourceForm.deviceIds] }
+              : s
+          )))
+          closeSourceModal()
+          return
+        }
+      }
+      commitSources([
+        ...localSources,
+        {
+          id: isBuiltin ? type : `custom_${Date.now()}`,
+          name: sourceForm.name.trim(),
+          type,
+          deviceIds: [...sourceForm.deviceIds],
+          valueKw: 0,
+          from: isBuiltin ? undefined : grad.from,
+          to: isBuiltin ? undefined : grad.to,
+          iconIdx: isBuiltin ? undefined : idx % CUSTOM_ICONS.length,
+        },
+      ])
+    } else {
+      const target = sourceModal
       commitSources(localSources.map((s) => (
-        s.id === key || s.type === key ? { ...s, valueKw: Number(num.toFixed(1)) } : s
+        s.id === target.id || (target.type && s.type === target.type && ['grid', 'solar', 'generator'].includes(target.type))
+          ? {
+              ...s,
+              name: sourceForm.name.trim(),
+              type: ['grid', 'solar', 'generator'].includes(s.type) ? s.type : sourceForm.type,
+              deviceIds: [...sourceForm.deviceIds],
+            }
+          : s
       )))
     }
-    setEditingKey(null)
-    setEditValue('')
-  }
-
-  function cancelEdit() {
-    setEditingKey(null)
-    setEditValue('')
-  }
-
-  function handleAddSource() {
-    if (!newLabel.trim()) return
-    const idx = localSources.filter((s) => !['grid', 'solar', 'generator'].includes(s.type || s.id)).length
-    const grad = CUSTOM_GRADIENTS[idx % CUSTOM_GRADIENTS.length]
-    commitSources([
-      ...localSources,
-      {
-        id: `custom_${Date.now()}`,
-        name: newLabel.trim(),
-        type: 'custom',
-        valueKw: parseFloat(newValue || '0') || 0,
-        from: grad.from,
-        to: grad.to,
-        iconIdx: idx % CUSTOM_ICONS.length,
-      },
-    ])
-    setNewLabel('')
-    setNewValue('0.0')
-    setAddingSource(false)
+    closeSourceModal()
   }
 
   function deleteCustomSource(key) {
     commitSources(localSources.filter((s) => s.id !== key))
-    if (editingKey === key) cancelEdit()
   }
 
-  const load = localSources.reduce((sum, s) => sum + (Number(s.valueKw) || 0), 0)
+  const load = totalLoadKw != null && Number.isFinite(Number(totalLoadKw))
+    ? Number(totalLoadKw)
+    : localSources.reduce((sum, s) => sum + (Number(s.valueKw) || 0), 0)
 
   const builtin = ['grid', 'solar', 'generator'].map((type) => {
     const found = localSources.find((s) => s.type === type || s.id === type)
     const meta = BUILTIN_META[type]
+    const deviceIds = found?.deviceIds || []
     return {
       key: type,
+      source: found || { id: type, type, name: meta.label, deviceIds: [], valueKw: 0 },
       label: found?.name || meta.label,
       rawVal: found?.valueKw ?? 0,
       Icon: meta.Icon,
       from: meta.from,
       to: meta.to,
-      sub: type === 'grid' ? (found?.mode || null) : null,
+      deviceIds,
+      derived: type === 'grid' && !deviceIds.length,
     }
   })
 
   const customs = localSources.filter((s) => !['grid', 'solar', 'generator'].includes(s.type || s.id))
 
-  // Always show the savings card — use prop values, else estimate from Solar source kW
   const solarKw = Number(
     localSources.find((s) => s.type === 'solar' || s.id === 'solar')?.valueKw,
   ) || 0
@@ -161,6 +204,12 @@ export default function PowerFlowMindMap({
   }
   const weeklyKWh = +(savingsView.dailyKWh * 7).toFixed(1)
   const monthlyKWh = +(savingsView.dailyKWh * 30).toFixed(1)
+
+  const editingBuiltin = sourceModal && sourceModal !== 'create'
+    && ['grid', 'solar', 'generator'].includes(sourceModal.type || sourceModal.id)
+  const formRequiresDevice = sourceForm.type !== 'grid'
+  const canSaveSource = sourceForm.name.trim()
+    && (!formRequiresDevice || sourceForm.deviceIds.length > 0)
 
   return (
     <div className="w-full select-none space-y-4">
@@ -263,42 +312,25 @@ export default function PowerFlowMindMap({
               <s.Icon size={18} strokeWidth={2.25} />
               <div className="leading-tight">
                 <p className="text-[11px] font-bold opacity-90">{s.label}</p>
-                {editingKey === s.key ? (
-                  <div className="flex items-center gap-1 mt-0.5">
-                    <input
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      autoFocus
-                      value={editValue}
-                      onChange={(e) => setEditValue(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') commitEdit(s.key)
-                        if (e.key === 'Escape') cancelEdit()
-                      }}
-                      className="w-16 text-xs font-black bg-white/25 text-white rounded px-1.5 py-0.5 outline-none border border-white/50"
-                    />
-                    <span className="text-[10px] opacity-75">kW</span>
-                    <button type="button" onClick={() => commitEdit(s.key)} className="p-0.5 rounded hover:bg-white/20">
-                      <Check size={11} />
-                    </button>
-                    <button type="button" onClick={cancelEdit} className="p-0.5 rounded hover:bg-white/20">
-                      <X size={11} />
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => startEdit(s.key, s.rawVal)}
-                    className="group/val flex items-center gap-1 text-sm font-black leading-tight"
-                    title={editable ? 'Click to edit' : undefined}
-                  >
-                    {Number(s.rawVal).toFixed(1)} kW
-                    {editable && <Edit3 size={9} className="opacity-0 group-hover/val:opacity-60" />}
-                  </button>
-                )}
-                {s.sub && <p className="text-[9px] opacity-65 font-semibold mt-0.5">{s.sub}</p>}
+                <p className="text-sm font-black leading-tight">{Number(s.rawVal).toFixed(1)} kW</p>
+                <p className="text-[9px] opacity-70 font-semibold mt-0.5">
+                  {s.derived
+                    ? 'Auto (fleet − other sources)'
+                    : s.deviceIds.length
+                      ? `${s.deviceIds.length} device${s.deviceIds.length !== 1 ? 's' : ''}`
+                      : 'No device linked'}
+                </p>
               </div>
+              {editable && (
+                <button
+                  type="button"
+                  title="Link devices"
+                  onClick={() => openEditSource(s.source)}
+                  className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-white/90 text-primary-700 opacity-0 group-hover:opacity-100 flex items-center justify-center shadow-sm"
+                >
+                  <Edit3 size={9} strokeWidth={2.5} />
+                </button>
+              )}
             </div>
           ))}
 
@@ -306,6 +338,7 @@ export default function PowerFlowMindMap({
             const Icon = CUSTOM_ICONS[s.iconIdx ?? idx % CUSTOM_ICONS.length]
             const from = s.from || CUSTOM_GRADIENTS[idx % CUSTOM_GRADIENTS.length].from
             const to = s.to || CUSTOM_GRADIENTS[idx % CUSTOM_GRADIENTS.length].to
+            const nDev = (s.deviceIds || []).length
             return (
               <div
                 key={s.id}
@@ -315,79 +348,45 @@ export default function PowerFlowMindMap({
                 <Icon size={18} />
                 <div className="leading-tight">
                   <p className="text-[11px] font-bold opacity-90">{s.name}</p>
-                  {editingKey === s.id ? (
-                    <div className="flex items-center gap-1 mt-0.5">
-                      <input
-                        type="number"
-                        step="0.1"
-                        min="0"
-                        autoFocus
-                        value={editValue}
-                        onChange={(e) => setEditValue(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') commitEdit(s.id)
-                          if (e.key === 'Escape') cancelEdit()
-                        }}
-                        className="w-16 text-xs font-black bg-white/25 text-white rounded px-1.5 py-0.5 outline-none border border-white/50"
-                      />
-                      <button type="button" onClick={() => commitEdit(s.id)} className="p-0.5"><Check size={11} /></button>
-                      <button type="button" onClick={cancelEdit} className="p-0.5"><X size={11} /></button>
-                    </div>
-                  ) : (
-                    <button type="button" onClick={() => startEdit(s.id, s.valueKw)} className="text-sm font-black">
-                      {Number(s.valueKw || 0).toFixed(1)} kW
-                    </button>
-                  )}
+                  <p className="text-sm font-black">{Number(s.valueKw || 0).toFixed(1)} kW</p>
+                  <p className="text-[9px] opacity-70 font-semibold mt-0.5">
+                    {nDev ? `${nDev} device${nDev !== 1 ? 's' : ''}` : 'No device linked'}
+                  </p>
                 </div>
                 {editable && (
-                  <button
-                    type="button"
-                    onClick={() => deleteCustomSource(s.id)}
-                    className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-danger-500 border-2 border-white text-white opacity-0 group-hover:opacity-100 flex items-center justify-center"
-                  >
-                    <X size={9} strokeWidth={3} />
-                  </button>
+                  <div className="absolute -top-1.5 -right-1.5 z-[2] flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      type="button"
+                      title="Edit source"
+                      onClick={() => openEditSource(s)}
+                      className="w-5 h-5 rounded-full bg-white/90 text-primary-700 flex items-center justify-center shadow-sm"
+                    >
+                      <Edit3 size={9} strokeWidth={2.5} />
+                    </button>
+                    <button
+                      type="button"
+                      title="Remove source"
+                      onClick={() => deleteCustomSource(s.id)}
+                      className="w-5 h-5 rounded-full bg-danger-500 border-2 border-white text-white flex items-center justify-center"
+                    >
+                      <X size={9} strokeWidth={3} />
+                    </button>
+                  </div>
                 )}
               </div>
             )
           })}
 
-          {editable && (addingSource ? (
-            <div className="flex items-center gap-2 rounded-2xl px-3.5 py-2.5 bg-white border border-surface-300 shadow-md">
-              <input
-                type="text"
-                autoFocus
-                value={newLabel}
-                onChange={(e) => setNewLabel(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') handleAddSource(); if (e.key === 'Escape') setAddingSource(false) }}
-                placeholder="Source name"
-                className="text-xs font-bold w-24 bg-transparent outline-none border-b border-surface-300 pb-0.5"
-              />
-              <input
-                type="number"
-                step="0.1"
-                min="0"
-                value={newValue}
-                onChange={(e) => setNewValue(e.target.value)}
-                className="text-xs font-bold w-14 bg-transparent outline-none border-b border-surface-300 pb-0.5"
-              />
-              <button type="button" onClick={handleAddSource} disabled={!newLabel.trim()} className="p-1.5 rounded-lg bg-primary-500 text-white disabled:opacity-40">
-                <Check size={11} />
-              </button>
-              <button type="button" onClick={() => setAddingSource(false)} className="p-1.5 rounded-lg bg-surface-200">
-                <X size={11} />
-              </button>
-            </div>
-          ) : (
+          {editable && (
             <button
               type="button"
-              onClick={() => setAddingSource(true)}
+              onClick={openCreateSource}
               className="flex items-center gap-1.5 rounded-2xl px-3.5 py-2.5 border border-dashed border-surface-300 text-surface-400 hover:text-primary-600 hover:border-primary-400"
             >
               <Plus size={14} />
               <span className="text-xs font-bold">Add Source</span>
             </button>
-          ))}
+          )}
         </div>
 
         <div className="flex justify-center my-1"><div className="w-px h-6 bg-surface-300" /></div>
@@ -403,6 +402,7 @@ export default function PowerFlowMindMap({
             <div className="leading-tight">
               <p className="text-[11px] font-bold opacity-90">Total Organization Load</p>
               <p className="text-xl font-black">{load.toFixed(1)} kW</p>
+              <p className="text-[9px] font-semibold opacity-75 mt-0.5">Live from device ActivePower</p>
             </div>
           </div>
         </div>
@@ -492,6 +492,97 @@ export default function PowerFlowMindMap({
           )}
         </div>
       </div>
+
+      <Modal
+        open={sourceModal !== null}
+        onClose={closeSourceModal}
+        size="md"
+        title={sourceModal === 'create' ? 'Add Power Source' : 'Edit Power Source'}
+        footer={
+          <>
+            <button type="button" className="btn-secondary" onClick={closeSourceModal}>Cancel</button>
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={!canSaveSource}
+              onClick={saveSourceForm}
+            >
+              {sourceModal === 'create' ? 'Add Source' : 'Save'}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <TextInput
+            label="Source Name"
+            required
+            placeholder="e.g. Rooftop Solar, Backup Generator…"
+            value={sourceForm.name}
+            onChange={(e) => setSourceForm((f) => ({ ...f, name: e.target.value }))}
+          />
+          <SelectInput
+            label="Source Type"
+            required
+            value={sourceForm.type}
+            disabled={editingBuiltin}
+            onChange={(e) => setSourceForm((f) => ({ ...f, type: e.target.value }))}
+            options={[
+              { value: 'custom', label: 'Custom source' },
+              { value: 'solar', label: 'Solar' },
+              { value: 'generator', label: 'Generator' },
+              { value: 'grid', label: 'Grid' },
+            ]}
+          />
+          <div>
+            <label className="label">
+              Link Devices
+              {formRequiresDevice && <span className="text-danger-600 font-bold ml-0.5">*</span>}
+              <span className="ml-1 text-surface-400 font-normal">({sourceForm.deviceIds.length})</span>
+            </label>
+            <p className="text-[11px] text-surface-400 mb-2">
+              {sourceForm.type === 'grid'
+                ? 'Optional — leave empty to auto-calculate Grid as fleet load minus other sources. Or link grid meter device(s).'
+                : 'Select the real device(s) that feed this source. Live kW comes from their ActivePower.'}
+            </p>
+            {devices.length === 0 ? (
+              <div className="p-3 inset-panel space-y-3">
+                <p className="text-xs text-surface-500">No devices available. Add a device first.</p>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={() => {
+                    closeSourceModal()
+                    navigate(devicesPath)
+                  }}
+                >
+                  <Cpu size={14} /> Go to Devices
+                </button>
+              </div>
+            ) : (
+              <div className="border border-surface-200 dark:border-surface-700 rounded-xl overflow-hidden divide-y divide-surface-100 dark:divide-surface-800 max-h-56 overflow-y-auto">
+                {devices.map((d) => (
+                  <label key={d.id} className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-surface-50 dark:hover:bg-surface-800">
+                    <input
+                      type="checkbox"
+                      className="rounded border-surface-300 text-primary-600"
+                      checked={sourceForm.deviceIds.includes(d.id)}
+                      onChange={() => toggleSourceDevice(d.id)}
+                    />
+                    <Cpu size={13} className="text-surface-400 flex-shrink-0" />
+                    <span className="text-sm text-surface-800 dark:text-surface-100 flex-1">{d.name}</span>
+                    <span className={`badge text-[9px] ${d.status === 'Online' ? 'badge-success' : 'badge-neutral'}`}>
+                      {d.status}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
+            {formRequiresDevice && devices.length > 0 && sourceForm.deviceIds.length === 0 && (
+              <p className="text-[11px] text-danger-600 mt-1.5 font-semibold">Select at least one device</p>
+            )}
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }

@@ -86,6 +86,12 @@ export default function OrgDashboard() {
     return () => clearInterval(interval)
   }, [])
 
+  // Refresh power-flow sources/groups periodically (loads are also overlaid from liveDevices)
+  useEffect(() => {
+    const id = setInterval(() => { reloadPowerFlow() }, 15000)
+    return () => clearInterval(id)
+  }, [reloadPowerFlow])
+
   useEffect(() => {
     emsApi.getUsers({ limit: 200 })
       .then((res) => setOrgUsers(list(res).map((u) => mapUser(u))))
@@ -107,31 +113,101 @@ export default function OrgDashboard() {
   }
 
   useEffect(() => {
-    if (powerFlow?.groups?.length) return
     refreshFallbackGroups()
   }, [powerFlow?.groups?.length])
 
+  /** Always compute group kW from live Redis metrics so cards move with telemetry. */
   const groupLoads = useMemo(() => {
-    if (powerFlow?.groups?.length) return powerFlow.groups
-    return fallbackGroups.map((g) => {
-      const groupDevices = liveDevices.filter((d) => g.deviceIds.includes(d.id))
+    const base = powerFlow?.groups?.length
+      ? powerFlow.groups
+      : fallbackGroups.map((g) => ({
+          id: g.id,
+          name: g.name,
+          description: g.description || '',
+          deviceIds: g.deviceIds,
+          userIds: g.userIds || [],
+          deviceCount: g.deviceIds?.length || 0,
+          load: 0,
+          active: false,
+        }))
+
+    return base.map((g) => {
+      const ids = g.deviceIds || []
+      const groupDevices = liveDevices.filter((d) => ids.includes(d.id))
       const active = groupDevices.filter((d) => !isSwitchOff(d))
       const load = active.reduce((s, d) => {
         const v = readDeviceMetric(d, 'power')
         return s + (Number.isFinite(v) ? v : 0)
       }, 0)
       return {
-        id: g.id,
-        name: g.name,
-        description: g.description || '',
-        deviceIds: g.deviceIds,
-        userIds: g.userIds || [],
-        deviceCount: groupDevices.length,
+        ...g,
+        deviceIds: ids,
+        deviceCount: groupDevices.length || g.deviceCount || ids.length,
         load: +load.toFixed(2),
         active: active.some((d) => !isOffline(d)),
       }
     })
   }, [powerFlow, fallbackGroups, liveDevices])
+
+  /** Sum of all org devices' live ActivePower (kW) — true total load. */
+  const liveFleetKw = useMemo(() => {
+    const total = liveDevices
+      .filter((d) => !isSwitchOff(d))
+      .reduce((s, d) => {
+        const v = readDeviceMetric(d, 'power')
+        return s + (Number.isFinite(v) ? v : 0)
+      }, 0)
+    return +total.toFixed(2)
+  }, [liveDevices])
+
+  /**
+   * Sources linked to real devices → live ActivePower (kW).
+   * Grid with no devices = fleet − other linked sources (derived).
+   */
+  const liveSources = useMemo(() => {
+    const builtins = [
+      { id: 'grid', name: 'Grid', type: 'grid' },
+      { id: 'solar', name: 'Solar', type: 'solar' },
+      { id: 'generator', name: 'Generator', type: 'generator' },
+    ]
+    let sources = (powerFlow?.sources || []).map((s) => ({
+      ...s,
+      deviceIds: Array.isArray(s.deviceIds) ? s.deviceIds.filter(Boolean) : [],
+    }))
+    for (const b of builtins) {
+      if (!sources.some((s) => s.type === b.type || s.id === b.id)) {
+        sources.push({ ...b, deviceIds: [], valueKw: 0 })
+      }
+    }
+
+    const powerOf = (ids) => {
+      let sum = 0
+      for (const id of ids) {
+        const d = liveDevices.find((x) => x.id === id)
+        if (!d || isSwitchOff(d)) continue
+        const v = readDeviceMetric(d, 'power')
+        if (Number.isFinite(v)) sum += v
+      }
+      return +sum.toFixed(2)
+    }
+
+    sources = sources.map((s) => {
+      const ids = s.deviceIds || []
+      if (!ids.length) return { ...s, valueKw: 0 }
+      return { ...s, valueKw: powerOf(ids), deviceCount: ids.length }
+    })
+
+    const grid = sources.find((s) => s.type === 'grid' || s.id === 'grid')
+    if (grid && !(grid.deviceIds || []).length) {
+      const others = sources
+        .filter((s) => !(s.type === 'grid' || s.id === 'grid'))
+        .reduce((a, s) => a + (Number(s.valueKw) || 0), 0)
+      grid.valueKw = Math.max(0, +(liveFleetKw - others).toFixed(2))
+      grid.derived = true
+    }
+
+    return sources
+  }, [powerFlow, liveDevices, liveFleetKw])
 
   const openGroup = useMemo(
     () => groupLoads.find((g) => g.id === openGroupId) || null,
@@ -328,7 +404,18 @@ export default function OrgDashboard() {
 
   async function handleSourcesChange(sources) {
     try {
-      await emsApi.updatePowerFlow({ sources, savings: powerFlow?.savings })
+      // Persist linkage (deviceIds); live valueKw is recomputed on read
+      const toSave = (sources || []).map((s) => ({
+        id: s.id,
+        name: s.name,
+        type: s.type,
+        deviceIds: Array.isArray(s.deviceIds) ? s.deviceIds : [],
+        from: s.from,
+        to: s.to,
+        iconIdx: s.iconIdx,
+        valueKw: Number(s.valueKw) || 0,
+      }))
+      await emsApi.updatePowerFlow({ sources: toSave, savings: powerFlow?.savings })
       reloadPowerFlow()
     } catch (e) {
       showToast(e.message || 'Failed to update power flow', 'error')
@@ -364,9 +451,11 @@ export default function OrgDashboard() {
                 Energy Flow Overview
               </h3>
               <PowerFlowMindMap
-                sources={powerFlow.sources}
+                sources={liveSources}
                 savings={savings}
                 groups={groupLoads}
+                devices={liveDevices}
+                totalLoadKw={liveFleetKw}
                 orgName={orgName}
                 onSourcesChange={handleSourcesChange}
                 onGroupClick={setOpenGroupId}
@@ -376,6 +465,7 @@ export default function OrgDashboard() {
                   if (g) setDeleteTarget(g)
                 }}
                 groupsPath="/org/device-groups"
+                devicesPath="/org/devices"
               />
               <div className="flex items-center justify-center gap-5 mt-2 pt-3 border-t border-surface-100 dark:border-surface-800 flex-wrap">
                 <span className="flex items-center gap-1.5 text-[10px] font-bold text-surface-400"><span className="w-3 h-0.5 bg-primary-400 inline-block" /> Sources</span>

@@ -323,40 +323,46 @@ const getPowerFlow = async (req, res, next) => {
     orgDevices.forEach((d) => allDeviceIds.add(d.id))
     const allIds = [...allDeviceIds]
     const totalLoadKw = await sumLoadsForDeviceIds(allIds)
-    const solarKw = await sumExportForDeviceIds(allIds)
-    const generatorManual = (Array.isArray(config.sources) ? config.sources : [])
-      .filter((s) => s.type === 'generator' || s.id === 'generator')
-      .reduce((acc, s) => acc + (parseFloat(s.valueKw) || 0), 0)
-    const gridKw = Math.max(0, Math.round((totalLoadKw - solarKw - generatorManual) * 100) / 100)
 
     let sources = Array.isArray(config.sources) ? config.sources.map((s) => ({ ...s })) : []
-    const ensureSource = (id, name, type, valueKw) => {
-      const idx = sources.findIndex((s) => s.id === id || s.type === type)
-      if (idx >= 0) {
-        // Keep manual generator edits; auto-fill grid/solar when live telemetry exists
-        if (type === 'generator' && (parseFloat(sources[idx].valueKw) || 0) > 0 && !sources[idx].liveDerived) {
-          return
-        }
-        sources[idx] = { ...sources[idx], valueKw, liveDerived: true }
-      } else {
-        sources.push({ id, name, type, valueKw, liveDerived: true })
+    // Ensure builtins exist
+    for (const b of [
+      { id: 'grid', name: 'Grid', type: 'grid' },
+      { id: 'solar', name: 'Solar', type: 'solar' },
+      { id: 'generator', name: 'Generator', type: 'generator' },
+    ]) {
+      if (!sources.some((s) => s.type === b.type || s.id === b.id)) {
+        sources.push({ ...b, deviceIds: [], valueKw: 0 })
       }
     }
 
-    if (totalLoadKw > 0 || solarKw > 0) {
-      ensureSource('solar', 'Solar', 'solar', solarKw)
-      ensureSource('grid', 'Grid', 'grid', gridKw)
-      if (!sources.some((s) => s.type === 'generator' || s.id === 'generator')) {
-        sources.push({ id: 'generator', name: 'Generator', type: 'generator', valueKw: generatorManual })
-      }
-    } else {
-      // Fall back: if sources empty and groups have load, put all on grid
-      const groupSum = mappedGroups.reduce((acc, g) => acc + (g.loadKw || 0), 0)
-      const sourceSum = sources.reduce((acc, s) => acc + (parseFloat(s.valueKw) || 0), 0)
-      if (sourceSum === 0 && groupSum > 0) {
-        ensureSource('grid', 'Grid', 'grid', groupSum)
+    // Fill live kW from linked devices when present
+    for (const s of sources) {
+      const ids = Array.isArray(s.deviceIds)
+        ? s.deviceIds.filter((id) => id && (!allowedSet || allowedSet.has(id)))
+        : []
+      s.deviceIds = Array.isArray(s.deviceIds) ? s.deviceIds.filter(Boolean) : []
+      if (ids.length) {
+        s.valueKw = await sumLoadsForDeviceIds(ids)
+        s.liveDerived = true
+      } else if (!(s.type === 'grid' || s.id === 'grid')) {
+        s.valueKw = Number(s.valueKw) || 0
       }
     }
+
+    // Grid without linked meters = fleet load − other sources
+    const grid = sources.find((s) => s.type === 'grid' || s.id === 'grid')
+    if (grid && !(grid.deviceIds || []).length) {
+      const others = sources
+        .filter((s) => !(s.type === 'grid' || s.id === 'grid'))
+        .reduce((acc, s) => acc + (parseFloat(s.valueKw) || 0), 0)
+      grid.valueKw = Math.max(0, Math.round((totalLoadKw - others) * 100) / 100)
+      grid.derived = true
+      grid.liveDerived = true
+    }
+
+    const solarKw = Number(sources.find((s) => s.type === 'solar' || s.id === 'solar')?.valueKw) || 0
+    const gridKw = Number(grid?.valueKw) || 0
 
     res.json({
       success: true,
