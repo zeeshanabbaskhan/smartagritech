@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Boxes, Plus, Pencil, Trash2, Cpu, Users } from 'lucide-react'
 import DataTable from '../../components/ui/DataTable'
 import Modal from '../../components/ui/Modal'
@@ -24,7 +25,9 @@ function fmtDate(d) {
 export default function DeviceGroupsPage({ scope = 'admin' }) {
   const { user } = useAuth()
   const { showToast } = useToast()
+  const navigate = useNavigate()
   const isAdmin = scope === 'admin' || user?.role === 'admin'
+  const devicesPath = isAdmin ? '/admin/devices' : '/org/devices'
   const [orgFilter, setOrgFilter] = useState('')
 
   const { data, loading, error, reload } = useFetch(async () => {
@@ -138,6 +141,10 @@ export default function DeviceGroupsPage({ scope = 'admin' }) {
     const organizationId = isAdmin ? form.organizationId : user?.organizationId
     if (isAdmin && !organizationId) {
       showToast('Select an organization', 'error')
+      return
+    }
+    if (!form.deviceIds.length) {
+      showToast('Select at least one device', 'error')
       return
     }
     setSaving(true)
@@ -267,7 +274,12 @@ export default function DeviceGroupsPage({ scope = 'admin' }) {
                 type="button"
                 className="btn-primary"
                 onClick={handleSave}
-                disabled={saving || !form.name.trim() || (isAdmin && !form.organizationId)}
+                disabled={
+                  saving
+                  || !form.name.trim()
+                  || !form.deviceIds.length
+                  || (isAdmin && !form.organizationId)
+                }
               >
                 {saving ? 'Saving...' : modal === 'create' ? 'Create Group' : 'Save Changes'}
               </button>
@@ -306,6 +318,7 @@ export default function DeviceGroupsPage({ scope = 'admin' }) {
                 <div>
                   <label className="label">
                     Add Devices
+                    <span className="text-danger-600 font-bold ml-0.5">*</span>
                     <span className="ml-1 text-surface-400 font-normal">({form.deviceIds.length})</span>
                   </label>
                   {hasDeviceCeiling && (
@@ -314,7 +327,21 @@ export default function DeviceGroupsPage({ scope = 'admin' }) {
                     </p>
                   )}
                   {orgDevices.length === 0 ? (
-                    <p className="text-xs text-surface-500 p-3 inset-panel">No devices found.</p>
+                    <div className="p-3 inset-panel space-y-3">
+                      <p className="text-xs text-surface-500">
+                        No devices available. Add a device first, then come back to create this group.
+                      </p>
+                      <button
+                        type="button"
+                        className="btn-primary"
+                        onClick={() => {
+                          close()
+                          navigate(devicesPath)
+                        }}
+                      >
+                        <Cpu size={14} /> Go to Devices
+                      </button>
+                    </div>
                   ) : (
                     <div className="border border-surface-200 rounded-xl overflow-hidden divide-y divide-surface-100 max-h-56 overflow-y-auto">
                       {orgDevices.map((d) => (
@@ -333,6 +360,9 @@ export default function DeviceGroupsPage({ scope = 'admin' }) {
                         </label>
                       ))}
                     </div>
+                  )}
+                  {orgDevices.length > 0 && form.deviceIds.length === 0 && (
+                    <p className="text-[11px] text-danger-600 mt-1.5 font-semibold">Select at least one device</p>
                   )}
                 </div>
                 <div>
