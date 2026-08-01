@@ -6,7 +6,7 @@ const prisma      = require('../config/database')
 const { AppError } = require('../middleware/errorHandler')
 const transporter  = require('../config/nodemailer')
 
-const ACCESS_EXPIRES  = process.env.JWT_EXPIRES_IN || '15m'
+const ACCESS_EXPIRES  = process.env.JWT_EXPIRES_IN || '8h'
 const REFRESH_DAYS    = parseInt(process.env.JWT_REFRESH_DAYS || '30', 10)
 
 const signAccessToken = (id) =>

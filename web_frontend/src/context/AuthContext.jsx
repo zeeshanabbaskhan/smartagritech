@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import emsApi from '../api/emsApi'
-import { tokenStore, setUnauthorizedHandler } from '../api/client'
+import { tokenStore, setUnauthorizedHandler, ensureFreshAccessToken } from '../api/client'
 import { backendToFrontend } from '../utils/roles'
 
 const AuthContext = createContext(null)
@@ -57,17 +57,49 @@ export function AuthProvider({ children }) {
     return () => setUnauthorizedHandler(null)
   }, [clearSession])
 
+  // Keep session alive: refresh access token before it expires (and on tab focus).
+  useEffect(() => {
+    if (getBuildUser()) return
+    let cancelled = false
+    const tick = async () => {
+      if (cancelled || document.visibilityState === 'hidden') return
+      if (!tokenStore.getRefresh()) return
+      try {
+        await ensureFreshAccessToken(180_000)
+      } catch (_) { /* ignore — next API call will retry */ }
+    }
+    tick()
+    const id = setInterval(tick, 60_000)
+    const onFocus = () => { tick() }
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onFocus)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onFocus)
+    }
+  }, [])
+
   useEffect(() => {
     if (getBuildUser()) return
     const token = tokenStore.get()
-    if (!token) {
+    if (!token && !tokenStore.getRefresh()) {
       setInitializing(false)
       return
     }
-    emsApi.me()
-      .then((res) => setUser(mapSessionUser(res)))
-      .catch(() => clearSession())
-      .finally(() => setInitializing(false))
+    ;(async () => {
+      try {
+        // Revive session from refresh token when access JWT already expired
+        await ensureFreshAccessToken(0)
+        const res = await emsApi.me()
+        setUser(mapSessionUser(res))
+      } catch (_) {
+        clearSession()
+      } finally {
+        setInitializing(false)
+      }
+    })()
   }, [clearSession])
 
   const loginWithCredentials = async (email, password) => {

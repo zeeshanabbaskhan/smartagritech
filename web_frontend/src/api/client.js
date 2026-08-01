@@ -47,19 +47,62 @@ export const tokenStore = {
 let onUnauthorized = null
 export const setUnauthorizedHandler = (fn) => { onUnauthorized = fn }
 
+/** Single in-flight refresh — prevents parallel 401s from rotating the refresh token twice and logging the user out. */
+let refreshPromise = null
+
 async function refreshAccessToken() {
-  const refreshToken = tokenStore.getRefresh()
-  if (!refreshToken) return null
-  const res = await fetch(buildUrl('/auth/refresh'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ refreshToken }),
-  })
-  const body = await res.json().catch(() => ({}))
-  if (!res.ok) return null
-  tokenStore.set(body.token)
-  if (body.refreshToken) tokenStore.setRefresh(body.refreshToken)
-  return body.token
+  if (refreshPromise) return refreshPromise
+
+  refreshPromise = (async () => {
+    const refreshToken = tokenStore.getRefresh()
+    if (!refreshToken) return null
+    try {
+      const res = await fetch(buildUrl('/auth/refresh'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ refreshToken }),
+        credentials: 'include',
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) return null
+      const nextAccess = body.token || body.data?.token
+      const nextRefresh = body.refreshToken || body.data?.refreshToken
+      if (!nextAccess) return null
+      tokenStore.set(nextAccess)
+      if (nextRefresh) tokenStore.setRefresh(nextRefresh)
+      return nextAccess
+    } catch (_) {
+      return null
+    }
+  })()
+
+  try {
+    return await refreshPromise
+  } finally {
+    refreshPromise = null
+  }
+}
+
+/** Decode JWT exp (seconds). Returns null if unreadable. */
+export function getAccessTokenExpiry() {
+  const token = tokenStore.get()
+  if (!token) return null
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    return typeof payload.exp === 'number' ? payload.exp * 1000 : null
+  } catch (_) {
+    return null
+  }
+}
+
+/** Refresh access token if missing or expiring within `skewMs` (default 2 minutes). */
+export async function ensureFreshAccessToken(skewMs = 120_000) {
+  if (!tokenStore.getRefresh()) return tokenStore.get()
+  const exp = getAccessTokenExpiry()
+  if (!tokenStore.get() || (exp != null && exp - Date.now() < skewMs)) {
+    return refreshAccessToken()
+  }
+  return tokenStore.get()
 }
 
 async function request(method, path, { body, query, retry = true } = {}) {
