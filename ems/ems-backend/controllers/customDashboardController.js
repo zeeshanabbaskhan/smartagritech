@@ -9,6 +9,19 @@ const resolveOrgId = (req, bodyOrgId) => {
   return req.user.organizationId
 }
 
+const LOAD_VAR_NAMES = ['ActivePower', 'TotalActivePower', 'ActivePowerTotal', 'Power', 'PowerConsumption']
+
+/** Convert raw register power to kW (ActivePower from MQTT is typically watts). */
+const toLoadKw = (name, raw) => {
+  const n = parseFloat(raw)
+  if (Number.isNaN(n)) return 0
+  const nm = String(name || '')
+  if (/powerconsumption/i.test(nm) && !/active/i.test(nm)) return Math.max(0, n)
+  if (/activepower|^power$/i.test(nm)) return Math.max(0, n / 1000)
+  if (Math.abs(n) >= 200) return Math.max(0, n / 1000)
+  return Math.max(0, n)
+}
+
 /** Prefer ActivePower, then PowerConsumption from Redis or DB current values. */
 const readDeviceLoadKw = async (deviceId) => {
   const device = await prisma.device.findUnique({
@@ -21,22 +34,23 @@ const readDeviceLoadKw = async (deviceId) => {
   if (c) {
     try {
       const hot = await c.hGetAll(`device:${deviceId}:latest`)
-      const raw = hot?.ActivePower ?? hot?.PowerConsumption
-      if (raw != null && raw !== '') {
-        const n = parseFloat(raw)
-        if (!Number.isNaN(n)) return Math.max(0, n)
+      for (const name of LOAD_VAR_NAMES) {
+        const raw = hot?.[name]
+        if (raw != null && raw !== '') return toLoadKw(name, raw)
       }
     } catch (_) {}
   }
   const vars = await prisma.deviceConfigVariable.findMany({
-    where: { deviceId, name: { in: ['ActivePower', 'PowerConsumption'] }, isActive: true },
+    where: { deviceId, name: { in: LOAD_VAR_NAMES }, isActive: true },
     select: { name: true, currentValue: true },
   })
   const byName = Object.fromEntries(vars.map((v) => [v.name, v.currentValue]))
-  const val = byName.ActivePower ?? byName.PowerConsumption
-  if (val == null || val === '') return 0
-  const n = parseFloat(val)
-  return Number.isNaN(n) ? 0 : Math.max(0, n)
+  for (const name of LOAD_VAR_NAMES) {
+    const val = byName[name]
+    if (val == null || val === '') continue
+    return toLoadKw(name, val)
+  }
+  return 0
 }
 
 const sumLoadsForDeviceIds = async (deviceIds) => {
@@ -56,26 +70,28 @@ const readDeviceExportKw = async (deviceId) => {
   })
   if (String(device?.switchState || '').toUpperCase() === 'OFF') return 0
 
+  const EXPORT_NAMES = ['ExportPower', 'SolarPower', 'ExportActivePower']
   const c = redis.getClient()
   if (c) {
     try {
       const hot = await c.hGetAll(`device:${deviceId}:latest`)
-      const raw = hot?.ExportPower ?? hot?.SolarPower
-      if (raw != null && raw !== '') {
-        const n = parseFloat(raw)
-        if (!Number.isNaN(n)) return Math.max(0, n)
+      for (const name of EXPORT_NAMES) {
+        const raw = hot?.[name]
+        if (raw != null && raw !== '') return toLoadKw(name, raw)
       }
     } catch (_) {}
   }
   const vars = await prisma.deviceConfigVariable.findMany({
-    where: { deviceId, name: { in: ['ExportPower', 'SolarPower'] }, isActive: true },
+    where: { deviceId, name: { in: EXPORT_NAMES }, isActive: true },
     select: { name: true, currentValue: true },
   })
   const byName = Object.fromEntries(vars.map((v) => [v.name, v.currentValue]))
-  const val = byName.ExportPower ?? byName.SolarPower
-  if (val == null || val === '') return 0
-  const n = parseFloat(val)
-  return Number.isNaN(n) ? 0 : Math.max(0, n)
+  for (const name of EXPORT_NAMES) {
+    const val = byName[name]
+    if (val == null || val === '') continue
+    return toLoadKw(name, val)
+  }
+  return 0
 }
 
 const sumExportForDeviceIds = async (deviceIds) => {

@@ -210,16 +210,17 @@ const buildDashboardSummary = async (deviceId, slaveId, timeRange) => {
   const base      = { deviceId, slaveId: slaveId || null, startDate }
 
   const metricNames = [
-    'PowerConsumption', 'ExportPower', 'VoltageImbalance', 'CurrentImbalance',
-    'PowerFactor', 'THD_V', 'THD_I', 'Frequency',
+    'ActivePower', 'PowerConsumption', 'ExportPower', 'VoltageImbalance', 'CurrentImbalance',
+    'PowerFactor', 'THD_V', 'THD_I', 'Frequency', 'Energy',
   ]
 
-  const [charts, totalPower, totalExport, latestVars] = await Promise.all([
+  const [charts, totalPower, totalActive, totalExport, latestVars] = await Promise.all([
     Promise.all(metricNames.map(async (name) => [
       name,
       await bucketVariable(prisma, { ...base, variableName: name, bucketMs }),
     ])),
     sumVariable(prisma, { ...base, variableName: 'PowerConsumption' }),
+    sumVariable(prisma, { ...base, variableName: 'ActivePower' }),
     sumVariable(prisma, { ...base, variableName: 'ExportPower' }),
     prisma.deviceConfigVariable.findMany({
       where:  { deviceId, isActive: true, ...(slaveId ? { deviceConfigSlaveId: slaveId } : {}) },
@@ -234,11 +235,25 @@ const buildDashboardSummary = async (deviceId, slaveId, timeRange) => {
     return v != null && v !== '' ? parseFloat(v) : null
   }
 
+  // Prefer PowerConsumption history; fall back to ActivePower (W → kW) for MQTT devices
+  const powerChartRaw = (chartMap.PowerConsumption?.length ? chartMap.PowerConsumption : null)
+    || (chartMap.ActivePower || []).map((p) => ({
+      ...p,
+      value: Number.isFinite(Number(p.value)) ? Number(p.value) / 1000 : p.value,
+    }))
+  const powerValue = totalPower > 0
+    ? totalPower
+    : (totalActive > 0 ? totalActive / 1000 : (latestNum('ActivePower') != null ? latestNum('ActivePower') / 1000 : 0))
+
   const savingsBlock = async (curStart, curEnd, priorStart, priorEnd) => {
-    const [current, previous] = await Promise.all([
+    const [currentPc, previousPc, currentAp, previousAp] = await Promise.all([
       sumVariable(prisma, { ...base, variableName: 'PowerConsumption', startDate: curStart, endDate: curEnd }),
       sumVariable(prisma, { ...base, variableName: 'PowerConsumption', startDate: priorStart, endDate: priorEnd }),
+      sumVariable(prisma, { ...base, variableName: 'ActivePower', startDate: curStart, endDate: curEnd }),
+      sumVariable(prisma, { ...base, variableName: 'ActivePower', startDate: priorStart, endDate: priorEnd }),
     ])
+    const current = currentPc > 0 ? currentPc : currentAp / 1000
+    const previous = previousPc > 0 ? previousPc : previousAp / 1000
     return {
       current,
       previous,
@@ -247,7 +262,7 @@ const buildDashboardSummary = async (deviceId, slaveId, timeRange) => {
   }
 
   const summary = {
-    totalPowerConsumption: { value: totalPower, chartData: chartMap.PowerConsumption ?? [] },
+    totalPowerConsumption: { value: powerValue, chartData: powerChartRaw },
     totalExportPower:      { value: totalExport, chartData: chartMap.ExportPower ?? [] },
     voltageImbalance:      { value: latestNum('VoltageImbalance'), chartData: chartMap.VoltageImbalance ?? [] },
     currentImbalance:      { value: latestNum('CurrentImbalance'), chartData: chartMap.CurrentImbalance ?? [] },
