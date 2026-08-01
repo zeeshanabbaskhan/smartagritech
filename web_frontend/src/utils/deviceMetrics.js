@@ -20,6 +20,23 @@ const UNIT_HINTS = [
   [/battery/i, '%'],
 ]
 
+/**
+ * Normalize instantaneous power readings to kW.
+ * MQTT ActivePower registers are typically watts; classic EMS PowerConsumption is often already kW.
+ */
+export function powerReadingToKw(variableName, value, unit = '') {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return NaN
+  const u = String(unit || '').toLowerCase().trim()
+  if (u === 'kw' || u === 'kilowatt') return n
+  if (u === 'w' || u === 'watt' || u === 'watts') return n / 1000
+  const nm = String(variableName || '')
+  if (/powerconsumption/i.test(nm) && !/active/i.test(nm)) return n
+  if (/activepower|^power$|totalactivepower|exportpower|solarpower/i.test(nm)) return n / 1000
+  if (Math.abs(n) >= 200) return n / 1000
+  return n
+}
+
 /** Best-effort unit label from variable name. */
 export function unitForVariable(name) {
   const n = String(name || '')
@@ -78,15 +95,26 @@ export function readDeviceMetric(device, type) {
   const metrics = device?.latestMetrics
   if (!metrics || typeof metrics !== 'object') return NaN
 
+  const finish = (name, raw) => {
+    const n = parseMetricRaw(raw)
+    if (!Number.isFinite(n)) return NaN
+    const unit = raw && typeof raw === 'object' ? (raw.unit || '') : ''
+    // Alias 'power' and ActivePower* readings → kW for org KPIs / charts
+    if (type === 'power' || (/activepower|totalactivepower/i.test(String(type)) && /activepower|totalactivepower/i.test(String(name)))) {
+      return powerReadingToKw(name, n, unit)
+    }
+    return n
+  }
+
   // Direct variable name (dynamic path)
   if (metrics[type] != null && metrics[type] !== '') {
-    const n = parseMetricRaw(metrics[type])
+    const n = finish(type, metrics[type])
     if (Number.isFinite(n)) return n
   }
 
   const keys = ALIASES[type] ?? [type]
   for (const key of keys) {
-    const n = parseMetricRaw(metrics[key])
+    const n = finish(key, metrics[key])
     if (Number.isFinite(n)) return n
   }
   return NaN

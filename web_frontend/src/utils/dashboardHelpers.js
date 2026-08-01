@@ -1,6 +1,7 @@
 import emsApi, { list } from '../api/emsApi'
 import { mapDevice } from './mappers'
 import { fetchDeviceDashboardCharts, formatChartTime } from './sensorReadings'
+import { ALIASES, powerReadingToKw, readDeviceMetric } from './deviceMetrics'
 
 /** Aggregate list totals from paginated API responses */
 export async function fetchListTotal(fetcher, params = {}) {
@@ -86,45 +87,123 @@ export async function fetchDashboardChart(deviceId, timeRange = '24h', slaveId =
   return fetchDeviceDashboardCharts(deviceId, timeRange, slaveId)
 }
 
+const LOAD_VARS = ALIASES.power
+const EXPORT_VARS = ['ExportPower', 'SolarPower', 'Export', 'Solar', 'ExportActivePower']
+const ENERGY_VARS = ALIASES.consumption
+
+/** First variable that exists on the device metrics map (or a safe MQTT/EMS default). */
+function resolveDeviceVariable(device, candidates, fallback = null) {
+  const metrics = device?.latestMetrics
+  if (metrics && typeof metrics === 'object') {
+    for (const name of candidates) {
+      if (Object.prototype.hasOwnProperty.call(metrics, name)) return name
+    }
+  }
+  return fallback
+}
+
 /**
- * Org-wide energy history built by summing each device's real bucketed readings.
- * grid is the unmet remainder (load − export), matching the backend power-flow math.
- * Returns empty series when no telemetry exists — callers must render an empty state.
+ * Org-wide power history from each device's real sensor aggregates.
+ * Uses ActivePower / PowerConsumption / etc. (not hardcoded dashboard-summary only).
+ * grid = max(0, load − export), matching power-flow math. Values are kW.
  */
-export async function fetchOrgEnergyOverview(deviceIds = [], timeRange = '24h', maxDevices = 12) {
+export async function fetchOrgEnergyOverview(deviceIds = [], timeRange = '24h', maxDevices = 40) {
   const ids = deviceIds.filter(Boolean).slice(0, maxDevices)
-  const empty = { series: [], timestamps: [], loadByDevice: {}, monthlyEnergyKwh: null, bucketHours: 0 }
+  const empty = {
+    series: [],
+    timestamps: [],
+    loadByDevice: {},
+    monthlyEnergyKwh: null,
+    bucketHours: 0,
+    loadVariableHint: null,
+  }
   if (!ids.length) return empty
 
-  const summaries = await Promise.all(ids.map((id) => (
-    emsApi.getDashboardSummary({ deviceId: id, timeRange })
-      .then((res) => ({ id, data: res?.data ?? null }))
-      .catch(() => ({ id, data: null }))
-  )))
+  const devicesRes = await emsApi.getDevices({ limit: 100, withMetrics: true }).catch(() => null)
+  const devices = list(devicesRes).map(mapDevice)
+  const byId = Object.fromEntries(devices.map((d) => [d.id, d]))
 
   const loadByTs = new Map()
   const solarByTs = new Map()
   const loadByDevice = {}
-  let monthlyEnergyKwh = null
+  let loadVariableHint = null
+  let energyDeltaSum = 0
+  let energyDeltaCount = 0
 
-  const addPoints = (points, target, perDevice) => {
+  const addPoints = (points, target, perDevice, variableName) => {
     for (const p of points ?? []) {
       const ts = new Date(p.timestamp).getTime()
-      const value = Number(p.value)
+      const value = powerReadingToKw(variableName, p.value)
       if (!Number.isFinite(ts) || !Number.isFinite(value)) continue
       target.set(ts, (target.get(ts) ?? 0) + value)
       if (perDevice) perDevice.set(ts, (perDevice.get(ts) ?? 0) + value)
     }
   }
 
-  for (const { id, data } of summaries) {
-    if (!data) continue
+  await Promise.all(ids.map(async (id) => {
+    const device = byId[id]
+    const loadVar = resolveDeviceVariable(device, LOAD_VARS, 'ActivePower')
+    const exportVar = resolveDeviceVariable(device, EXPORT_VARS, null)
+    const energyVar = resolveDeviceVariable(device, ENERGY_VARS, null)
+    if (loadVar && !loadVariableHint) loadVariableHint = loadVar
+
+    const tasks = [
+      emsApi.getSensorAggregate({ deviceId: id, variableName: loadVar, timeRange })
+        .then((res) => ({ kind: 'load', varName: loadVar, points: res?.data ?? [] }))
+        .catch(() => ({ kind: 'load', varName: loadVar, points: [] })),
+    ]
+    if (exportVar) {
+      tasks.push(
+        emsApi.getSensorAggregate({ deviceId: id, variableName: exportVar, timeRange })
+          .then((res) => ({ kind: 'export', varName: exportVar, points: res?.data ?? [] }))
+          .catch(() => ({ kind: 'export', varName: exportVar, points: [] })),
+      )
+    }
+    if (energyVar) {
+      tasks.push(
+        emsApi.getSensorAggregate({ deviceId: id, variableName: energyVar, timeRange: '30d' })
+          .then((res) => ({ kind: 'energy', varName: energyVar, points: res?.data ?? [] }))
+          .catch(() => ({ kind: 'energy', varName: energyVar, points: [] })),
+      )
+    }
+
+    const results = await Promise.all(tasks)
     const deviceLoad = new Map()
-    addPoints(data.totalPowerConsumption?.chartData, loadByTs, deviceLoad)
-    addPoints(data.totalExportPower?.chartData, solarByTs, null)
+    for (const r of results) {
+      if (r.kind === 'load') addPoints(r.points, loadByTs, deviceLoad, r.varName)
+      if (r.kind === 'export') addPoints(r.points, solarByTs, null, r.varName)
+      if (r.kind === 'energy' && r.points?.length >= 2) {
+        const first = Number(r.points[0].value)
+        const last = Number(r.points[r.points.length - 1].value)
+        if (Number.isFinite(first) && Number.isFinite(last) && last >= first) {
+          energyDeltaSum += last - first
+          energyDeltaCount += 1
+        }
+      }
+    }
     if (deviceLoad.size) loadByDevice[id] = deviceLoad
-    const monthly = Number(data.energySavingsComparison?.monthly?.current)
-    if (Number.isFinite(monthly)) monthlyEnergyKwh = (monthlyEnergyKwh ?? 0) + monthly
+  }))
+
+  // Legacy EMS fallback when aggregates returned nothing (PowerConsumption naming)
+  const missing = ids.filter((id) => !loadByDevice[id])
+  if (missing.length) {
+    const summaries = await Promise.all(missing.map((id) => (
+      emsApi.getDashboardSummary({ deviceId: id, timeRange })
+        .then((res) => ({ id, data: res?.data ?? null }))
+        .catch(() => ({ id, data: null }))
+    )))
+    for (const { id, data } of summaries) {
+      if (!data) continue
+      const deviceLoad = new Map()
+      addPoints(data.totalPowerConsumption?.chartData, loadByTs, deviceLoad, 'PowerConsumption')
+      addPoints(data.totalExportPower?.chartData, solarByTs, null, 'ExportPower')
+      if (deviceLoad.size) loadByDevice[id] = deviceLoad
+      const monthly = Number(data.energySavingsComparison?.monthly?.current)
+      if (Number.isFinite(monthly) && energyDeltaCount === 0) {
+        energyDeltaSum += monthly
+        energyDeltaCount += 1
+      }
+    }
   }
 
   const timestamps = [...new Set([...loadByTs.keys(), ...solarByTs.keys()])].sort((a, b) => a - b)
@@ -135,5 +214,32 @@ export async function fetchOrgEnergyOverview(deviceIds = [], timeRange = '24h', 
   })
   const bucketHours = timestamps.length > 1 ? (timestamps[1] - timestamps[0]) / 3_600_000 : 0
 
-  return { series, timestamps, loadByDevice, monthlyEnergyKwh, bucketHours }
+  let monthlyEnergyKwh = null
+  if (energyDeltaCount > 0) {
+    monthlyEnergyKwh = energyDeltaSum
+  } else if (series.length && bucketHours > 0) {
+    const avgLoad = series.reduce((s, r) => s + r.load, 0) / series.length
+    if (avgLoad > 0) monthlyEnergyKwh = avgLoad * 24 * 30
+  } else {
+    // Live meter reading sum as last resort (not a true monthly delta)
+    let meter = 0
+    let n = 0
+    for (const id of ids) {
+      const d = byId[id]
+      const eVar = resolveDeviceVariable(d, ENERGY_VARS, null)
+      if (!eVar) continue
+      const e = readDeviceMetric(d, eVar)
+      if (Number.isFinite(e)) { meter += e; n += 1 }
+    }
+    if (n) monthlyEnergyKwh = meter
+  }
+
+  return {
+    series,
+    timestamps,
+    loadByDevice,
+    monthlyEnergyKwh: monthlyEnergyKwh != null ? +Number(monthlyEnergyKwh).toFixed(1) : null,
+    bucketHours,
+    loadVariableHint,
+  }
 }
