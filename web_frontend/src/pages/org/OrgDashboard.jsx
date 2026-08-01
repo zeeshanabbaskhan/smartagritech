@@ -1,21 +1,24 @@
 import { useState, useEffect, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import StatCard from '../../components/ui/StatCard'
 import PageState, { useFetch } from '../../components/ui/PageState'
 import Modal from '../../components/ui/Modal'
+import { TextInput } from '../../components/ui/FormFields'
 import DashboardTelemetry from '../../components/dashboard/DashboardTelemetry'
 import PowerFlowMindMap from '../../components/ui/PowerFlowMindMap'
-import { Cpu, AlertTriangle, Zap, CheckCircle } from 'lucide-react'
+import { Cpu, AlertTriangle, Zap, CheckCircle, Pencil, Users } from 'lucide-react'
 import { Skeleton } from 'boneyard-js/react'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
 import { fetchOrgStats, fetchOrgEnergyOverview } from '../../utils/dashboardHelpers'
-import { mapDevice } from '../../utils/mappers'
-import { readDeviceMetric, isOffline } from '../../utils/deviceMetrics'
+import { mapDevice, mapUser } from '../../utils/mappers'
+import { readDeviceMetric, isOffline, isSwitchOff } from '../../utils/deviceMetrics'
 import emsApi, { list, one } from '../../api/emsApi'
 
 const GROUP_LINE_COLORS = ['#8B5CF6', '#F5A623', '#3B82F6', '#22C55E', '#EC4899', '#14B8A6', '#F97316', '#6366F1']
 const TARIFF_PKR_PER_KWH = 28
+const EMPTY_GROUP_FORM = { name: '', description: '', deviceIds: [], userIds: [] }
 
 function EmptyChart({ children }) {
   return (
@@ -28,8 +31,13 @@ function EmptyChart({ children }) {
 export default function OrgDashboard() {
   const { user } = useAuth()
   const { showToast } = useToast()
+  const navigate = useNavigate()
   const [liveDevices, setLiveDevices] = useState([])
+  const [orgUsers, setOrgUsers] = useState([])
   const [openGroupId, setOpenGroupId] = useState(null)
+  const [editOpen, setEditOpen] = useState(false)
+  const [editForm, setEditForm] = useState(EMPTY_GROUP_FORM)
+  const [editSaving, setEditSaving] = useState(false)
   const [energy, setEnergy] = useState(null)
 
   const { data: stats, loading, error, reload } = useFetch(async () => {
@@ -75,35 +83,49 @@ export default function OrgDashboard() {
     return () => clearInterval(interval)
   }, [])
 
+  useEffect(() => {
+    emsApi.getUsers({ limit: 200 })
+      .then((res) => setOrgUsers(list(res).map((u) => mapUser(u))))
+      .catch(() => setOrgUsers([]))
+  }, [])
+
   const [fallbackGroups, setFallbackGroups] = useState([])
 
-  useEffect(() => {
-    if (powerFlow?.groups?.length) return
+  const refreshFallbackGroups = () => {
     emsApi.getDeviceGroups({ limit: 100 })
       .then((res) => setFallbackGroups(list(res).map((g) => ({
         id: g.id,
         name: g.name,
+        description: g.description || '',
         deviceIds: g.deviceIds ?? (g.devices || []).map((d) => d.id ?? d.deviceId).filter(Boolean),
+        userIds: g.userIds ?? [],
       }))))
       .catch(() => {})
+  }
+
+  useEffect(() => {
+    if (powerFlow?.groups?.length) return
+    refreshFallbackGroups()
   }, [powerFlow?.groups?.length])
 
   const groupLoads = useMemo(() => {
     if (powerFlow?.groups?.length) return powerFlow.groups
     return fallbackGroups.map((g) => {
       const groupDevices = liveDevices.filter((d) => g.deviceIds.includes(d.id))
-      const online = groupDevices.filter((d) => !isOffline(d))
-      const load = online.reduce((s, d) => {
+      const active = groupDevices.filter((d) => !isSwitchOff(d))
+      const load = active.reduce((s, d) => {
         const v = readDeviceMetric(d, 'power')
         return s + (Number.isFinite(v) ? v : 0)
       }, 0)
       return {
         id: g.id,
         name: g.name,
+        description: g.description || '',
         deviceIds: g.deviceIds,
+        userIds: g.userIds || [],
         deviceCount: groupDevices.length,
         load: +load.toFixed(2),
-        active: online.length > 0,
+        active: active.some((d) => !isOffline(d)),
       }
     })
   }, [powerFlow, fallbackGroups, liveDevices])
@@ -116,6 +138,88 @@ export default function OrgDashboard() {
     () => (openGroup ? liveDevices.filter((d) => (openGroup.deviceIds || []).includes(d.id)) : []),
     [openGroup, liveDevices]
   )
+
+  const closeGroupDetails = () => {
+    setOpenGroupId(null)
+    setEditOpen(false)
+    setEditForm(EMPTY_GROUP_FORM)
+  }
+
+  const openEditGroup = async () => {
+    if (!openGroup) return
+    try {
+      const res = await emsApi.getDeviceGroups({ limit: 100 })
+      const full = list(res).find((g) => g.id === openGroup.id)
+      const deviceIds = full?.deviceIds
+        ?? (full?.devices || []).map((d) => d.id ?? d.deviceId).filter(Boolean)
+        ?? openGroup.deviceIds
+        ?? []
+      const userIds = full?.userIds
+        ?? (full?.users || []).map((u) => u.id ?? u.userId).filter(Boolean)
+        ?? openGroup.userIds
+        ?? []
+      setEditForm({
+        name: full?.name || openGroup.name || '',
+        description: full?.description || openGroup.description || '',
+        deviceIds: [...deviceIds],
+        userIds: [...userIds],
+      })
+      setEditOpen(true)
+    } catch (e) {
+      showToast(e.message || 'Failed to load group', 'error')
+    }
+  }
+
+  const toggleEditDevice = (id) => {
+    setEditForm((prev) => ({
+      ...prev,
+      deviceIds: prev.deviceIds.includes(id)
+        ? prev.deviceIds.filter((x) => x !== id)
+        : [...prev.deviceIds, id],
+    }))
+  }
+
+  const toggleEditUser = (id) => {
+    setEditForm((prev) => ({
+      ...prev,
+      userIds: prev.userIds.includes(id)
+        ? prev.userIds.filter((x) => x !== id)
+        : [...prev.userIds, id],
+    }))
+  }
+
+  const handleSaveGroupEdit = async () => {
+    if (!openGroup) return
+    if (!editForm.name.trim()) {
+      showToast('Group name is required', 'error')
+      return
+    }
+    if (!editForm.deviceIds.length) {
+      showToast('Select at least one device', 'error')
+      return
+    }
+    setEditSaving(true)
+    try {
+      await emsApi.updateDeviceGroup(openGroup.id, {
+        name: editForm.name.trim(),
+        description: editForm.description.trim() || null,
+        deviceIds: editForm.deviceIds,
+        userIds: editForm.userIds,
+      })
+      showToast('Device group updated', 'success')
+      setEditOpen(false)
+      reloadPowerFlow()
+      refreshFallbackGroups()
+      // Refresh live devices so membership tiles update
+      emsApi.getDevices({ limit: 100, withMetrics: true })
+        .then((res) => setLiveDevices(list(res).map(mapDevice)))
+        .catch(() => {})
+    } catch (e) {
+      showToast(e.message || 'Failed to update group', 'error')
+    } finally {
+      setEditSaving(false)
+    }
+  }
 
   const deviceIdKey = useMemo(() => {
     const ids = (stats?.devices ?? []).map((d) => d.id).filter(Boolean)
@@ -175,7 +279,7 @@ export default function OrgDashboard() {
   }, [powerFlow, energy, sourceSeries])
 
   const liveTile = (d, key) => {
-    if (isOffline(d)) return '—'
+    if (isSwitchOff(d)) return '—'
     const v = readDeviceMetric(d, key)
     return Number.isFinite(v) ? (key === 'pf' ? v.toFixed(2) : v.toFixed(1)) : '—'
   }
@@ -253,7 +357,9 @@ export default function OrgDashboard() {
           {/* 4. Power Sources — Last 24 Hours */}
           <div className="card p-5">
             <h3 className="text-sm font-bold text-surface-900 dark:text-surface-100 leading-none">Power Sources — Last 24 Hours</h3>
-            <p className="text-xs text-surface-400 mt-1 mb-4">Measured load and exported (solar) power from your devices; Grid is the remaining import</p>
+            <p className="text-xs text-surface-400 mt-1 mb-4">
+              Fleet load from device power variables (ActivePower / PowerConsumption), plus export when available; Grid is load − export
+            </p>
             {sourceSeries.length === 0 ? (
               <EmptyChart>No logged readings in the last 24 hours yet.</EmptyChart>
             ) : (
@@ -288,7 +394,9 @@ export default function OrgDashboard() {
           {/* 5. Asset Group Load — Last 24 Hours */}
           <div className="card p-5">
             <h3 className="text-sm font-bold text-surface-900 dark:text-surface-100 leading-none">Asset Group Load — Last 24 Hours</h3>
-            <p className="text-xs text-surface-400 mt-1 mb-4">Logged load per device group at {orgName} — hover any point for per-group values, or click a group below to view its devices</p>
+            <p className="text-xs text-surface-400 mt-1 mb-4">
+              Sum of each group&apos;s device load (kW) at {orgName} — hover for values, or click a group to open its devices
+            </p>
             {groupLoads.length === 0 ? (
               <EmptyChart>No device groups yet. Create one in &quot;Device Groups&quot; to see the comparison here.</EmptyChart>
             ) : groupSeriesData.groups.length === 0 ? (
@@ -344,7 +452,7 @@ export default function OrgDashboard() {
           <div className="card p-5 flex flex-col justify-between">
             <div>
               <h3 className="text-sm font-bold text-surface-900 leading-none">Power Consumption — Last 24 Hours</h3>
-              <p className="text-xs text-surface-400 mt-1 mb-4">Logged load in kW across all devices at {orgName}</p>
+              <p className="text-xs text-surface-400 mt-1 mb-4">Total fleet load (kW) across all devices at {orgName}</p>
             </div>
             {sourceSeries.length === 0 ? (
               <EmptyChart>No logged readings in the last 24 hours yet.</EmptyChart>
@@ -375,10 +483,18 @@ export default function OrgDashboard() {
           />
 
           <Modal
-            open={openGroup !== null}
-            onClose={() => setOpenGroupId(null)}
+            open={openGroup !== null && !editOpen}
+            onClose={closeGroupDetails}
             size="lg"
             title={openGroup ? `${openGroup.name} — Devices` : 'Devices'}
+            footer={
+              <>
+                <button type="button" className="btn-secondary" onClick={closeGroupDetails}>Close</button>
+                <button type="button" className="btn-primary" onClick={openEditGroup}>
+                  <Pencil size={14} /> Edit Group
+                </button>
+              </>
+            }
           >
             {openGroupDevices.length === 0 ? (
               <p className="text-xs text-surface-500 p-3 inset-panel">
@@ -412,6 +528,115 @@ export default function OrgDashboard() {
                 })}
               </div>
             )}
+          </Modal>
+
+          <Modal
+            open={editOpen && openGroup !== null}
+            onClose={() => setEditOpen(false)}
+            size="md"
+            title="Edit Device Group"
+            footer={
+              <>
+                <button type="button" className="btn-secondary" onClick={() => setEditOpen(false)}>Cancel</button>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={handleSaveGroupEdit}
+                  disabled={editSaving || !editForm.name.trim() || !editForm.deviceIds.length}
+                >
+                  {editSaving ? 'Saving...' : 'Save Changes'}
+                </button>
+              </>
+            }
+          >
+            <div className="space-y-4">
+              <TextInput
+                label="Group Name"
+                required
+                placeholder="e.g. Washing Area, Boilers, G1..."
+                value={editForm.name}
+                onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
+              />
+              <TextInput
+                label="Description"
+                placeholder="e.g. All washing machines on ground floor"
+                value={editForm.description}
+                onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))}
+              />
+
+              <div>
+                <label className="label">
+                  Add Devices
+                  <span className="text-danger-600 font-bold ml-0.5">*</span>
+                  <span className="ml-1 text-surface-400 font-normal">({editForm.deviceIds.length})</span>
+                </label>
+                {liveDevices.length === 0 ? (
+                  <div className="p-3 inset-panel space-y-3">
+                    <p className="text-xs text-surface-500">
+                      No devices available. Add a device first, then come back to edit this group.
+                    </p>
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      onClick={() => {
+                        setEditOpen(false)
+                        closeGroupDetails()
+                        navigate('/org/devices')
+                      }}
+                    >
+                      <Cpu size={14} /> Go to Devices
+                    </button>
+                  </div>
+                ) : (
+                  <div className="border border-surface-200 dark:border-surface-700 rounded-xl overflow-hidden divide-y divide-surface-100 dark:divide-surface-800 max-h-56 overflow-y-auto">
+                    {liveDevices.map((d) => (
+                      <label key={d.id} className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-surface-50 dark:hover:bg-surface-800">
+                        <input
+                          type="checkbox"
+                          className="rounded border-surface-300 text-primary-600"
+                          checked={editForm.deviceIds.includes(d.id)}
+                          onChange={() => toggleEditDevice(d.id)}
+                        />
+                        <Cpu size={13} className="text-surface-400 flex-shrink-0" />
+                        <span className="text-sm text-surface-800 dark:text-surface-100 flex-1">{d.name}</span>
+                        <span className={`badge text-[9px] ${d.status === 'Online' ? 'badge-success' : 'badge-neutral'}`}>
+                          {d.status}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+                {liveDevices.length > 0 && editForm.deviceIds.length === 0 && (
+                  <p className="text-[11px] text-danger-600 mt-1.5 font-semibold">Select at least one device</p>
+                )}
+              </div>
+
+              <div>
+                <label className="label">
+                  Add Users
+                  <span className="ml-1 text-surface-400 font-normal">({editForm.userIds.length})</span>
+                </label>
+                {orgUsers.length === 0 ? (
+                  <p className="text-xs text-surface-500 p-3 inset-panel">No users found.</p>
+                ) : (
+                  <div className="border border-surface-200 dark:border-surface-700 rounded-xl overflow-hidden divide-y divide-surface-100 dark:divide-surface-800 max-h-48 overflow-y-auto">
+                    {orgUsers.map((u) => (
+                      <label key={u.id} className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-surface-50 dark:hover:bg-surface-800">
+                        <input
+                          type="checkbox"
+                          className="rounded border-surface-300 text-primary-600"
+                          checked={editForm.userIds.includes(u.id)}
+                          onChange={() => toggleEditUser(u.id)}
+                        />
+                        <Users size={13} className="text-surface-400 flex-shrink-0" />
+                        <span className="text-sm text-surface-800 dark:text-surface-100 flex-1">{u.name}</span>
+                        <span className="text-[10px] text-surface-400">{u.role}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
           </Modal>
         </div>
       </Skeleton>
