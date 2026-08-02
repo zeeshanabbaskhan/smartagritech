@@ -624,6 +624,7 @@ enum TaskAction {
 enum RepeatType {
   DAILY
   WEEKLY
+  MONTHLY
   ONCE
 }
 

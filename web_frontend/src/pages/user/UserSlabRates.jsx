@@ -1,43 +1,60 @@
 import { useState } from 'react'
-import { Eye, Zap, Receipt, Plus, Pencil, Trash2 } from 'lucide-react'
+import { Eye, Pencil, Trash2, Plus } from 'lucide-react'
 import DataTable from '../../components/ui/DataTable'
 import Modal from '../../components/ui/Modal'
+import { TextInput, SelectInput } from '../../components/ui/FormFields'
 import PageState, { useFetch } from '../../components/ui/PageState'
-import { TextInput } from '../../components/ui/FormFields'
+import { useDevices } from '../../context/DeviceContext'
+import { useToast } from '../../context/ToastContext'
 import emsApi, { list } from '../../api/emsApi'
 import { mapSlabRate } from '../../utils/mappers'
-import { useToast } from '../../context/ToastContext'
 
-const blank = { deviceConfigSlaveId: '', unitFrom: '', unitTo: '', rate: '' }
+const blank = { slaveId: '', unitFrom: '', unitTo: '', rate: '', onPeakRate: '', offPeakRate: '' }
 
 export default function UserSlabRates() {
+  const { devices, slaves } = useDevices()
   const { showToast } = useToast()
-  const { data: rows, loading, error, reload } = useFetch(
-    async () => list(await emsApi.getSlabRates({ limit: 100 })).map(mapSlabRate),
-    []
-  )
-  const [viewing, setViewing] = useState(null)
+  const [deviceFilter, setDeviceFilter] = useState('')
   const [modal, setModal] = useState(null)
   const [selected, setSelected] = useState(null)
   const [form, setForm] = useState(blank)
   const [saving, setSaving] = useState(false)
 
-  const totalUnits = (rows ?? []).reduce((sum, r) => sum + (Number(r.totalUnit) || 0), 0)
-  const avgRate = rows?.length ? rows.reduce((s, r) => s + (Number(r.rate) || 0), 0) / rows.length : 0
-  const estimatedBill = Math.round(totalUnits * avgRate)
+  const { data: rows, loading, error, reload } = useFetch(
+    async () => list(await emsApi.getSlabRates({ limit: 100 })).map(mapSlabRate),
+    []
+  )
 
-  const openAdd = () => { setForm(blank); setModal('add') }
-  const openEdit = (row) => { setSelected(row); setForm({ deviceConfigSlaveId: row.slaveId, unitFrom: row.unitFrom, unitTo: row.unitTo, rate: row.rate }); setModal('edit') }
+  const openAdd = () => {
+    setForm({ ...blank, slaveId: slaves[0]?.id ?? '' })
+    setModal('add')
+  }
+  const openEdit = (row) => {
+    setSelected(row)
+    setForm({
+      slaveId: row.slaveId ?? '',
+      unitFrom: row.unitFrom ?? '',
+      unitTo: row.unitTo ?? '',
+      rate: row.rate ?? '',
+      onPeakRate: row._raw?.onPeakRate ?? '',
+      offPeakRate: row._raw?.offPeakRate ?? '',
+    })
+    setModal('edit')
+  }
+  const openView = (row) => { setSelected(row); setModal('view') }
   const close = () => { setModal(null); setSelected(null) }
 
   const handleSave = async () => {
+    if (!form.slaveId) return
     setSaving(true)
     try {
       const body = {
-        deviceConfigSlaveId: form.deviceConfigSlaveId,
+        deviceConfigSlaveId: form.slaveId,
         unitFrom: parseFloat(form.unitFrom),
         unitTo: parseFloat(form.unitTo),
         rate: parseFloat(form.rate),
+        onPeakRate: form.onPeakRate !== '' ? parseFloat(form.onPeakRate) : undefined,
+        offPeakRate: form.offPeakRate !== '' ? parseFloat(form.offPeakRate) : undefined,
       }
       if (modal === 'add') await emsApi.createSlabRate(body)
       else await emsApi.updateSlabRate(selected.id, body)
@@ -51,7 +68,7 @@ export default function UserSlabRates() {
   }
 
   const handleDelete = async (row) => {
-    if (!confirm('Delete this slab rate?')) return
+    if (!confirm(`Delete slab rate for "${row.slave}"?`)) return
     try {
       await emsApi.deleteSlabRate(row.id)
       reload()
@@ -60,76 +77,115 @@ export default function UserSlabRates() {
     }
   }
 
+  const filtered = (rows ?? [])
+    .filter((r) => !deviceFilter || r.slave === deviceFilter || r.slaveName === deviceFilter)
+    .map((r) => ({
+      ...r,
+      onPeakRate: r._raw?.onPeakRate ?? '—',
+      offPeakRate: r._raw?.offPeakRate ?? '—',
+    }))
+
   const columns = [
-    { key: 'variableName', label: 'Variable Name' },
-    { key: 'slaveName', label: 'Slave / Device Name' },
-    { key: 'totalUnit', label: 'Total Units', render: (v) => `${Number(v).toLocaleString()} kWh` },
-    { key: 'tariff', label: 'Tariff Rate' },
-    { key: 'startDate', label: 'Billing Period Start' },
-    { key: 'endDate', label: 'Billing Period End' },
+    { key: 'slave', label: 'Slave' },
+    { key: 'unitFrom', label: 'Unit From' },
+    { key: 'unitTo', label: 'Unit To' },
+    { key: 'rate', label: 'Rate' },
+    { key: 'onPeakRate', label: 'On-Peak Rate' },
+    { key: 'offPeakRate', label: 'Off-Peak Rate' },
   ]
+
+  const slaveOptions = (slaves.length ? slaves : devices).map((s) => ({
+    value: s.id,
+    label: s.name ?? s.slaveName ?? s.id,
+  }))
 
   return (
     <PageState loading={loading} error={error} onRetry={reload}>
-      <div className="space-y-6">
+      <div>
         <div className="page-header">
           <div>
-            <h2 className="page-title">Slab Rates</h2>
-            <p className="breadcrumb">User / Slab Rates</p>
+            <h2 className="page-title">Manage Slab Rates</h2>
+            <p className="breadcrumb">Manage Slab Rates &ndash; List</p>
           </div>
           <button type="button" className="btn-primary" onClick={openAdd}><Plus size={15} /> Add Slab Rate</button>
         </div>
 
-        <DataTable columns={columns} data={rows ?? []} searchable={false}
+        <div className="card p-4 mb-5">
+          <div className="w-56">
+            <label className="label">Device</label>
+            <select className="select" value={deviceFilter} onChange={(e) => setDeviceFilter(e.target.value)}>
+              <option value="">All locations</option>
+              {devices.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <DataTable
+          columns={columns}
+          data={filtered}
+          searchPlaceholder="Search slab rates..."
+          emptyMessage="No data available in table"
           actions={(row) => (
             <>
-              <button type="button" className="btn-ghost p-1.5 rounded" title="View" onClick={() => setViewing(row)}><Eye size={14} /></button>
-              <button type="button" className="btn-ghost p-1.5 rounded" title="Edit" onClick={() => openEdit(row)}><Pencil size={14} /></button>
-              <button type="button" className="btn-danger p-1.5 rounded" title="Delete" onClick={() => handleDelete(row)}><Trash2 size={14} /></button>
+              <button type="button" className="btn-ghost p-1.5" onClick={() => openView(row)} title="View"><Eye size={14} /></button>
+              <button type="button" className="btn-ghost p-1.5" onClick={() => openEdit(row)} title="Edit"><Pencil size={14} /></button>
+              <button type="button" className="btn-danger p-1.5" onClick={() => handleDelete(row)} title="Delete"><Trash2 size={14} /></button>
             </>
           )}
         />
 
-        <div className="card p-5">
-          <div className="flex items-center gap-2 mb-4"><Receipt size={16} className="text-primary-600" /><h3 className="text-sm font-semibold text-surface-800">Estimated Monthly Bill</h3></div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="inset-panel p-4 text-center">
-              <div className="flex items-center justify-center gap-1.5 text-surface-500 mb-1"><Zap size={13} /><span className="text-xs uppercase tracking-wide">Total Units</span></div>
-              <p className="text-xl font-bold text-surface-900">{totalUnits.toLocaleString()}</p>
-              <p className="text-xs text-surface-500 mt-0.5">kWh</p>
+        <Modal
+          open={modal === 'add' || modal === 'edit'}
+          onClose={close}
+          title={modal === 'add' ? 'Add Slab Rate' : 'Edit Slab Rate'}
+          footer={(
+            <>
+              <button type="button" className="btn-secondary" onClick={close}>Cancel</button>
+              <button type="button" className="btn-primary" onClick={handleSave} disabled={saving}>
+                {saving ? 'Saving...' : modal === 'add' ? 'Create' : 'Save Changes'}
+              </button>
+            </>
+          )}
+        >
+          <div className="space-y-4">
+            <SelectInput
+              label="Slave"
+              required
+              placeholder="Select device"
+              value={form.slaveId}
+              onChange={(e) => setForm((f) => ({ ...f, slaveId: e.target.value }))}
+              options={slaveOptions}
+            />
+            <div className="grid grid-cols-2 gap-4">
+              <TextInput label="Unit From" value={form.unitFrom} onChange={(e) => setForm((f) => ({ ...f, unitFrom: e.target.value }))} />
+              <TextInput label="Unit To" value={form.unitTo} onChange={(e) => setForm((f) => ({ ...f, unitTo: e.target.value }))} />
             </div>
-            <div className="inset-panel p-4 text-center">
-              <p className="text-xs uppercase tracking-wide text-surface-500 mb-1">Rate</p>
-              <p className="text-xl font-bold text-surface-900">PKR {avgRate.toFixed(0)}</p>
-              <p className="text-xs text-surface-500 mt-0.5">per unit</p>
-            </div>
-            <div className="bg-success-600/10 border border-success-600/30 rounded-lg p-4 text-center dark:bg-success-600/15 dark:border-success-600/40">
-              <div className="flex items-center justify-center gap-1.5 text-success-600 mb-1"><Receipt size={13} /><span className="text-xs uppercase tracking-wide">Estimated Bill</span></div>
-              <p className="text-xl font-bold text-success-600">PKR {estimatedBill.toLocaleString()}</p>
+            <TextInput label="Rate" value={form.rate} onChange={(e) => setForm((f) => ({ ...f, rate: e.target.value }))} />
+            <div className="grid grid-cols-2 gap-4">
+              <TextInput label="On-Peak Rate" value={form.onPeakRate} onChange={(e) => setForm((f) => ({ ...f, onPeakRate: e.target.value }))} />
+              <TextInput label="Off-Peak Rate" value={form.offPeakRate} onChange={(e) => setForm((f) => ({ ...f, offPeakRate: e.target.value }))} />
             </div>
           </div>
-        </div>
+        </Modal>
 
-        <Modal open={!!viewing} onClose={() => setViewing(null)} title="Slab Rate Details" size="sm">
-          {viewing && (
+        <Modal open={modal === 'view'} onClose={close} title="Slab Rate Details" size="sm">
+          {selected && (
             <div className="space-y-3">
-              {[['Variable Name', viewing.variableName], ['Device', viewing.slaveName], ['Total Units', `${Number(viewing.totalUnit).toLocaleString()} kWh`], ['Tariff Rate', viewing.tariff], ['Period Start', viewing.startDate], ['Period End', viewing.endDate]].map(([label, val]) => (
-                <div key={label} className="flex justify-between text-sm"><span className="text-surface-400">{label}</span><span className="text-surface-900 font-medium">{val}</span></div>
+              {[
+                ['Slave', selected.slave],
+                ['Unit From', selected.unitFrom],
+                ['Unit To', selected.unitTo],
+                ['Rate', selected.rate],
+                ['On-Peak Rate', selected._raw?.onPeakRate ?? '—'],
+                ['Off-Peak Rate', selected._raw?.offPeakRate ?? '—'],
+              ].map(([label, val]) => (
+                <div key={label} className="flex justify-between text-sm">
+                  <span className="text-surface-400">{label}</span>
+                  <span className="text-surface-900 font-medium">{val}</span>
+                </div>
               ))}
             </div>
           )}
-        </Modal>
-
-        <Modal open={modal === 'add' || modal === 'edit'} onClose={close} title={modal === 'add' ? 'Add Slab Rate' : 'Edit Slab Rate'}
-          footer={<><button type="button" className="btn-secondary" onClick={close}>Cancel</button><button type="button" className="btn-primary" onClick={handleSave} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button></>}>
-          <div className="space-y-4">
-            <TextInput label="Device Config Slave ID" required value={form.deviceConfigSlaveId} onChange={(e) => setForm((f) => ({ ...f, deviceConfigSlaveId: e.target.value }))} />
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <TextInput label="Unit From" type="number" value={form.unitFrom} onChange={(e) => setForm((f) => ({ ...f, unitFrom: e.target.value }))} />
-              <TextInput label="Unit To" type="number" value={form.unitTo} onChange={(e) => setForm((f) => ({ ...f, unitTo: e.target.value }))} />
-              <TextInput label="Rate" type="number" value={form.rate} onChange={(e) => setForm((f) => ({ ...f, rate: e.target.value }))} />
-            </div>
-          </div>
         </Modal>
       </div>
     </PageState>

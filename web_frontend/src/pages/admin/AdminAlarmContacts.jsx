@@ -8,8 +8,10 @@ import emsApi, { list } from '../../api/emsApi'
 import { mapAlarmContact, mapOrganization } from '../../utils/mappers'
 import { useToast } from '../../context/ToastContext'
 
+const ADD_PEOPLE_OPTIONS = ['App-Admin', 'Org-Admin', 'User']
+
 const blankForm = {
-  name: '', org: '', organizationId: '', phone: '', email: '', whatsapp: '', remark: '',
+  name: '', org: '', organizationId: '', phone: '', email: '', whatsapp: '', remark: '', addPeople: 'App-Admin',
 }
 
 export default function AdminAlarmContacts() {
@@ -32,6 +34,19 @@ export default function AdminAlarmContacts() {
   const [selected, setSelected] = useState(null)
   const [form, setForm] = useState(blankForm)
   const [saving, setSaving] = useState(false)
+  const [selectedIds, setSelectedIds] = useState([])
+  const [deleting, setDeleting] = useState(false)
+
+  const [orgFilter, setOrgFilter] = useState('')
+  const [query, setQuery] = useState('')
+  const [applied, setApplied] = useState({ organizationId: '', query: '' })
+
+  const handleQuery = () => setApplied({ organizationId: orgFilter, query })
+
+  const filteredRows = (rows ?? []).filter((r) =>
+    (!applied.organizationId || r.organizationId === applied.organizationId) &&
+    (!applied.query || r.name.toLowerCase().includes(applied.query.toLowerCase()) || String(r.phone).includes(applied.query))
+  )
 
   const openAdd = () => { setForm(blankForm); setModal('add') }
   const openEdit = (row) => {
@@ -44,6 +59,7 @@ export default function AdminAlarmContacts() {
       email: row.email === '—' ? '' : row.email,
       whatsapp: row.whatsapp === '—' ? '' : row.whatsapp,
       remark: row.remark ?? '',
+      addPeople: ADD_PEOPLE_OPTIONS.includes(row.addPeople) ? row.addPeople : (row.addPeople && row.addPeople !== '—' ? row.addPeople : 'App-Admin'),
     })
     setModal('edit')
   }
@@ -91,14 +107,31 @@ export default function AdminAlarmContacts() {
     }
   }
 
+  const handleBatchDelete = async () => {
+    if (!selectedIds.length) return
+    if (!confirm(`Delete ${selectedIds.length} selected contact(s)?`)) return
+    setDeleting(true)
+    try {
+      const results = await Promise.allSettled(selectedIds.map((id) => emsApi.deleteAlarmContact(id)))
+      const failed = results.filter((r) => r.status === 'rejected' && r.reason?.status !== 404)
+      if (failed.length) showToast(`${failed.length} contact(s) failed to delete`, 'error')
+      else showToast('Selected contacts deleted', 'success')
+      setSelectedIds([])
+    } finally {
+      setDeleting(false)
+      reload()
+    }
+  }
+
   const columns = [
     { key: 'name', label: 'Contact Name' },
     { key: 'org', label: 'Organization' },
-    { key: 'phone', label: 'Phone' },
+    { key: 'phone', label: 'Mobile Phone', render: (v) => <span className="text-xs">{v || '—'}</span> },
     { key: 'email', label: 'Email' },
-    { key: 'whatsapp', label: 'WhatsApp Number' },
+    { key: 'whatsapp', label: 'Whatsapp' },
     { key: 'remark', label: 'Remark' },
-    { key: 'updatedAt', label: 'Last Updated' },
+    { key: 'addPeople', label: 'Add People' },
+    { key: 'updatedAt', label: 'Update Time' },
   ]
 
   return (
@@ -106,16 +139,40 @@ export default function AdminAlarmContacts() {
       <div>
         <div className="page-header">
           <div>
-            <h2 className="page-title">Alarm Contacts</h2>
-            <p className="breadcrumb">Admin / Alarms / Alarm Contacts</p>
+            <h2 className="page-title">Alarm linkage</h2>
+            <p className="breadcrumb">Alarm contacts &ndash; Contacts List</p>
           </div>
-          <button type="button" className="btn-primary" onClick={openAdd}><Plus size={15} /> Add Contact</button>
+          <div className="flex items-center gap-2">
+            <button type="button" className="btn-primary" onClick={openAdd}><Plus size={15} /> Add</button>
+            <button type="button" className="btn-secondary" onClick={handleBatchDelete} disabled={!selectedIds.length || deleting}>
+              {deleting ? 'Deleting...' : 'Batch Delete'}
+            </button>
+          </div>
+        </div>
+
+        <div className="card p-4 mb-5">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="w-44">
+              <SelectInput label="Organization" placeholder="All" value={orgFilter}
+                onChange={(e) => setOrgFilter(e.target.value)}
+                options={(meta?.organizations ?? []).map((o) => ({ value: o.id, label: o.name }))} />
+            </div>
+            <div className="flex-1 min-w-48">
+              <TextInput label="Contact" placeholder="Contact name, phone number"
+                value={query} onChange={(e) => setQuery(e.target.value)} />
+            </div>
+            <button type="button" className="btn-primary" onClick={handleQuery}>Query</button>
+          </div>
         </div>
 
         <DataTable
           columns={columns}
-          data={rows ?? []}
+          data={filteredRows}
           searchPlaceholder="Search contacts..."
+          emptyMessage="No data available in table"
+          selectable
+          selectedIds={selectedIds}
+          onSelectionChange={setSelectedIds}
           actions={(row) => (
             <>
               <button type="button" className="btn-ghost p-1.5" onClick={() => openView(row)} title="View"><Eye size={14} /></button>
@@ -150,13 +207,18 @@ export default function AdminAlarmContacts() {
                 options={(meta?.organizations ?? []).map((o) => ({ value: o.id, label: o.name }))} />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <TextInput label="Phone Number" placeholder="+92-300-0000000"
+              <TextInput label="Mobile Phone" placeholder="+92-300-0000000"
                 value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
               <TextInput label="WhatsApp Number" placeholder="+92-300-0000000"
                 value={form.whatsapp} onChange={(e) => setForm((f) => ({ ...f, whatsapp: e.target.value }))} />
             </div>
             <TextInput label="Email Address" type="email" placeholder="contact@example.com"
               value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
+            <SelectInput label="Add People" value={form.addPeople}
+              onChange={(e) => setForm((f) => ({ ...f, addPeople: e.target.value }))}
+              options={ADD_PEOPLE_OPTIONS.includes(form.addPeople) || !form.addPeople
+                ? ADD_PEOPLE_OPTIONS
+                : [form.addPeople, ...ADD_PEOPLE_OPTIONS]} />
             <TextareaInput label="Remark" placeholder="e.g. Primary on-call contact"
               value={form.remark} onChange={(e) => setForm((f) => ({ ...f, remark: e.target.value }))} />
           </div>
@@ -168,11 +230,12 @@ export default function AdminAlarmContacts() {
               {[
                 ['Full Name', selected.name],
                 ['Organization', selected.org],
-                ['Phone', selected.phone],
+                ['Mobile Phone', selected.phone],
                 ['Email', selected.email],
                 ['WhatsApp', selected.whatsapp],
                 ['Remark', selected.remark],
-                ['Last Updated', selected.updatedAt],
+                ['Add People', selected.addPeople],
+                ['Update Time', selected.updatedAt],
               ].map(([label, value]) => (
                 <div key={label} className="flex gap-4">
                   <span className="text-xs text-surface-500 w-32 flex-shrink-0">{label}</span>

@@ -18,13 +18,28 @@ const jobs = new Map()
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
+ * Day-of-month for MONTHLY tasks (1–31).
+ * Optional: reuse daysOfWeek[0] when set (e.g. Org presets for 1st/15th).
+ * Default: 1st of each month (matches CF dummy monthly schedules).
+ */
+const monthlyDayOfMonth = (task) => {
+  const day = task.daysOfWeek?.[0]
+  if (Number.isInteger(day) && day >= 1 && day <= 31) return day
+  return 1
+}
+
+/**
  * Convert a ScheduledTask record into a cron expression.
- * WEEKLY tasks include specific days; all others run every day at the given time.
+ * WEEKLY: specific weekdays; MONTHLY: day-of-month (default 1st);
+ * DAILY / ONCE: every day at the given time (ONCE self-deactivates after run).
  */
 const buildExpression = (task) => {
   const [hour, minute] = task.scheduledTime.split(':')
   if (task.repeatType === 'WEEKLY' && task.daysOfWeek?.length) {
     return `${minute} ${hour} * * ${task.daysOfWeek.join(',')}`
+  }
+  if (task.repeatType === 'MONTHLY') {
+    return `${minute} ${hour} ${monthlyDayOfMonth(task)} * *`
   }
   return `${minute} ${hour} * * *`
 }

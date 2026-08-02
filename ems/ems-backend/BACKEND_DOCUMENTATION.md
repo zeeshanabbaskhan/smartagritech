@@ -604,6 +604,7 @@ sequenceDiagram
 **Cron Expression Builder:**
 - `DAILY`: `{minute} {hour} * * *`
 - `WEEKLY`: `{minute} {hour} * * {daysOfWeek}`
+- `MONTHLY`: `{minute} {hour} {dayOfMonth} * *` (day from `daysOfWeek[0]` if 1–31, else 1st)
 - `ONCE`: Same as daily, then deactivated after run
 - Timezone: **UTC**
 
@@ -662,7 +663,7 @@ sequenceDiagram
 | `AlarmState` | ACTIVE, RESOLVED |
 | `ProcessState` | UNPROCESSED, PROCESSED |
 | `TaskAction` | ON, OFF |
-| `RepeatType` | DAILY, WEEKLY, ONCE |
+| `RepeatType` | DAILY, WEEKLY, MONTHLY, ONCE |
 | `TaskStatus` | ACTIVE, INACTIVE |
 | `ExecutionResult` | SUCCESS, FAILED |
 | `Horizon` | TEN_MIN, FIVE_HR, SEVEN_DAY, CUSTOM |
@@ -832,8 +833,8 @@ Links triggers to devices and contacts for notification delivery.
 | variableName | String | |
 | action | TaskAction | ON / OFF |
 | scheduledTime | String | Format: `"HH:MM"` |
-| repeatType | RepeatType | DAILY / WEEKLY / ONCE |
-| daysOfWeek | Int[] | For WEEKLY (0=Sun) |
+| repeatType | RepeatType | DAILY / WEEKLY / MONTHLY / ONCE |
+| daysOfWeek | Int[] | For WEEKLY (0=Sun); for MONTHLY optional day-of-month in [0] |
 | status | TaskStatus | ACTIVE / INACTIVE |
 
 ---
@@ -983,8 +984,8 @@ Links triggers to devices and contacts for notification delivery.
 | variableName | String | Label (not used in execution) |
 | action | TaskAction | ON / OFF — updates device.switchState |
 | scheduledTime | String | `"HH:MM"` format |
-| repeatType | RepeatType | DAILY / WEEKLY / ONCE |
-| daysOfWeek | Int[] | Cron days for WEEKLY (0=Sunday) |
+| repeatType | RepeatType | DAILY / WEEKLY / MONTHLY / ONCE |
+| daysOfWeek | Int[] | Cron days for WEEKLY (0=Sunday); MONTHLY day-of-month via [0] |
 | status | TaskStatus | ACTIVE / INACTIVE |
 | nextRunAt | DateTime? | Reserved — not populated |
 
@@ -2191,6 +2192,7 @@ Consumption = 350 units:
 |------------|------------|------------|
 | DAILY | — | `{min} {hour} * * *` |
 | WEEKLY | `[1,3,5]` | `{min} {hour} * * 1,3,5` |
+| MONTHLY | `[15]` or empty | `{min} {hour} 15 * *` (or day 1 if empty) |
 | ONCE | — | Same as DAILY, then status→INACTIVE |
 
 `scheduledTime` format: `"HH:MM"` (24-hour, split on `:`)

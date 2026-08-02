@@ -26,7 +26,10 @@ const getIcons = async (req, res, next) => {
 const createIcon = async (req, res, next) => {
   try {
     if (!req.file) return next(new AppError('Image file is required', 400))
-    const data = await prisma.icon.create({ data: { name: req.body.name, imageUrl: req.file.path } })
+    const status = req.body.status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE'
+    const data = await prisma.icon.create({
+      data: { name: req.body.name, imageUrl: req.file.path, status },
+    })
     res.status(201).json({ success: true, data })
   } catch (err) { next(err) }
 }
@@ -40,6 +43,9 @@ const updateIcon = async (req, res, next) => {
 
     const updateData = { name: req.body.name }
     if (req.file) updateData.imageUrl = req.file.path
+    if (req.body.status === 'ACTIVE' || req.body.status === 'INACTIVE') {
+      updateData.status = req.body.status
+    }
 
     const data = await prisma.icon.update({ where: { id: req.params.id }, data: updateData })
     res.json({ success: true, data })

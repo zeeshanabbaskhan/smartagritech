@@ -1,102 +1,135 @@
-import { useState } from 'react'
-import { Eye, Edit2, ToggleLeft, ToggleRight } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Eye, Pencil, Trash2, Plus, ToggleLeft, ToggleRight } from 'lucide-react'
 import DataTable from '../../components/ui/DataTable'
 import Modal from '../../components/ui/Modal'
+import { TextInput, SelectInput } from '../../components/ui/FormFields'
 import PageState, { useFetch } from '../../components/ui/PageState'
-import DeviceSlaveSelector from '../../components/shared/DeviceSlaveSelector'
-import { useDevices } from '../../context/DeviceContext'
 import { useToast } from '../../context/ToastContext'
+import { useAuth } from '../../context/AuthContext'
 import emsApi, { list } from '../../api/emsApi'
-import { mapAlarmTemplate } from '../../utils/mappers'
+import { mapAlarmTemplate, mapDeviceTemplate } from '../../utils/mappers'
+import { uiOperatorToApi } from '../../utils/apiForm'
 
-const methodBadge = (method) => {
-  const m = { Email: 'badge-info', SMS: 'badge-warning', WhatsApp: 'badge-success' }
-  return <span className={`badge ${m[method] || 'badge-neutral'}`}>{method}</span>
-}
+const conditionOptions = ['>', '<', '=', '>=', '<=']
+const conditionToApi = { '>': 'GT', '<': 'LT', '=': 'EQ', '>=': 'GTE', '<=': 'LTE' }
+const apiToCondition = { GT: '>', LT: '<', EQ: '=', GTE: '>=', LTE: '<=' }
 
-const OPERATOR_OPTIONS = [
-  { value: 'GT', label: '> Greater Than' },
-  { value: 'LT', label: '< Less Than' },
-  { value: 'EQ', label: '= Equal To' },
-  { value: 'GTE', label: '>= Greater or Equal' },
-  { value: 'LTE', label: '<= Less or Equal' },
-]
-const METHOD_OPTIONS = ['Email', 'SMS', 'WhatsApp']
-
-function parseThresholdInput(raw) {
-  if (raw == null || raw === '') return null
-  const n = parseFloat(String(raw).replace(/[^0-9.+\-eE]/g, ''))
-  return Number.isFinite(n) ? n : null
-}
-
-function methodsFromSetting(setting) {
-  const raw = setting?.pushMethod || setting?.pushType || ''
-  if (!raw) return ['Email']
-  return String(raw).split(/[,|/]/).map((s) => s.trim()).filter(Boolean)
+const blank = {
+  name: '',
+  org: '',
+  deviceTemplateId: '',
+  templateVariableId: '',
+  condition: '>',
+  threshold: '',
+  status: 'Active',
 }
 
 export default function UserAlarmTemplate() {
-  const { selectedDevice } = useDevices()
+  const { user } = useAuth()
   const { showToast } = useToast()
+  const [modal, setModal] = useState(null)
+  const [selected, setSelected] = useState(null)
+  const [form, setForm] = useState(blank)
+  const [saving, setSaving] = useState(false)
+  const [variables, setVariables] = useState([])
+  const [varsLoading, setVarsLoading] = useState(false)
+
   const { data, loading, error, reload } = useFetch(async () => {
-    const [tplRes, setRes] = await Promise.all([
+    const [rowsRes, templatesRes] = await Promise.all([
       emsApi.getAlarmTemplates({ limit: 100 }),
-      emsApi.getAlarmSettings({ limit: 100 }).catch(() => ({ data: [] })),
+      emsApi.getDeviceTemplates({ limit: 100 }),
     ])
-    const settingsByTrigger = {}
-    for (const s of list(setRes)) {
-      if (s.templateTriggerId && !settingsByTrigger[s.templateTriggerId]) {
-        settingsByTrigger[s.templateTriggerId] = s
-      }
-    }
     return {
-      rows: list(tplRes).map((t) => {
-        const m = mapAlarmTemplate(t)
-        const setting = settingsByTrigger[t.id]
-        const methods = methodsFromSetting(setting)
-        const unit = t.watchedVariable?.unit || (m.variable?.toLowerCase().includes('voltage') ? 'V' : '')
-        return {
-          ...m,
-          methods,
-          method: methods[0] || 'Email',
-          thresholdDisplay: unit ? `${m.threshold}${unit}` : m.threshold,
-          threshold: m.threshold === '—' ? '' : m.threshold,
-        }
-      }),
+      rows: list(rowsRes).map(mapAlarmTemplate),
+      templates: list(templatesRes).map(mapDeviceTemplate),
     }
   }, [])
 
-  const [viewing, setViewing] = useState(null)
-  const [editing, setEditing] = useState(null)
-  const [form, setForm] = useState({})
-  const [saving, setSaving] = useState(false)
+  const templates = data?.templates ?? []
 
-  const rows = data?.rows ?? []
+  useEffect(() => {
+    let cancelled = false
+    const loadVars = async () => {
+      if (!form.deviceTemplateId) {
+        setVariables([])
+        return
+      }
+      setVarsLoading(true)
+      try {
+        const slavesRes = await emsApi.getTemplateSlaves(form.deviceTemplateId)
+        const slaves = list(slavesRes)
+        const all = []
+        for (const slave of slaves) {
+          const vRes = await emsApi.getTemplateVariables(form.deviceTemplateId, slave.id).catch(() => ({ data: [] }))
+          for (const v of list(vRes)) {
+            all.push({
+              id: v.id,
+              label: `${v.displayName || v.name}${slave.name ? ` (${slave.name})` : ''}`,
+            })
+          }
+        }
+        if (!cancelled) setVariables(all)
+      } catch {
+        if (!cancelled) setVariables([])
+      } finally {
+        if (!cancelled) setVarsLoading(false)
+      }
+    }
+    loadVars()
+    return () => { cancelled = true }
+  }, [form.deviceTemplateId])
 
-  const openEdit = (row) => {
-    setEditing(row)
+  const openAdd = () => {
     setForm({
-      ...row,
-      methods: Array.isArray(row.methods) && row.methods.length ? row.methods : (row.method ? [row.method] : ['Email']),
+      ...blank,
+      org: user?.organization?.name ?? '—',
+      deviceTemplateId: templates[0]?.id ?? '',
     })
+    setModal('add')
   }
+  const openEdit = (row) => {
+    setSelected(row)
+    setForm({
+      name: row.name,
+      org: row.org,
+      deviceTemplateId: row.deviceTemplateId ?? '',
+      templateVariableId: row.templateVariableId ?? '',
+      condition: apiToCondition[row.operator] || '>',
+      threshold: row.threshold === '—' ? '' : row.threshold,
+      status: row.status,
+    })
+    setModal('edit')
+  }
+  const openView = (row) => { setSelected(row); setModal('view') }
+  const close = () => { setModal(null); setSelected(null) }
 
-  const saveEdit = async () => {
-    const thr = parseThresholdInput(form.threshold)
-    if (thr == null) {
-      showToast('Threshold must be a valid number', 'error')
+  const handleSave = async () => {
+    if (!form.name.trim()) return
+    if (!form.deviceTemplateId) {
+      showToast('Select a device template', 'error')
+      return
+    }
+    if (!form.templateVariableId) {
+      showToast('Select a template variable', 'error')
       return
     }
     setSaving(true)
     try {
-      await emsApi.updateAlarmTemplate(form.id, {
+      const body = {
         name: form.name,
-        operator: form.operator,
-        threshold: thr,
+        deviceTemplateId: form.deviceTemplateId,
+        templateVariableId: form.templateVariableId,
+        operator: conditionToApi[form.condition] || uiOperatorToApi(form.condition),
+        threshold: parseFloat(form.threshold),
         isActive: form.status === 'Active',
-        methods: Array.isArray(form.methods) ? form.methods : [],
-      })
-      setEditing(null)
+        organizationId: user?.organizationId,
+      }
+      if (modal === 'add') {
+        await emsApi.createAlarmTemplate(body)
+      } else {
+        await emsApi.updateAlarmTemplate(selected.id, body)
+      }
+      close()
       reload()
     } catch (e) {
       showToast(e.message || 'Save failed', 'error')
@@ -105,10 +138,15 @@ export default function UserAlarmTemplate() {
     }
   }
 
-  const toggleMethod = (m) => setForm((f) => {
-    const cur = Array.isArray(f.methods) ? f.methods : []
-    return { ...f, methods: cur.includes(m) ? cur.filter((x) => x !== m) : [...cur, m] }
-  })
+  const handleDelete = async (row) => {
+    if (!confirm(`Delete trigger "${row.name}"?`)) return
+    try {
+      await emsApi.deleteAlarmTemplate(row.id)
+      reload()
+    } catch (e) {
+      showToast(e.message || 'Delete failed', 'error')
+    }
+  }
 
   const toggle = async (row) => {
     try {
@@ -119,102 +157,118 @@ export default function UserAlarmTemplate() {
     }
   }
 
-  const setField = (k, v) => setForm((f) => ({ ...f, [k]: v }))
-
   const columns = [
     { key: 'name', label: 'Trigger Name' },
-    { key: 'variable', label: 'Variable' },
-    { key: 'condition', label: 'Condition', render: (v) => <span className="font-mono text-surface-700">{v}</span> },
-    { key: 'thresholdDisplay', label: 'Threshold' },
-    { key: 'method', label: 'Push Method', render: (v) => methodBadge(v) },
-    { key: 'status', label: 'Status', render: (v) => <span className={`badge ${v === 'Active' ? 'badge-success' : 'badge-neutral'}`}>{v}</span> },
+    { key: 'org', label: 'Organization' },
+    { key: 'template', label: 'Template Name' },
+    { key: 'founder', label: 'Founder' },
+    { key: 'updatedAt', label: 'Update Time' },
   ]
+
+  const templateOptions = templates.map((t) => ({ value: t.id, label: t.name }))
+  const variableOptions = variables.map((v) => ({ value: v.id, label: v.label }))
 
   return (
     <PageState loading={loading} error={error} onRetry={reload}>
-      <div className="space-y-6">
+      <div>
         <div className="page-header">
           <div>
-            <h2 className="page-title">Alarm Templates</h2>
-            <p className="breadcrumb">User / Alarm Template</p>
+            <h2 className="page-title">Manage Alarm Templates</h2>
+            <p className="breadcrumb">Manage Alarm Templates &ndash; List</p>
           </div>
-          <div className="text-xs text-surface-500 inset-panel px-3 py-1.5">
-            Device: <span className="text-surface-800 font-medium">{selectedDevice?.name ?? '—'}</span>
-          </div>
+          <button type="button" className="btn-primary" onClick={openAdd}><Plus size={15} /> Add Alarm Templates</button>
         </div>
 
-        <DeviceSlaveSelector onChange={reload} />
-
-        <DataTable columns={columns} data={rows} searchPlaceholder="Search alarms..."
+        <DataTable
+          columns={columns}
+          data={data?.rows ?? []}
+          searchPlaceholder="Search alarm templates..."
+          emptyMessage="No data available in table"
           actions={(row) => (
             <>
-              <button type="button" className="btn-ghost p-1.5 rounded" title="View" onClick={() => setViewing(row)}><Eye size={14} /></button>
-              <button type="button" className="btn-ghost p-1.5 rounded" title="Edit" onClick={() => openEdit(row)}><Edit2 size={14} /></button>
-              <button type="button" className="btn-ghost p-1.5 rounded" title="Toggle Status" onClick={() => toggle(row)}>
-                {row.status === 'Active' ? <ToggleRight size={16} className="text-success-500" /> : <ToggleLeft size={16} className="text-surface-500" />}
+              <button type="button" className="btn-ghost p-1.5" onClick={() => openView(row)} title="View"><Eye size={14} /></button>
+              <button type="button" className="btn-ghost p-1.5" onClick={() => openEdit(row)} title="Edit"><Pencil size={14} /></button>
+              <button type="button" className="btn-ghost p-1.5" onClick={() => toggle(row)} title="Toggle Status">
+                {row.status === 'Active' ? <ToggleRight size={14} className="text-success-600" /> : <ToggleLeft size={14} className="text-surface-500" />}
               </button>
+              <button type="button" className="btn-danger p-1.5" onClick={() => handleDelete(row)} title="Delete"><Trash2 size={14} /></button>
             </>
           )}
         />
 
-        <Modal open={!!viewing} onClose={() => setViewing(null)} title="Alarm Details" size="sm">
-          {viewing && (
+        <Modal
+          open={modal === 'add' || modal === 'edit'}
+          onClose={close}
+          title={modal === 'add' ? 'Add Alarm Template' : 'Edit Alarm Template'}
+          footer={(
+            <>
+              <button type="button" className="btn-secondary" onClick={close}>Cancel</button>
+              <button type="button" className="btn-primary" onClick={handleSave} disabled={saving}>
+                {saving ? 'Saving...' : modal === 'add' ? 'Create' : 'Save Changes'}
+              </button>
+            </>
+          )}
+        >
+          <div className="space-y-4">
+            <TextInput
+              label="Trigger Name"
+              required
+              placeholder="e.g. Overvoltage"
+              value={form.name}
+              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+            />
+            <SelectInput
+              label="Template Name"
+              required
+              placeholder="Select template"
+              value={form.deviceTemplateId}
+              onChange={(e) => setForm((f) => ({ ...f, deviceTemplateId: e.target.value, templateVariableId: '' }))}
+              options={templateOptions}
+            />
+            <SelectInput
+              label="Variable"
+              required
+              placeholder={varsLoading ? 'Loading variables…' : 'Select variable'}
+              value={form.templateVariableId}
+              onChange={(e) => setForm((f) => ({ ...f, templateVariableId: e.target.value }))}
+              options={variableOptions}
+            />
+            <div className="grid grid-cols-2 gap-4">
+              <SelectInput
+                label="Condition"
+                value={form.condition}
+                onChange={(e) => setForm((f) => ({ ...f, condition: e.target.value }))}
+                options={conditionOptions}
+              />
+              <TextInput
+                label="Threshold"
+                value={form.threshold}
+                onChange={(e) => setForm((f) => ({ ...f, threshold: e.target.value }))}
+              />
+            </div>
+          </div>
+        </Modal>
+
+        <Modal open={modal === 'view'} onClose={close} title="Alarm Template Details" size="sm">
+          {selected && (
             <div className="space-y-3">
-              {[['Trigger Name', viewing.name], ['Variable', viewing.variable], ['Condition', viewing.condition], ['Threshold', viewing.thresholdDisplay], ['Push Method', (viewing.methods || []).join(', ') || viewing.method], ['Status', viewing.status]].map(([label, val]) => (
-                <div key={label} className="flex justify-between text-sm"><span className="text-surface-400">{label}</span><span className="text-surface-900 font-medium">{val}</span></div>
+              {[
+                ['Trigger Name', selected.name],
+                ['Organization', selected.org],
+                ['Template Name', selected.template],
+                ['Variable', selected.variable],
+                ['Condition', apiToCondition[selected.operator] || selected.condition],
+                ['Threshold', selected.threshold],
+                ['Founder', selected.founder],
+                ['Status', selected.status],
+              ].map(([label, val]) => (
+                <div key={label} className="flex justify-between text-sm">
+                  <span className="text-surface-400">{label}</span>
+                  <span className="text-surface-900 font-medium">{val}</span>
+                </div>
               ))}
             </div>
           )}
-        </Modal>
-
-        <Modal open={!!editing} onClose={() => setEditing(null)} title="Edit Alarm Template" size="md"
-          footer={<><button type="button" className="btn-secondary" onClick={() => setEditing(null)}>Cancel</button><button type="button" className="btn-primary" onClick={saveEdit} disabled={saving}>{saving ? 'Saving...' : 'Save Changes'}</button></>}>
-          <div className="space-y-4">
-            <div>
-              <label className="label">Trigger Name</label>
-              <input className="input" value={form.name || ''} onChange={(e) => setField('name', e.target.value)} />
-            </div>
-            <div>
-              <label className="label">Variable</label>
-              <input className="input bg-surface-50 dark:bg-surface-950" value={form.variable || ''} disabled title="Variable is defined by the device template" />
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="label">Condition</label>
-                <select className="select" value={form.operator || 'GT'} onChange={(e) => setField('operator', e.target.value)}>
-                  {OPERATOR_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="label">Threshold Value</label>
-                <input className="input" value={form.threshold || ''} onChange={(e) => setField('threshold', e.target.value)} placeholder="e.g. 235" />
-              </div>
-            </div>
-            <div>
-              <label className="label">Push Method</label>
-              <div className="flex flex-wrap gap-4 mt-1">
-                {METHOD_OPTIONS.map((m) => (
-                  <label key={m} className="flex items-center gap-2 text-sm text-surface-700 dark:text-surface-300 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      className="rounded border-surface-300 text-primary-600 accent-primary-500"
-                      checked={Array.isArray(form.methods) && form.methods.includes(m)}
-                      onChange={() => toggleMethod(m)}
-                    />
-                    {m}
-                  </label>
-                ))}
-              </div>
-              <p className="text-xs text-surface-400 mt-1">Applies to alarm settings linked to this template.</p>
-            </div>
-            <div>
-              <label className="label">Status</label>
-              <button type="button" onClick={() => setField('status', form.status === 'Active' ? 'Inactive' : 'Active')} className="flex items-center gap-2 text-sm mt-1">
-                {form.status === 'Active' ? <ToggleRight size={22} className="text-success-500" /> : <ToggleLeft size={22} className="text-surface-500" />}
-                <span className={form.status === 'Active' ? 'text-success-600' : 'text-surface-400'}>{form.status}</span>
-              </button>
-            </div>
-          </div>
         </Modal>
       </div>
     </PageState>

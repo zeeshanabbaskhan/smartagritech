@@ -22,7 +22,7 @@ export default function UserSubscription() {
     { key: 'startDate', label: 'Start Date' },
     { key: 'endDate', label: 'End Date' },
     { key: 'status', label: 'Status', render: (v) => <span className={`badge ${v === 'Active' ? 'badge-success' : 'badge-neutral'}`}>{v}</span> },
-    { key: 'description', label: 'Notes' },
+    { key: 'amount', label: 'Amount' },
   ]
 
   return (
@@ -50,21 +50,21 @@ export default function UserSubscription() {
               <span className="badge badge-success flex items-center gap-1"><CheckCircle size={11} /> {current.status}</span>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="inset-panel p-4">
+              <div className="bg-surface-50 dark:bg-surface-900 rounded-lg p-4">
                 <div className="flex items-center gap-2 text-surface-500 mb-1"><Building2 size={13} /><span className="text-xs uppercase tracking-wide">Organization</span></div>
-                <p className="text-sm font-medium text-surface-900">{current.org}</p>
+                <p className="text-sm font-medium text-surface-900 dark:text-surface-100">{current.org}</p>
               </div>
-              <div className="inset-panel p-4">
-                <div className="flex items-center gap-2 text-surface-500 mb-1"><Calendar size={13} /><span className="text-xs uppercase tracking-wide">Submitted</span></div>
-                <p className="text-sm font-medium text-surface-900">{current.startDate}</p>
+              <div className="bg-surface-50 dark:bg-surface-900 rounded-lg p-4">
+                <div className="flex items-center gap-2 text-surface-500 mb-1"><Calendar size={13} /><span className="text-xs uppercase tracking-wide">Start Date</span></div>
+                <p className="text-sm font-medium text-surface-900 dark:text-surface-100">{current.startDate}</p>
               </div>
-              <div className="inset-panel p-4">
-                <div className="flex items-center gap-2 text-surface-500 mb-1"><Calendar size={13} /><span className="text-xs uppercase tracking-wide">Email</span></div>
-                <p className="text-sm font-medium text-surface-900">{current.email}</p>
+              <div className="bg-surface-50 dark:bg-surface-900 rounded-lg p-4">
+                <div className="flex items-center gap-2 text-surface-500 mb-1"><Calendar size={13} /><span className="text-xs uppercase tracking-wide">End Date</span></div>
+                <p className="text-sm font-medium text-surface-900 dark:text-surface-100">{current.endDate}</p>
               </div>
-              <div className="inset-panel p-4">
-                <div className="flex items-center gap-2 text-surface-500 mb-1"><Cpu size={13} /><span className="text-xs uppercase tracking-wide">Phone</span></div>
-                <p className="text-sm font-medium text-surface-900">{current.phone}</p>
+              <div className="bg-surface-50 dark:bg-surface-900 rounded-lg p-4">
+                <div className="flex items-center gap-2 text-surface-500 mb-1"><Cpu size={13} /><span className="text-xs uppercase tracking-wide">Devices Allowed</span></div>
+                <p className="text-sm font-medium text-surface-900 dark:text-surface-100">{current.devices}</p>
               </div>
             </div>
           </div>

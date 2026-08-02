@@ -145,7 +145,7 @@ export default function DashboardTelemetry({
   const activeGroupLabel = useMemo(() => {
     if (groupFilter === 'all') return allDevicesLabel
     const g = groups.find((x) => x.id === groupFilter)
-    return g ? g.name : allDevicesLabel
+    return g ? `${g.name} (${g.org})` : allDevicesLabel
   }, [groupFilter, groups, allDevicesLabel])
 
   const searchedGroups = useMemo(() => {
@@ -215,7 +215,7 @@ export default function DashboardTelemetry({
                       <input
                         type="text"
                         className="w-full px-2 py-1 text-xs input"
-                        placeholder="Search groups..."
+                        placeholder="Search groups or orgs..."
                         value={filterSearch}
                         onChange={(e) => setFilterSearch(e.target.value)}
                         autoFocus
@@ -242,6 +242,7 @@ export default function DashboardTelemetry({
                             className={`w-full text-left px-3 py-2 text-xs font-bold transition-colors hover:bg-surface-50 dark:hover:bg-surface-800 flex flex-col ${groupFilter === g.id ? 'text-primary-600 bg-primary-50 dark:bg-primary-950/20' : 'text-surface-700 dark:text-surface-300'}`}
                           >
                             <span>{g.name}</span>
+                            <span className="text-[9px] text-surface-400 font-normal">{g.org}</span>
                           </button>
                         ))
                       )}
@@ -305,7 +306,7 @@ export default function DashboardTelemetry({
               <input
                 type="text"
                 className="input pl-8 pr-3 py-1 text-xs bg-surface-50 dark:bg-surface-950 border-surface-200 dark:border-surface-800 w-full"
-                placeholder="Search device or gateway..."
+                placeholder="Search device, gateway or org..."
                 value={deviceSearch}
                 onChange={(e) => setDeviceSearch(e.target.value)}
               />
@@ -332,16 +333,16 @@ export default function DashboardTelemetry({
                         <div>
                           <h4 className="text-xs font-black text-surface-800 dark:text-surface-100 leading-tight">{highlightMatch(d.name, highlightQuery)}</h4>
                           <p className="text-[10px] text-surface-400 font-bold mt-0.5 uppercase tracking-wide">
-                            Gateway: {highlightMatch(d.gateway, highlightQuery)} • Template: {highlightMatch(d.template, highlightQuery)}
+                            Gateway: {highlightMatch(d.gateway, highlightQuery)} • Org: {highlightMatch(d.org, highlightQuery)}
                           </p>
                         </div>
                       </div>
                       <div className="flex items-center gap-3">
                         <span className={`badge ${offline || switchOff ? 'badge-danger' : 'badge-success'} text-[9px] font-black uppercase tracking-wider`}>
-                          {switchOff ? 'Switch Off' : offline ? 'Offline' : 'Online'}
+                          {offline || switchOff ? 'Offline' : 'Online'}
                         </span>
                         <label className="flex items-center gap-1.5 cursor-pointer">
-                          <span className="text-[10px] text-surface-600 dark:text-surface-400 font-black uppercase select-none">Switch</span>
+                          <span className="text-[10px] text-surface-600 dark:text-surface-400 font-black uppercase select-none">Control Switch</span>
                           <button
                             type="button"
                             onClick={() => handleToggleSwitch(d)}

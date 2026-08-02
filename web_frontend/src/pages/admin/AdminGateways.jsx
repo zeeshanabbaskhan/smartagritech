@@ -29,6 +29,13 @@ export default function AdminGateways() {
   const [selected, setSelected] = useState(null)
   const [form, setForm] = useState(blank)
   const [saving, setSaving] = useState(false)
+  const [selectedIds, setSelectedIds] = useState([])
+
+  const [orgFilter, setOrgFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
+  const [modelFilter, setModelFilter] = useState('')
+  const [snQuery, setSnQuery] = useState('')
+  const [appliedFilters, setAppliedFilters] = useState({ org: '', status: '', model: '', sn: '' })
 
   const openAdd = () => { setForm(blank); setModal('add') }
   const openEdit = (row) => {
@@ -44,6 +51,21 @@ export default function AdminGateways() {
   }
   const openView = (row) => { setSelected(row); setModal('view') }
   const close = () => { setModal(null); setSelected(null) }
+
+  const handleQuery = () => setAppliedFilters({ org: orgFilter, status: statusFilter, model: modelFilter, sn: snQuery })
+
+  const filtered = rows.filter((r) =>
+    (!appliedFilters.org || r.organizationId === appliedFilters.org || r.org === appliedFilters.org) &&
+    (!appliedFilters.status || r.status === appliedFilters.status) &&
+    (!appliedFilters.model || r.model === appliedFilters.model) &&
+    (!appliedFilters.sn
+      || String(r.serial ?? '').toLowerCase().includes(appliedFilters.sn.toLowerCase())
+      || String(r.name ?? '').toLowerCase().includes(appliedFilters.sn.toLowerCase()))
+  )
+
+  const totalCount = rows.length
+  const onlineCount = rows.filter((d) => d.status === 'Online').length
+  const offlineCount = rows.filter((d) => d.status === 'Offline').length
 
   const handleSave = async () => {
     setSaving(true)
@@ -75,6 +97,7 @@ export default function AdminGateways() {
     if (!confirm(`Delete gateway "${row.name}"?`)) return
     try {
       await emsApi.deleteGateway(row.id)
+      setSelectedIds((ids) => ids.filter((id) => id !== row.id))
       showToast('Gateway deleted', 'success')
     } catch (e) {
       if (e.status === 404) showToast('Gateway was already deleted', 'info')
@@ -84,13 +107,33 @@ export default function AdminGateways() {
     }
   }
 
+  const handleBatchDelete = async () => {
+    if (!selectedIds.length) return
+    if (!confirm(`Delete ${selectedIds.length} selected gateway(s)?`)) return
+    const ok = []
+    const failed = []
+    for (const id of selectedIds) {
+      try {
+        await emsApi.deleteGateway(id)
+        ok.push(id)
+      } catch (e) {
+        if (e.status === 404) ok.push(id)
+        else failed.push(id)
+      }
+    }
+    setSelectedIds([])
+    if (failed.length) showToast(`Deleted ${ok.length}; ${failed.length} failed`, 'error')
+    else showToast(`Deleted ${ok.length} gateway(s)`, 'success')
+    reload()
+  }
+
   const columns = [
+    { key: 'status', label: 'Gateway Status', render: (v) => <span className={`badge ${v === 'Online' ? 'badge-success' : 'badge-neutral'}`}>{v}</span> },
     { key: 'name', label: 'Gateway Name' },
     { key: 'serial', label: 'Serial Number', render: (v) => <span className="font-mono text-xs text-surface-400">{v}</span> },
-    { key: 'model', label: 'Model' },
+    { key: 'model', label: 'Gateway Model' },
+    { key: 'devices', label: 'No Of Associated Devices' },
     { key: 'org', label: 'Organization' },
-    { key: 'status', label: 'Status', render: (v) => <span className={`badge ${v === 'Online' ? 'badge-success' : 'badge-danger'}`}>{v}</span> },
-    { key: 'lastSeen', label: 'Last Seen' },
   ]
 
   return (
@@ -99,21 +142,67 @@ export default function AdminGateways() {
         <div className="page-header">
           <div>
             <h2 className="page-title">Manage Gateways</h2>
-            <p className="breadcrumb">Admin / Gateways</p>
+            <p className="breadcrumb">Manage Gateways &ndash; List</p>
           </div>
-          <button type="button" className="btn-primary" onClick={openAdd}>
-            <Plus size={15} /> Add Gateway
-          </button>
+          <div className="flex items-center gap-2">
+            <button type="button" className="btn-primary" onClick={openAdd}>
+              <Plus size={15} /> Add Gateway
+            </button>
+            <button type="button" className="btn-secondary" onClick={handleBatchDelete}>
+              Batch Delete
+            </button>
+          </div>
+        </div>
+
+        <div className="card px-5 py-3 mb-5 flex items-center gap-4 text-xs flex-wrap">
+          <span className="text-surface-600">Total Gateways <strong className="text-surface-900 dark:text-surface-100">{totalCount}</strong></span>
+          <span className="text-surface-300">|</span>
+          <span className="flex items-center gap-1.5 text-surface-600">
+            <span className="w-2 h-2 rounded-full bg-success-600 inline-block" /> Online Gateway <strong className="text-surface-900 dark:text-surface-100">{onlineCount}</strong>
+          </span>
+          <span className="text-surface-300">|</span>
+          <span className="flex items-center gap-1.5 text-surface-600">
+            <span className="w-2 h-2 rounded-full bg-surface-400 inline-block" /> Offline Gateway <strong className="text-surface-900 dark:text-surface-100">{offlineCount}</strong>
+          </span>
+        </div>
+
+        <div className="card p-4 mb-5">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="w-44">
+              <SelectInput label="Organization" placeholder="All" value={orgFilter}
+                onChange={(e) => setOrgFilter(e.target.value)}
+                options={orgs.map((o) => ({ value: o.id, label: o.name }))} />
+            </div>
+            <div className="w-36">
+              <SelectInput label="Status" placeholder="All status" value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                options={['Online', 'Offline']} />
+            </div>
+            <div className="w-36">
+              <SelectInput label="Model" placeholder="All Models" value={modelFilter}
+                onChange={(e) => setModelFilter(e.target.value)}
+                options={['CF-G100', 'CF-G200', 'CF-G300']} />
+            </div>
+            <div className="flex-1 min-w-48">
+              <TextInput label="Search" placeholder="Please Enter SN or gateway name"
+                value={snQuery} onChange={(e) => setSnQuery(e.target.value)} />
+            </div>
+            <button type="button" className="btn-primary" onClick={handleQuery}>Query</button>
+          </div>
         </div>
 
         <DataTable
           columns={columns}
-          data={rows}
+          data={filtered}
           searchPlaceholder="Search gateways..."
+          selectable
+          selectedIds={selectedIds}
+          onSelectionChange={setSelectedIds}
+          showToolbarActions={false}
           actions={(row) => (
             <>
-              <button type="button" className="btn-ghost p-1.5" onClick={() => openView(row)} title="View"><Eye size={14} /></button>
               <button type="button" className="btn-ghost p-1.5" onClick={() => openEdit(row)} title="Edit"><Pencil size={14} /></button>
+              <button type="button" className="btn-ghost p-1.5" onClick={() => openView(row)} title="View"><Eye size={14} /></button>
               <button type="button" className="btn-danger p-1.5" onClick={() => handleDelete(row)} title="Delete"><Trash2 size={14} /></button>
             </>
           )}
@@ -163,8 +252,8 @@ export default function AdminGateways() {
                 ['Serial', selected.serial],
                 ['Model', selected.model],
                 ['Organization', selected.org],
+                ['Devices', selected.devices],
                 ['Status', selected.status],
-                ['Last Seen', selected.lastSeen],
               ].map(([label, value]) => (
                 <div key={label} className="flex gap-4">
                   <span className="text-xs text-surface-500 w-28 flex-shrink-0">{label}</span>

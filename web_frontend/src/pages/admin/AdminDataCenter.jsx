@@ -38,6 +38,28 @@ function summaryToRows(summary, timestamp) {
   }))
 }
 
+function latestToRows(latest, timestamp, idOffset = 0) {
+  return Object.entries(latest || {}).map(([name, info], idx) => ({
+    id: idOffset + idx + 1,
+    variable: name,
+    value: info?.value != null ? String(info.value) : '—',
+    unit: info?.unit ?? '',
+    time: info?.lastUpdatedAt ? new Date(info.lastUpdatedAt).toLocaleString() : new Date(timestamp).toLocaleString(),
+  }))
+}
+
+async function fetchDeviceLiveRows(deviceId) {
+  const [summaryRes, latestRes] = await Promise.all([
+    emsApi.getDashboardSummary({ deviceId, timeRange: '24h' }).catch(() => null),
+    emsApi.getLatestReadings({ deviceId }).catch(() => null),
+  ])
+  const timestamp = latestRes?.timestamp ?? new Date().toISOString()
+  const latest = latestRes?.data ?? {}
+  const latestRows = latestToRows(latest, timestamp)
+  if (latestRows.length) return latestRows
+  return summaryToRows(summaryRes?.data ?? {}, timestamp)
+}
+
 export default function AdminDataCenter() {
   const { showToast } = useToast()
   const { data: filters, loading: filtersLoading, error: filtersError, reload: reloadFilters } = useFetch(async () => {
@@ -62,32 +84,41 @@ export default function AdminDataCenter() {
     : (filters?.devices ?? [])
 
   const selectedDeviceName = filteredDevices.find((d) => d.id === deviceFilter)?.name
+  const scopeLabel = selectedDeviceName
+    || (orgFilter
+      ? `All devices in ${(filters?.organizations ?? []).find((o) => o.id === orgFilter)?.name || 'org'}`
+      : 'All devices')
 
   const handleRefresh = async () => {
-    if (!deviceFilter) {
-      showToast('Please select a device', 'warning')
+    const targets = deviceFilter
+      ? filteredDevices.filter((d) => d.id === deviceFilter)
+      : filteredDevices
+
+    if (!targets.length) {
+      showToast(orgFilter ? 'No devices found for this organization' : 'No devices available', 'warning')
       return
     }
+
     setLoading(true)
     setError(null)
     try {
-      const res = await emsApi.getDashboardSummary({ deviceId: deviceFilter, timeRange: '24h' })
-      const summary = res?.data ?? {}
-      const latestRes = await emsApi.getLatestReadings({ deviceId: deviceFilter })
-      const timestamp = latestRes?.timestamp ?? new Date().toISOString()
-      let rows = summaryToRows(summary, timestamp)
-
-      const latest = latestRes?.data ?? {}
-      const latestRows = Object.entries(latest).map(([name, info], idx) => ({
-        id: rows.length + idx + 1,
-        variable: name,
-        value: info?.value != null ? String(info.value) : '—',
-        unit: info?.unit ?? '',
-        time: info?.lastUpdatedAt ? new Date(info.lastUpdatedAt).toLocaleString() : new Date(timestamp).toLocaleString(),
-      }))
-      if (latestRows.length) rows = latestRows
-
-      setLiveData(rows)
+      if (targets.length === 1) {
+        const rows = await fetchDeviceLiveRows(targets[0].id)
+        setLiveData(rows)
+      } else {
+        // API requires deviceId; fan-out across devices when "All Devices" is selected.
+        const batches = await Promise.all(targets.map(async (d) => {
+          try {
+            const rows = await fetchDeviceLiveRows(d.id)
+            return rows.map((r) => ({ ...r, variable: `${d.name} · ${r.variable}` }))
+          } catch {
+            return []
+          }
+        }))
+        const merged = batches.flat().map((r, idx) => ({ ...r, id: idx + 1 }))
+        setLiveData(merged)
+        if (!merged.length) showToast('No live readings returned for selected devices', 'warning')
+      }
     } catch (e) {
       setError(e.message || 'Failed to load live data')
     } finally {
@@ -119,7 +150,7 @@ export default function AdminDataCenter() {
           <div className="flex-1 min-w-40">
             <label className="label">Select Device</label>
             <select className="select" value={deviceFilter} onChange={(e) => setDeviceFilter(e.target.value)}>
-              <option value="">Select Device</option>
+              <option value="">All Devices</option>
               {filteredDevices.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
           </div>
@@ -130,7 +161,7 @@ export default function AdminDataCenter() {
         <div className="table-container">
           <div className="p-4 border-b border-surface-200 flex items-center justify-between">
             <p className="text-xs text-surface-500">
-              Live readings — {selectedDeviceName || (orgFilter ? 'Select a device' : 'Select organization and device')}
+              Live readings — {scopeLabel}
             </p>
             <span className="badge badge-success">● Live</span>
           </div>
@@ -149,7 +180,7 @@ export default function AdminDataCenter() {
                 {liveData.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="text-center text-surface-400 text-sm py-8">
-                      Select a device and click Refresh to load live readings.
+                      Click Refresh to load live readings{deviceFilter ? '' : ' for all devices'}.
                     </td>
                   </tr>
                 ) : (

@@ -14,11 +14,11 @@ const SCHEDULE_OPTIONS = [
   { label: 'Daily 08:00', time: '08:00', repeat: 'DAILY' },
   { label: 'Daily 10:00', time: '10:00', repeat: 'DAILY' },
   { label: 'Daily 18:00', time: '18:00', repeat: 'DAILY' },
-  { label: 'Mon 09:00', time: '09:00', repeat: 'WEEKLY' },
-  { label: 'Wed 09:00', time: '09:00', repeat: 'WEEKLY' },
-  { label: 'Fri 09:00', time: '09:00', repeat: 'WEEKLY' },
-  { label: '1st 10:00', time: '10:00', repeat: 'ONCE' },
-  { label: '15th 10:00', time: '10:00', repeat: 'ONCE' },
+  { label: 'Mon 09:00', time: '09:00', repeat: 'WEEKLY', daysOfWeek: [1] },
+  { label: 'Wed 09:00', time: '09:00', repeat: 'WEEKLY', daysOfWeek: [3] },
+  { label: 'Fri 09:00', time: '09:00', repeat: 'WEEKLY', daysOfWeek: [5] },
+  { label: '1st 10:00', time: '10:00', repeat: 'MONTHLY', daysOfWeek: [1] },
+  { label: '15th 10:00', time: '10:00', repeat: 'MONTHLY', daysOfWeek: [15] },
 ]
 
 const emptyForm = (deviceId) => ({
@@ -79,6 +79,7 @@ export default function OrgScheduleTasks() {
         action: form.action,
         scheduledTime: scheduleMeta.time,
         repeatType: scheduleMeta.repeat,
+        daysOfWeek: scheduleMeta.daysOfWeek || [],
         status: uiStatusToApi(form.status),
       }
       if (modal === 'add') await emsApi.createScheduledTask(body)

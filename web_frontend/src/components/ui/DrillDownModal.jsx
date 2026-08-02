@@ -52,7 +52,7 @@ export default function DrillDownModal({
 }) {
   if (!open) return null
 
-  const isOff = (d) => d.status === 'Offline' || d.status === 'OFFLINE' || d.status === 'offline'
+  const isOff = (d) => d.status === 'Offline' || d.status === 'OFFLINE' || d.status === 'offline' || !d.switchOn
   const sorted = [...devices].sort((a, b) => Number(isOff(a)) - Number(isOff(b)))
 
   const onlineCount = devices.filter((d) => !isOff(d)).length

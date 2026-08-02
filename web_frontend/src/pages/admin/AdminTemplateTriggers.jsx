@@ -48,6 +48,19 @@ export default function AdminTemplateTriggers() {
   const [form, setForm] = useState(blankForm)
   const [saving, setSaving] = useState(false)
 
+  const [orgFilter, setOrgFilter] = useState('')
+  const [triggerQuery, setTriggerQuery] = useState('')
+  const [templateQuery, setTemplateQuery] = useState('')
+  const [applied, setApplied] = useState({ organizationId: '', trigger: '', template: '' })
+
+  const handleQuery = () => setApplied({ organizationId: orgFilter, trigger: triggerQuery, template: templateQuery })
+
+  const filtered = (rows ?? []).filter((r) =>
+    (!applied.organizationId || r.organizationId === applied.organizationId) &&
+    (!applied.trigger || r.name.toLowerCase().includes(applied.trigger.toLowerCase())) &&
+    (!applied.template || (r.template || r.templateName || '').toLowerCase().includes(applied.template.toLowerCase()))
+  )
+
   const openAdd = () => { setForm(blankForm); setModal('add') }
   const openEdit = (row) => {
     setSelected(row)
@@ -128,23 +141,12 @@ export default function AdminTemplateTriggers() {
     }
   }
 
-  const methodBadge = (methods) => (
-    <div className="flex gap-1 flex-wrap">
-      {(methods?.length ? methods : ['—']).map((m) => (
-        <span key={m} className={`badge ${m === 'Email' ? 'badge-info' : m === 'SMS' ? 'badge-warning' : m === 'WhatsApp' ? 'badge-success' : 'badge-neutral'}`}>{m}</span>
-      ))}
-    </div>
-  )
-
   const columns = [
     { key: 'name', label: 'Trigger Name' },
     { key: 'org', label: 'Organization' },
-    { key: 'template', label: 'Device Template' },
-    { key: 'variable', label: 'Variable Name' },
-    { key: 'condition', label: 'Condition', render: (v) => <span className="badge badge-info">{v}</span> },
-    { key: 'threshold', label: 'Threshold' },
-    { key: 'methods', label: 'Push Method', render: (v) => methodBadge(v) },
-    { key: 'status', label: 'Status', render: (v) => <span className={`badge ${v === 'Active' ? 'badge-success' : 'badge-neutral'}`}>{v}</span> },
+    { key: 'template', label: 'Template Name' },
+    { key: 'founder', label: 'Founder' },
+    { key: 'updatedAt', label: 'Update Time' },
   ]
 
   return (
@@ -152,16 +154,36 @@ export default function AdminTemplateTriggers() {
       <div>
         <div className="page-header">
           <div>
-            <h2 className="page-title">Template Triggers</h2>
-            <p className="breadcrumb">Admin / Alarms / Template Triggers</p>
+            <h2 className="page-title">Alarm linkage</h2>
+            <p className="breadcrumb">Template Trigger &ndash; Template Trigger List</p>
           </div>
-          <button type="button" className="btn-primary" onClick={openAdd}><Plus size={15} /> Add Trigger</button>
+          <button type="button" className="btn-primary" onClick={openAdd}><Plus size={15} /> Add</button>
+        </div>
+
+        <div className="card p-4 mb-5">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="w-44">
+              <SelectInput label="Organization" placeholder="All" value={orgFilter}
+                onChange={(e) => setOrgFilter(e.target.value)}
+                options={(meta?.organizations ?? []).map((o) => ({ value: o.id, label: o.name }))} />
+            </div>
+            <div className="flex-1 min-w-40">
+              <TextInput label="Trigger Name" placeholder="Please input trigger name"
+                value={triggerQuery} onChange={(e) => setTriggerQuery(e.target.value)} />
+            </div>
+            <div className="flex-1 min-w-40">
+              <TextInput label="Template Name" placeholder="Please input template name"
+                value={templateQuery} onChange={(e) => setTemplateQuery(e.target.value)} />
+            </div>
+            <button type="button" className="btn-primary" onClick={handleQuery}>Query</button>
+          </div>
         </div>
 
         <DataTable
           columns={columns}
-          data={rows ?? []}
+          data={filtered}
           searchPlaceholder="Search triggers..."
+          emptyMessage="No data available in table"
           actions={(row) => (
             <>
               <button type="button" className="btn-ghost p-1.5" onClick={() => openView(row)} title="View"><Eye size={14} /></button>
@@ -255,7 +277,9 @@ export default function AdminTemplateTriggers() {
                 ['Threshold', selected.threshold],
                 ['Push Methods', selected.methods?.join(', ') || '—'],
                 ['Message', selected.message || '—'],
+                ['Founder', selected.founder],
                 ['Status', selected.status],
+                ['Update Time', selected.updatedAt],
               ].map(([label, value]) => (
                 <div key={label} className="flex gap-4">
                   <span className="text-xs text-surface-500 w-32 flex-shrink-0">{label}</span>

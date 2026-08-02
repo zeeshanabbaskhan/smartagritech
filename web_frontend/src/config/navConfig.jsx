@@ -18,7 +18,6 @@ export const adminNav = [
   { to: '/admin/organizations', label: 'Organizations',    icon: Building2 },
   { to: '/admin/users',         label: 'Users',            icon: Users },
   { to: '/admin/gateways',      label: 'Manage Gateway',   icon: Wifi },
-  { to: '/admin/mqtt-bridges',  label: 'MQTT Bridges',     icon: Radio },
   { to: '/admin/devices',       label: 'Devices',          icon: Cpu },
   { to: '/admin/device-templates', label: 'Device Templates', icon: FileCode2 },
   { to: '/admin/access-groups', label: 'Access Groups',    icon: ShieldCheck },
@@ -75,36 +74,39 @@ export const orgNav = [
 ]
 
 export const userNav = [
-  { divider: true, label: 'Main' },
-  { to: '/user',                   label: 'Dashboard',          icon: LayoutDashboard },
-  { to: '/user/custom-dashboard',  label: 'Custom Dashboards',  icon: LayoutTemplate },
-  { divider: true, label: 'Account' },
+  {
+    label: 'Manage Dashboard',
+    icon: LayoutDashboard,
+    children: [
+      { to: '/user',        label: 'Dashboard', icon: LayoutDashboard },
+      { to: '/user/detail', label: 'Detail',     icon: Gauge },
+    ],
+  },
   { to: '/user/subscription',      label: 'Subscription',       icon: CreditCard },
   { to: '/user/products',          label: 'Products',           icon: ShoppingBag },
-  { divider: true, label: 'Device Data' },
   { to: '/user/schedule',          label: 'Schedule',           icon: Calendar },
-  { to: '/user/slab-rates',        label: 'Slab Rates',         icon: Layers },
-  { to: '/user/interval-history',  label: 'Interval History',   icon: Clock },
-  { divider: true, label: 'Alarms' },
+  { to: '/user/slab-rates',        label: 'Manage Slab Rates',  icon: Layers },
+  { to: '/user/interval-history',  label: 'Manage Interval History', icon: Clock },
   { to: '/user/alarm-template',    label: 'Alarm Template',     icon: BellRing },
-  { to: '/user/notifications',     label: 'Notifications',      icon: Bell },
-  { divider: true, label: 'Analytics' },
-  { to: '/user/ai-analytics',      label: 'AI Analytics',       icon: BrainCircuit },
-  { to: '/user/voltage-imbalance', label: 'Voltage Imbalance',  icon: Gauge },
-  { to: '/user/current-imbalance', label: 'Current Imbalance',  icon: Activity },
-  { to: '/user/power-factor',      label: 'Power Factor',       icon: TrendingUp },
-  { to: '/user/energy-consumption',label: 'Energy Consumption', icon: Zap },
-  { to: '/user/anomalies',         label: 'Anomalies',          icon: AlertOctagon },
+  { to: '/user/notifications',     label: 'Notification',       icon: Bell },
+  {
+    label: 'Manage AI Analytics',
+    icon: BrainCircuit,
+    children: [
+      { to: '/user/ai-analytics',       label: 'AI Analytics',       icon: BrainCircuit },
+      { to: '/user/voltage-imbalance',  label: 'Voltage Imbalance',  icon: Gauge },
+      { to: '/user/current-imbalance',  label: 'Current Imbalance',  icon: Activity },
+      { to: '/user/power-factor',       label: 'Power Factor',       icon: TrendingUp },
+      { to: '/user/energy-consumption', label: 'Energy Consumption', icon: Zap },
+      { to: '/user/anomalies',          label: 'Anomalies',          icon: AlertOctagon },
+    ],
+  },
 ]
 
-// ─── Parked navigation (EMS-only extras hidden from sidebar to match CF) ──────
-// Pages still exist and routes can be re-enabled; kept here for future restore.
+// ─── Parked navigation (EMS-only extras / CF-hidden routes) ───────────────────
+// Only entries with live App routes (or org restore candidates). No dead paths.
 export const parkedNav = {
-  admin: [
-    { to: '/admin/dashboard-detail', label: 'Dashboard Detail', icon: ListTree },
-    { to: '/admin/sensor-history',   label: 'Sensor History',   icon: Radio },
-    { to: '/admin/alarm-history',    label: 'Alarm History',    icon: Bell },
-  ],
+  admin: [],
   org: [
     { to: '/org/dashboard-detail',   label: 'Dashboard Detail',   icon: ListTree },
     { to: '/org/users',              label: 'Team Users',         icon: UserCog },
@@ -114,10 +116,6 @@ export const parkedNav = {
     { to: '/org/alarm-history',      label: 'Alarm History',      icon: History },
   ],
   user: [
-    { to: '/user/dashboard-detail',  label: 'Dashboard Detail', icon: ListTree },
-    { to: '/user/account',           label: 'Account Settings', icon: Settings },
-    { to: '/user/sensor-history',    label: 'Sensor History',   icon: Radio },
-    { to: '/user/alarm-settings',    label: 'Alarm Settings',   icon: AlarmClock },
-    { to: '/user/alarm-history',     label: 'Alarm History',    icon: History },
+    { to: '/user/custom-dashboard',  label: 'Custom Dashboards', icon: LayoutTemplate },
   ],
 }

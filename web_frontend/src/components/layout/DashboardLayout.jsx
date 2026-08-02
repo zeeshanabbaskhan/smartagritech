@@ -11,7 +11,6 @@ const pageTitles = {
   '/admin/organizations':      'Manage Organizations',
   '/admin/users':              'Manage Users',
   '/admin/gateways':           'Manage Gateways',
-  '/admin/mqtt-bridges':       'MQTT Bridges',
   '/admin/devices':            'Manage Devices',
   '/admin/device-templates':   'Device Templates',
   '/admin/icons':              'Manage Icons',
@@ -52,6 +51,7 @@ const pageTitles = {
   '/org/settings':             'Settings',
   // User
   '/user':                     'My Dashboard',
+  '/user/detail':              'Dashboard Detail',
   '/user/custom-dashboard':    'Custom Dashboards',
   '/user/subscription':        'Subscription',
   '/user/products':            'Products',
@@ -72,7 +72,8 @@ export default function DashboardLayout({ navItems, role }) {
   const location = useLocation()
   const navigate = useNavigate()
   const { user, impersonation, stopImpersonation } = useAuth()
-  const title    = pageTitles[location.pathname] ?? 'EMS Platform'
+  const title = pageTitles[location.pathname]
+    ?? (location.pathname.includes('/custom-dashboard/') ? 'Custom Dashboards' : 'EMS Platform')
   const mainRef  = useRef(null)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
 

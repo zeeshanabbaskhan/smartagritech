@@ -3,13 +3,17 @@ import { useNavigate } from 'react-router-dom'
 import DataTable from '../../components/ui/DataTable'
 import Modal from '../../components/ui/Modal'
 import PageState, { useFetch } from '../../components/ui/PageState'
-import { TextInput, SelectInput } from '../../components/ui/FormFields'
+import { TextInput, SelectInput, TextareaInput } from '../../components/ui/FormFields'
 import { Plus, Pencil, Trash2, Eye, List } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
 import { mapDeviceTemplate, mapOrganization } from '../../utils/mappers'
 import { useToast } from '../../context/ToastContext'
 
-const blank = { name: '', organizationId: '', method: 'Modbus RTU' }
+const blankQuery = { organizationId: '', name: '' }
+
+const blank = { name: '', organizationId: '', method: 'Edge Computing', description: '' }
+
+const ACQUISITION_METHODS = ['Edge Computing', 'Modbus RTU', 'Modbus TCP', 'Modbus ASCII']
 
 export default function AdminDeviceTemplates() {
   const navigate = useNavigate()
@@ -35,6 +39,19 @@ export default function AdminDeviceTemplates() {
   const [selected, setSelected] = useState(null)
   const [form, setForm] = useState(blank)
   const [saving, setSaving] = useState(false)
+  const [selectedIds, setSelectedIds] = useState([])
+  const [deleting, setDeleting] = useState(false)
+
+  const [orgFilter, setOrgFilter] = useState('')
+  const [nameQuery, setNameQuery] = useState('')
+  const [applied, setApplied] = useState(blankQuery)
+
+  const handleQuery = () => setApplied({ organizationId: orgFilter, name: nameQuery })
+
+  const filteredRows = rows.filter((r) =>
+    (!applied.organizationId || r.organizationId === applied.organizationId) &&
+    (!applied.name || r.name.toLowerCase().includes(applied.name.toLowerCase()))
+  )
 
   const openAdd = () => { setForm(blank); setModal('add') }
   const openEdit = (row) => {
@@ -42,7 +59,8 @@ export default function AdminDeviceTemplates() {
     setForm({
       name: row.name,
       organizationId: row.organizationId ?? '',
-      method: row.method === '—' ? 'Modbus RTU' : row.method,
+      method: row.method === '—' ? 'Edge Computing' : row.method,
+      description: row.description ?? '',
     })
     setModal('edit')
   }
@@ -74,9 +92,6 @@ export default function AdminDeviceTemplates() {
       await emsApi.deleteDeviceTemplate(row.id)
       showToast('Template deleted', 'success')
     } catch (e) {
-      // 404 = the template was already removed on the server; the list is just
-      // stale. Show an informational note instead of an error and let the
-      // reload below drop the ghost row.
       if (e.status === 404) showToast('Template was already deleted', 'info')
       else showToast(e.message || 'Delete failed', 'error')
     } finally {
@@ -84,13 +99,29 @@ export default function AdminDeviceTemplates() {
     }
   }
 
+  const handleBatchDelete = async () => {
+    if (!selectedIds.length) return
+    if (!confirm(`Delete ${selectedIds.length} selected template(s)?`)) return
+    setDeleting(true)
+    try {
+      const results = await Promise.allSettled(selectedIds.map((id) => emsApi.deleteDeviceTemplate(id)))
+      const failed = results.filter((r) => r.status === 'rejected' && r.reason?.status !== 404)
+      if (failed.length) showToast(`${failed.length} template(s) failed to delete`, 'error')
+      else showToast('Selected templates deleted', 'success')
+      setSelectedIds([])
+    } finally {
+      setDeleting(false)
+      reload()
+    }
+  }
+
   const columns = [
     { key: 'name', label: 'Template Name' },
     { key: 'org', label: 'Organization' },
-    { key: 'variables', label: 'Variables', render: (v) => <span className="badge badge-info">{v}</span> },
-    { key: 'devices', label: 'Devices', render: (v) => <span className="badge badge-neutral">{v}</span> },
-    { key: 'method', label: 'Communication Method' },
-    { key: 'createdAt', label: 'Created' },
+    { key: 'variables', label: 'Total No Of Variables' },
+    { key: 'devices', label: 'NO Of Associated Devices' },
+    { key: 'method', label: 'Acquisition Methods' },
+    { key: 'updatedAt', label: 'Update Time' },
   ]
 
   return (
@@ -98,16 +129,39 @@ export default function AdminDeviceTemplates() {
       <div>
         <div className="page-header">
           <div>
-            <h2 className="page-title">Device Templates</h2>
-            <p className="breadcrumb">Admin / Device Templates</p>
+            <h2 className="page-title">Manage Device Templates</h2>
+            <p className="breadcrumb">Manage Device Templates &ndash; List</p>
           </div>
-          <button type="button" className="btn-primary" onClick={openAdd}><Plus size={15} /> Add Template</button>
+          <div className="flex items-center gap-2">
+            <button type="button" className="btn-primary" onClick={openAdd}><Plus size={15} /> Add Template</button>
+            <button type="button" className="btn-secondary" onClick={handleBatchDelete} disabled={!selectedIds.length || deleting}>
+              {deleting ? 'Deleting...' : 'Batch Delete'}
+            </button>
+          </div>
+        </div>
+
+        <div className="card p-4 mb-5">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="w-48">
+              <SelectInput label="Organization" placeholder="All" value={orgFilter}
+                onChange={(e) => setOrgFilter(e.target.value)}
+                options={orgs.map((o) => ({ value: o.id, label: o.name }))} />
+            </div>
+            <div className="flex-1 min-w-48">
+              <TextInput label="Template Name" placeholder="Please input template name"
+                value={nameQuery} onChange={(e) => setNameQuery(e.target.value)} />
+            </div>
+            <button type="button" className="btn-primary" onClick={handleQuery}>Query</button>
+          </div>
         </div>
 
         <DataTable
           columns={columns}
-          data={rows}
+          data={filteredRows}
           searchPlaceholder="Search templates..."
+          selectable
+          selectedIds={selectedIds}
+          onSelectionChange={setSelectedIds}
           actions={(row) => (
             <>
               <button type="button" className="btn-ghost p-1.5" onClick={() => openView(row)} title="View"><Eye size={14} /></button>
@@ -138,9 +192,11 @@ export default function AdminDeviceTemplates() {
               value={form.organizationId} onChange={(e) => setForm((f) => ({ ...f, organizationId: e.target.value }))}
               options={orgs.map((o) => ({ value: o.id, label: o.name }))}
               disabled={modal === 'edit'} />
-            <SelectInput label="Communication Method"
+            <SelectInput label="Acquisition Method"
               value={form.method} onChange={(e) => setForm((f) => ({ ...f, method: e.target.value }))}
-              options={['Modbus RTU', 'Modbus TCP', 'Modbus ASCII']} />
+              options={ACQUISITION_METHODS} />
+            <TextareaInput label="Description" placeholder="Template description..."
+              value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
           </div>
         </Modal>
 
@@ -150,10 +206,10 @@ export default function AdminDeviceTemplates() {
               {[
                 ['Template Name', selected.name],
                 ['Organization', selected.org],
-                ['Variables', selected.variables],
-                ['Devices', selected.devices],
-                ['Method', selected.method],
-                ['Created', selected.createdAt],
+                ['Total No Of Variables', selected.variables],
+                ['NO Of Associated Devices', selected.devices],
+                ['Acquisition Methods', selected.method],
+                ['Update Time', selected.updatedAt],
               ].map(([label, value]) => (
                 <div key={label} className="flex gap-4">
                   <span className="text-xs text-surface-500 w-28 flex-shrink-0">{label}</span>

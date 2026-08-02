@@ -45,8 +45,9 @@ import OrgScheduleTasks       from './pages/org/OrgScheduleTasks'
 import OrgSettings            from './pages/org/OrgSettings'
 
 // User
-import UserDashboard       from './pages/user/UserDashboard'
-import UserNotifications   from './pages/user/UserNotifications'
+import UserDashboard          from './pages/user/UserDashboard'
+import UserDashboardDetail    from './pages/user/UserDashboardDetail'
+import UserNotifications      from './pages/user/UserNotifications'
 import UserSubscription       from './pages/user/UserSubscription'
 import UserProducts           from './pages/user/UserProducts'
 import UserSchedule           from './pages/user/UserSchedule'
@@ -110,11 +111,8 @@ function AppRoutes() {
         <Route path="organizations"     element={<AdminOrganizations />} />
         <Route path="users"             element={<AdminUsers />} />
         <Route path="gateways"          element={<AdminGateways />} />
-        <Route path="mqtt-bridges"      element={<AdminMqttBridges basePath="/admin" />} />
         <Route path="devices"           element={<AdminDevices />} />
-        <Route path="devices/:deviceId" element={<DeviceDetailPage basePath="/admin" />} />
         <Route path="device-templates"  element={<AdminDeviceTemplates />} />
-        <Route path="device-templates/:templateId" element={<TemplateDetailPage basePath="/admin" />} />
         <Route path="access-groups"     element={<AdminAccessGroups />} />
         <Route path="device-groups"     element={<AdminDeviceGroups />} />
         <Route path="icons"             element={<AdminManageIcons />} />
@@ -172,8 +170,7 @@ function AppRoutes() {
         </ProtectedRoute>
       }>
         <Route index                     element={<UserDashboard />} />
-        <Route path="custom-dashboard"  element={<DashboardList />} />
-        <Route path="custom-dashboard/:id" element={<DashboardEditor />} />
+        <Route path="detail"             element={<UserDashboardDetail />} />
         <Route path="notifications"      element={<UserNotifications />} />
         <Route path="subscription"       element={<UserSubscription />} />
         <Route path="products"           element={<UserProducts />} />
@@ -187,6 +184,8 @@ function AppRoutes() {
         <Route path="power-factor"       element={<UserPowerFactor />} />
         <Route path="energy-consumption" element={<UserEnergyConsumption />} />
         <Route path="anomalies"          element={<UserAnomalies />} />
+        <Route path="custom-dashboard"  element={<DashboardList />} />
+        <Route path="custom-dashboard/:id" element={<DashboardEditor />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

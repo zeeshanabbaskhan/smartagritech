@@ -106,6 +106,7 @@ const emsApi = {
   getSensorReadings: (params) => api.get('/sensor-data/readings', q(params)),
   getSensorAggregate: (params) => api.get('/sensor-data/aggregate', params),
   getDashboardSummary: (params) => api.get('/sensor-data/dashboard-summary', params),
+  deleteSensorData: (params) => api.delete('/sensor-data', undefined, params),
 
   // ─── AI analytics ───────────────────────────────────────────────────────
   getAiVoltage: (params) => api.get('/ai/voltage-imbalance', params),
@@ -180,8 +181,10 @@ const emsApi = {
   deleteIcon: (id) => api.delete(`/icons/${id}`),
 
   getProducts: (params) => api.get('/products', q(params)),
-  createProduct: (body) => api.post('/products', body),
-  updateProduct: (id, body) => api.put(`/products/${id}`, body),
+  createProduct: (body) =>
+    body instanceof FormData ? api.upload('POST', '/products', body) : api.post('/products', body),
+  updateProduct: (id, body) =>
+    body instanceof FormData ? api.upload('PUT', `/products/${id}`, body) : api.put(`/products/${id}`, body),
   deleteProduct: (id) => api.delete(`/products/${id}`),
 
   getThemes: (params) => api.get('/themes', q(params)),
@@ -191,8 +194,15 @@ const emsApi = {
   assignTheme: (id, organizationId) => api.post(`/themes/${id}/assign`, { orgId: organizationId }),
 
   getSettings: () => api.get('/settings'),
-  updateSetting: (key, value) => api.put(`/settings/${key}`, { value }),
-  deleteSetting: (key) => api.delete(`/settings/${key}`),
+  /** Upsert by key — JSON body or FormData (Logo upload uses imageFile field). */
+  upsertSetting: (key, bodyOrFormData) => {
+    if (bodyOrFormData instanceof FormData) {
+      return api.upload('PUT', `/settings/${encodeURIComponent(key)}`, bodyOrFormData)
+    }
+    return api.put(`/settings/${encodeURIComponent(key)}`, bodyOrFormData)
+  },
+  updateSetting: (key, value) => api.put(`/settings/${encodeURIComponent(key)}`, { value }),
+  deleteSetting: (key) => api.delete(`/settings/${encodeURIComponent(key)}`),
 
   // ─── Subscriptions ──────────────────────────────────────────────────────
   getSubscriptions: (params) => api.get('/subscriptions', q(params)),

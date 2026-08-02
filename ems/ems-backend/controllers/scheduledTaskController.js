@@ -31,7 +31,10 @@ const getScheduledTasks = async (req, res, next) => {
       prisma.scheduledTask.findMany({
         where, skip, take: limit,
         orderBy: { createdAt: 'desc' },
-        include: { device: { select: { id: true, name: true } } },
+        include: {
+          device: { select: { id: true, name: true } },
+          creator: { select: { id: true, fullName: true } },
+        },
       }),
       prisma.scheduledTask.count({ where }),
     ])

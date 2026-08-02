@@ -3,15 +3,21 @@ import DataTable from '../../components/ui/DataTable'
 import Modal from '../../components/ui/Modal'
 import PageState, { useFetch } from '../../components/ui/PageState'
 import { TextInput, SelectInput, ToggleInput } from '../../components/ui/FormFields'
-import { Plus, Pencil, Trash2, Eye, Play, ToggleLeft, ToggleRight } from 'lucide-react'
+import { Plus, Pencil, Trash2, Eye } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
 import { mapScheduledTask, mapOrganization, mapDevice } from '../../utils/mappers'
 import { uiStatusToApi, uiRepeatToApi } from '../../utils/apiForm'
 import { useToast } from '../../context/ToastContext'
 
 const blankForm = {
-  name: '', org: '', organizationId: '', device: '', deviceId: '', taskType: 'Turn On',
-  frequency: 'Daily', time: '08:00', recipients: '', status: 'Active',
+  organizationId: '',
+  deviceId: '',
+  device: '',
+  variable: '',
+  action: 'OFF',
+  time: '08:30 AM',
+  repeat: 'Daily',
+  status: 'Active',
 }
 
 export default function AdminScheduleTasks() {
@@ -33,11 +39,15 @@ export default function AdminScheduleTasks() {
       emsApi.getOrganizations({ limit: 100 }),
     ])
     const orgMap = Object.fromEntries(list(orgsRes).map((o) => [o.id, mapOrganization(o).name]))
-    return list(tasksRes).map((t) => ({
-      ...mapScheduledTask(t),
-      org: orgMap[t.organizationId] ?? '—',
-      organizationId: t.organizationId,
-    }))
+    return list(tasksRes).map((t, i) => {
+      const mapped = mapScheduledTask(t)
+      return {
+        ...mapped,
+        serial: mapped.serial ?? (list(tasksRes).length - i),
+        org: orgMap[t.organizationId] ?? mapped.org,
+        organizationId: t.organizationId,
+      }
+    })
   }, [])
 
   const [modal, setModal] = useState(null)
@@ -45,19 +55,21 @@ export default function AdminScheduleTasks() {
   const [form, setForm] = useState(blankForm)
   const [saving, setSaving] = useState(false)
 
+  const devicesForOrg = (meta?.devices ?? []).filter((d) =>
+    !form.organizationId || d.organizationId === form.organizationId
+  )
+
   const openAdd = () => { setForm(blankForm); setModal('add') }
   const openEdit = (row) => {
     setSelected(row)
     setForm({
-      name: row.name,
-      org: row.org,
       organizationId: row.organizationId ?? '',
-      device: row.device,
       deviceId: row.deviceId ?? '',
-      taskType: row.taskType || 'Turn On',
-      frequency: row.frequency || 'Daily',
-      time: row.time || '08:00',
-      recipients: row.recipients || '',
+      device: row.device,
+      variable: row.variable || row.name || '',
+      action: row.action === 'ON' || row.action === 'OFF' ? row.action : (row.taskType === 'Turn Off' ? 'OFF' : 'ON'),
+      time: row.time || '08:30 AM',
+      repeat: row.repeat || row.frequency || 'Daily',
       status: row.status,
     })
     setModal('edit')
@@ -66,24 +78,27 @@ export default function AdminScheduleTasks() {
   const close = () => { setModal(null); setSelected(null) }
 
   const handleSave = async () => {
-    if (!form.name.trim()) return
+    if (!form.deviceId || !form.variable.trim()) return
     setSaving(true)
     try {
+      const orgId = form.organizationId
+        || meta?.devices.find((d) => d.id === form.deviceId)?.organizationId
+        || meta?.organizations?.[0]?.id
       const body = {
-        organizationId: form.organizationId || meta?.organizations.find((o) => o.name === form.org)?.id,
-        deviceId: form.deviceId || meta?.devices.find((d) => d.name === form.device)?.id,
-        variableName: form.name,
-        action: form.taskType === 'Turn Off' ? 'OFF' : 'ON',
+        organizationId: orgId,
+        deviceId: form.deviceId,
+        variableName: form.variable.trim(),
+        action: form.action,
         scheduledTime: form.time,
-        repeatType: uiRepeatToApi(form.frequency),
+        repeatType: uiRepeatToApi(form.repeat),
         status: uiStatusToApi(form.status),
       }
       if (modal === 'add') {
         await emsApi.createScheduledTask(body)
-        showToast('Schedule task created successfully')
+        showToast('Scheduled task created successfully')
       } else {
         await emsApi.updateScheduledTask(selected.id, body)
-        showToast('Schedule task updated successfully')
+        showToast('Scheduled task updated successfully')
       }
       close()
       reload()
@@ -95,7 +110,7 @@ export default function AdminScheduleTasks() {
   }
 
   const handleDelete = async (row) => {
-    if (!confirm(`Delete task "${row.name}"?`)) return
+    if (!confirm(`Delete task for "${row.device} - ${row.variable}"?`)) return
     try {
       await emsApi.deleteScheduledTask(row.id)
       showToast('Task deleted', 'success')
@@ -107,27 +122,27 @@ export default function AdminScheduleTasks() {
     }
   }
 
-  const handleToggle = async (row) => {
-    try {
-      await emsApi.toggleScheduledTask(row.id)
-      reload()
-    } catch (e) {
-      showToast(e.message || 'Toggle failed', 'error')
-    }
-  }
-
-  const handleRunNow = (row) => {
-    showToast(`Task "${row.name}" queued for execution`)
-  }
-
   const columns = [
-    { key: 'name', label: 'Task Name' },
-    { key: 'org', label: 'Organization' },
-    { key: 'device', label: 'Device' },
-    { key: 'schedule', label: 'Schedule' },
-    { key: 'status', label: 'Status', render: (v) =>
-      <span className={`badge ${v === 'Active' ? 'badge-success' : 'badge-neutral'}`}>{v}</span> },
-    { key: 'lastRun', label: 'Last Run' },
+    { key: 'serial', label: 'Serial No.' },
+    {
+      key: 'variable',
+      label: 'Device Variable',
+      sortable: false,
+      render: (_, row) => <span>{row.device} - {row.variable || row.name}</span>,
+    },
+    {
+      key: 'action',
+      label: 'Action',
+      render: (v) => <span className={`badge ${v === 'ON' ? 'badge-success' : 'badge-neutral'}`}>{v}</span>,
+    },
+    { key: 'time', label: 'Scheduled Time' },
+    { key: 'repeat', label: 'Repeat Type' },
+    {
+      key: 'status',
+      label: 'Status',
+      render: (v) => <span className={`badge ${v === 'Active' ? 'badge-success' : 'badge-neutral'}`}>{v}</span>,
+    },
+    { key: 'createdBy', label: 'Created by' },
   ]
 
   return (
@@ -135,10 +150,12 @@ export default function AdminScheduleTasks() {
       <div>
         <div className="page-header">
           <div>
-            <h2 className="page-title">Schedule Tasks</h2>
-            <p className="breadcrumb">Admin / System / Schedule Tasks</p>
+            <h2 className="page-title">Manage Tasks</h2>
+            <p className="breadcrumb">Manage Scheduled Tasks &ndash; List</p>
           </div>
-          <button type="button" className="btn-primary" onClick={openAdd}><Plus size={15} /> Add Task</button>
+          <button type="button" className="btn-primary" onClick={openAdd}>
+            <Plus size={15} /> Add Scheduled Task
+          </button>
         </div>
 
         <DataTable
@@ -147,16 +164,8 @@ export default function AdminScheduleTasks() {
           searchPlaceholder="Search tasks..."
           actions={(row) => (
             <>
-              <button type="button" className="btn-ghost p-1.5" onClick={() => openView(row)} title="View"><Eye size={14} /></button>
               <button type="button" className="btn-ghost p-1.5" onClick={() => openEdit(row)} title="Edit"><Pencil size={14} /></button>
-              <button type="button" className="btn-ghost p-1.5 text-primary-600 hover:text-primary-300" onClick={() => handleRunNow(row)} title="Run Now">
-                <Play size={14} />
-              </button>
-              <button type="button" className="btn-ghost p-1.5" onClick={() => handleToggle(row)} title="Toggle Status">
-                {row.status === 'Active'
-                  ? <ToggleRight size={14} className="text-success-600" />
-                  : <ToggleLeft size={14} className="text-surface-500" />}
-              </button>
+              <button type="button" className="btn-ghost p-1.5" onClick={() => openView(row)} title="View"><Eye size={14} /></button>
               <button type="button" className="btn-danger p-1.5" onClick={() => handleDelete(row)} title="Delete"><Trash2 size={14} /></button>
             </>
           )}
@@ -165,7 +174,7 @@ export default function AdminScheduleTasks() {
         <Modal
           open={modal === 'add' || modal === 'edit'}
           onClose={close}
-          title={modal === 'add' ? 'Add Schedule Task' : 'Edit Schedule Task'}
+          title={modal === 'add' ? 'Add Scheduled Task' : 'Edit Scheduled Task'}
           footer={
             <>
               <button type="button" className="btn-secondary" onClick={close}>Cancel</button>
@@ -176,52 +185,89 @@ export default function AdminScheduleTasks() {
           }
         >
           <div className="space-y-4">
-            <TextInput label="Task Name" required placeholder="e.g. Daily Energy Report"
-              value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
-            <SelectInput label="Organization" required placeholder="Select organization"
-              value={form.organizationId} onChange={(e) => {
-                const org = meta?.organizations.find((o) => o.id === e.target.value)
-                setForm((f) => ({ ...f, organizationId: e.target.value, org: org?.name ?? '' }))
+            <SelectInput
+              label="Organization"
+              required
+              placeholder="Select organization"
+              value={form.organizationId}
+              onChange={(e) => setForm((f) => ({
+                ...f,
+                organizationId: e.target.value,
+                deviceId: '',
+                device: '',
+              }))}
+              options={(meta?.organizations ?? []).map((o) => ({ value: o.id, label: o.name }))}
+            />
+            <SelectInput
+              label="Device"
+              required
+              placeholder="Select device"
+              value={form.deviceId}
+              onChange={(e) => {
+                const d = devicesForOrg.find((x) => x.id === e.target.value)
+                  || meta?.devices.find((x) => x.id === e.target.value)
+                setForm((f) => ({
+                  ...f,
+                  deviceId: e.target.value,
+                  device: d?.name ?? '',
+                  organizationId: f.organizationId || d?.organizationId || '',
+                }))
               }}
-              options={(meta?.organizations ?? []).map((o) => ({ value: o.id, label: o.name }))} />
-            <SelectInput label="Device" required placeholder="Select device"
-              value={form.deviceId} onChange={(e) => {
-                const d = meta?.devices.find((x) => x.id === e.target.value)
-                setForm((f) => ({ ...f, deviceId: e.target.value, device: d?.name ?? '' }))
-              }}
-              options={(meta?.devices ?? []).map((d) => ({ value: d.id, label: d.name }))} />
-            <SelectInput label="Task Type" value={form.taskType}
-              onChange={(e) => setForm((f) => ({ ...f, taskType: e.target.value }))}
-              options={['Turn On', 'Turn Off', 'Energy Report', 'Alarm Summary', 'Data Export', 'Custom']} />
-            <SelectInput label="Frequency" value={form.frequency}
-              onChange={(e) => setForm((f) => ({ ...f, frequency: e.target.value }))}
-              options={['Daily', 'Weekly', 'Monthly']} />
+              options={devicesForOrg.map((d) => ({ value: d.id, label: d.name }))}
+            />
+            <TextInput
+              label="Variable"
+              required
+              placeholder="e.g. Furnace"
+              value={form.variable}
+              onChange={(e) => setForm((f) => ({ ...f, variable: e.target.value }))}
+            />
+            <SelectInput
+              label="Action"
+              value={form.action}
+              onChange={(e) => setForm((f) => ({ ...f, action: e.target.value }))}
+              options={['ON', 'OFF']}
+            />
             <div>
-              <label className="label">Time</label>
-              <input type="time" className="input" value={form.time}
-                onChange={(e) => setForm((f) => ({ ...f, time: e.target.value }))} />
+              <label className="label">Scheduled Time</label>
+              <input
+                type="text"
+                className="input"
+                placeholder="e.g. 08:30 AM"
+                value={form.time}
+                onChange={(e) => setForm((f) => ({ ...f, time: e.target.value }))}
+              />
             </div>
-            <TextInput label="Email Recipients" placeholder="email1@x.com, email2@x.com"
-              value={form.recipients} onChange={(e) => setForm((f) => ({ ...f, recipients: e.target.value }))} />
-            <ToggleInput label="Status (Active)" checked={form.status === 'Active'}
-              onChange={(v) => setForm((f) => ({ ...f, status: v ? 'Active' : 'Inactive' }))} />
+            <SelectInput
+              label="Repeat Type"
+              value={form.repeat}
+              onChange={(e) => setForm((f) => ({ ...f, repeat: e.target.value }))}
+              options={['Daily', 'Weekly', 'Monthly', 'Once']}
+            />
+            <ToggleInput
+              label="Status (Active)"
+              checked={form.status === 'Active'}
+              onChange={(v) => setForm((f) => ({ ...f, status: v ? 'Active' : 'Inactive' }))}
+            />
           </div>
         </Modal>
 
-        <Modal open={modal === 'view'} onClose={close} title="Schedule Task Details">
+        <Modal open={modal === 'view'} onClose={close} title="Scheduled Task Details">
           {selected && (
             <div className="space-y-3">
               {[
-                ['Task Name', selected.name],
-                ['Organization', selected.org],
+                ['Serial No.', selected.serial],
                 ['Device', selected.device],
-                ['Schedule', selected.schedule],
+                ['Variable', selected.variable || selected.name],
+                ['Action', selected.action],
+                ['Scheduled Time', selected.time],
+                ['Repeat Type', selected.repeat || selected.frequency],
                 ['Status', selected.status],
-                ['Last Run', selected.lastRun],
+                ['Created by', selected.createdBy],
               ].map(([label, value]) => (
                 <div key={label} className="flex gap-4">
                   <span className="text-xs text-surface-500 w-32 flex-shrink-0">{label}</span>
-                  <span className="text-xs text-surface-800">{value}</span>
+                  <span className="text-xs text-surface-800">{value ?? '—'}</span>
                 </div>
               ))}
             </div>

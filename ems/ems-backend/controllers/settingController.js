@@ -19,11 +19,22 @@ const upsertSetting = async (req, res, next) => {
   try {
     const { key }  = req.params
     const { type, value, description } = req.body
+    // Multer/Cloudinary puts the public URL on req.file.path when imageFile is uploaded
+    const resolvedValue = req.file?.path || value
 
     const data = await prisma.systemSetting.upsert({
       where:  { key },
-      update: { value, type, description },
-      create: { key, type: type || 'string', value, description },
+      update: {
+        ...(resolvedValue !== undefined ? { value: resolvedValue } : {}),
+        ...(type !== undefined ? { type } : {}),
+        ...(description !== undefined ? { description } : {}),
+      },
+      create: {
+        key,
+        type: type || (req.file ? 'Logo' : 'Text'),
+        value: resolvedValue ?? null,
+        description: description ?? null,
+      },
     })
     res.json({ success: true, data })
   } catch (err) { next(err) }

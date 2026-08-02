@@ -1,6 +1,6 @@
 import { useDevices } from '../../context/DeviceContext'
 
-export default function DeviceSlaveSelector({ onChange, className = '' }) {
+export default function DeviceSlaveSelector({ onChange, className = '', slaveLabel = 'Slave' }) {
   const {
     devices, slaves, selectedDeviceId, selectedSlaveId,
     setSelectedSlaveId, selectDevice, loading,
@@ -26,7 +26,7 @@ export default function DeviceSlaveSelector({ onChange, className = '' }) {
         </select>
       </div>
       <div className="min-w-[160px] flex-1">
-        <label className="label text-[10px] uppercase tracking-wider">Slave / Meter</label>
+        <label className="label text-[10px] uppercase tracking-wider">{slaveLabel}</label>
         <select
           className="input py-2 text-xs w-full"
           value={selectedSlaveId ?? ''}

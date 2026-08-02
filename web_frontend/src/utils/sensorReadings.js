@@ -107,10 +107,11 @@ function mergeAggregateSeries(seriesList) {
  * power: [{ time, power }] from PowerConsumption when present
  * multi: merged rows for up to 3 device variables (real aggregates, not fake)
  * lines: [{ key, label, color }] for rendering
+ * voltagePhases: when VoltageA/B/C (or aliases) exist — CF Voltage Phases chart
  */
 export async function fetchDeviceDashboardCharts(deviceId, timeRange = '24h', slaveId = null) {
   if (!deviceId) {
-    return { power: [], multi: [], lines: [], variables: [] }
+    return { power: [], multi: [], lines: [], voltagePhases: null, variables: [] }
   }
 
   const q = { deviceId, timeRange }
@@ -129,9 +130,42 @@ export async function fetchDeviceDashboardCharts(deviceId, timeRange = '24h', sl
     power: p.value,
   }))
 
-  const preferred = []
   const fromLatest = readings.map((r) => r.variableName).filter(Boolean)
   const varNames = [...new Set(fromLatest)].slice(0, 6)
+
+  const PHASE_ALIASES = [
+    { key: 'voltageA', label: 'Phase A', names: ['VoltageA', 'Va', 'PhaseA', 'voltageA', 'Vab'] },
+    { key: 'voltageB', label: 'Phase B', names: ['VoltageB', 'Vb', 'PhaseB', 'voltageB', 'Vbc'] },
+    { key: 'voltageC', label: 'Phase C', names: ['VoltageC', 'Vc', 'PhaseC', 'voltageC', 'Vca'] },
+  ]
+
+  const resolvePhaseName = (aliases) =>
+    aliases.names.find((n) => fromLatest.some((v) => v.toLowerCase() === n.toLowerCase()))
+    || aliases.names.find((n) => varNames.some((v) => v.toLowerCase() === n.toLowerCase()))
+
+  const phaseResolved = PHASE_ALIASES.map((p) => ({ ...p, variableName: resolvePhaseName(p) }))
+    .filter((p) => p.variableName)
+
+  const phaseAggregates = phaseResolved.length >= 2
+    ? await Promise.all(phaseResolved.map(async (p) => {
+      const res = await emsApi.getSensorAggregate({
+        deviceId, slaveId, variableName: p.variableName, timeRange,
+      }).catch(() => ({ data: [] }))
+      return { key: p.key, label: p.label, unit: 'V', points: res?.data ?? [] }
+    }))
+    : []
+
+  const voltagePhases = phaseAggregates.length >= 2
+    ? {
+        multi: mergeAggregateSeries(phaseAggregates),
+        lines: phaseAggregates.map((s, i) => ({
+          key: s.key,
+          label: s.label,
+          unit: 'V',
+          color: CHART_COLORS[i % CHART_COLORS.length],
+        })),
+      }
+    : null
 
   const aggregates = await Promise.all(
     varNames.map(async (variableName) => {
@@ -157,6 +191,7 @@ export async function fetchDeviceDashboardCharts(deviceId, timeRange = '24h', sl
     power,
     multi: mergeAggregateSeries(aggregates),
     lines,
+    voltagePhases,
     variables: readings,
     summary,
   }

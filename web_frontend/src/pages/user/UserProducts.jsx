@@ -1,11 +1,14 @@
+import { useState } from 'react'
 import { CheckCircle2, Zap } from 'lucide-react'
 import PageState, { useFetch } from '../../components/ui/PageState'
+import { useAuth } from '../../context/AuthContext'
+import { useToast } from '../../context/ToastContext'
 import emsApi, { list } from '../../api/emsApi'
-import { mapProduct } from '../../utils/mappers'
+import { mapProduct, mapSubscriptionUi } from '../../utils/mappers'
 
 const planDetails = {
   'Basic EMS': { price: 'PKR 5,000/mo', description: 'Perfect for small operations needing essential monitoring.', features: ['Up to 5 devices', 'Real-time monitoring', 'Email alerts', 'Basic analytics', '7-day data retention'], color: 'info' },
-  Professional: { price: 'PKR 15,000/mo', description: 'Ideal for medium-scale industrial energy monitoring.', features: ['Up to 20 devices', 'Advanced analytics', 'AI insights', 'SMS & WhatsApp alerts', 'Power quality analysis', '90-day data retention'], color: 'primary', current: true },
+  Professional: { price: 'PKR 15,000/mo', description: 'Ideal for medium-scale industrial energy monitoring.', features: ['Up to 20 devices', 'Advanced analytics', 'AI insights', 'SMS & WhatsApp alerts', 'Power quality analysis', '90-day data retention'], color: 'primary' },
   Enterprise: { price: 'PKR 40,000/mo', description: 'Full-scale solution for large industrial facilities.', features: ['Unlimited devices', 'Multi-site support', 'Custom reports', 'API access', 'Priority support', '1-year data retention'], color: 'warning' },
   Trial: { price: 'Free', description: 'Explore all features for 14 days, no commitment needed.', features: ['Up to 2 devices', 'All features included', '14-day access', 'Email support', 'Sample data included'], color: 'success' },
 }
@@ -17,11 +20,54 @@ const colorMap = {
   success: { border: 'border-success-500/30', badge: 'bg-success-600/20 text-success-600', btn: 'btn-secondary', header: 'text-success-600' },
 }
 
+function matchCurrentPlan(product, subscription) {
+  if (!subscription || !product) return false
+  const plan = String(subscription.plan ?? subscription.name ?? '').toLowerCase()
+  const name = String(product.name ?? '').toLowerCase()
+  if (!plan || !name) return false
+  return plan === name || plan.includes(name) || name.includes(plan)
+}
+
 export default function UserProducts() {
-  const { data: products, loading, error, reload } = useFetch(
-    async () => list(await emsApi.getProducts({ limit: 100 })).map(mapProduct).filter((p) => p.status === 'Active'),
-    []
-  )
+  const { user } = useAuth()
+  const { showToast } = useToast()
+  const [subscribingId, setSubscribingId] = useState(null)
+
+  const { data, loading, error, reload } = useFetch(async () => {
+    const [productsRes, subsRes] = await Promise.all([
+      emsApi.getProducts({ limit: 100 }),
+      emsApi.getSubscriptions({ limit: 50 }).catch(() => ({ data: [] })),
+    ])
+    const products = list(productsRes).map(mapProduct).filter((p) => p.status === 'Active')
+    const subscriptions = list(subsRes).map((s) => mapSubscriptionUi(s, user?.organization?.name))
+    const current = subscriptions.find((s) => s.status === 'Active' || s.status === 'Pending')
+      ?? subscriptions[0]
+      ?? null
+    return { products, current }
+  }, [user?.organization?.name, user?.email])
+
+  const handleSubscribe = async (product) => {
+    if (!user?.email) {
+      showToast('Sign in required to subscribe', 'error')
+      return
+    }
+    setSubscribingId(product.id)
+    try {
+      await emsApi.submitSubscription({
+        name: product.name,
+        email: user.email,
+        phone: user.phone ?? undefined,
+        description: product.description || `Subscription request for ${product.name}`,
+        organizationId: user.organizationId || undefined,
+      })
+      showToast(`Subscription request for ${product.name} submitted`, 'success')
+      reload()
+    } catch (e) {
+      showToast(e.message || 'Subscribe failed', 'error')
+    } finally {
+      setSubscribingId(null)
+    }
+  }
 
   return (
     <PageState loading={loading} error={error} onRetry={reload}>
@@ -34,10 +80,11 @@ export default function UserProducts() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-          {(products ?? []).map((product) => {
+          {(data?.products ?? []).map((product) => {
             const detail = planDetails[product.name] || {}
             const colors = colorMap[detail.color || 'info']
-            const isCurrent = detail.current
+            const isCurrent = matchCurrentPlan(product, data?.current)
+            const busy = subscribingId === product.id
             return (
               <div key={product.id} className={`card flex flex-col relative border-2 ${isCurrent ? colors.border : 'border-surface-200'} transition-all`}>
                 {isCurrent && (
@@ -58,8 +105,13 @@ export default function UserProducts() {
                       </li>
                     ))}
                   </ul>
-                  <button type="button" className={`w-full ${colors.btn} justify-center ${isCurrent ? 'opacity-60 cursor-not-allowed' : ''}`} disabled={isCurrent}>
-                    {isCurrent ? 'Current Plan' : 'Subscribe'}
+                  <button
+                    type="button"
+                    className={`w-full ${colors.btn} justify-center ${isCurrent ? 'opacity-60 cursor-not-allowed' : ''}`}
+                    disabled={isCurrent || busy}
+                    onClick={() => !isCurrent && handleSubscribe(product)}
+                  >
+                    {isCurrent ? 'Current Plan' : busy ? 'Submitting…' : 'Subscribe'}
                   </button>
                 </div>
               </div>

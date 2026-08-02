@@ -3,13 +3,13 @@ import DataTable from '../../components/ui/DataTable'
 import Modal from '../../components/ui/Modal'
 import PageState, { useFetch } from '../../components/ui/PageState'
 import { TextInput, SelectInput, TextareaInput } from '../../components/ui/FormFields'
-import { Plus, Pencil, Trash2, Eye } from 'lucide-react'
+import { Plus, Pencil, Trash2, Eye, Package } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
 import { mapProduct } from '../../utils/mappers'
 import { uiStatusToApi, apiStatusToUi } from '../../utils/apiForm'
 import { useToast } from '../../context/ToastContext'
 
-const blank = { name: '', description: '', price: '', status: 'Active' }
+const blank = { name: '', description: '', price: '', status: 'Active', file: null }
 
 function toRow(p) {
   const mapped = mapProduct(p)
@@ -18,6 +18,7 @@ function toRow(p) {
     status: apiStatusToUi(p.status),
     priceRaw: p.price,
     priceDisplay: p.price != null ? String(p.price) : '',
+    imageUrl: p.imageUrl ?? mapped.imageUrl,
   }
 }
 
@@ -41,6 +42,7 @@ export default function AdminProducts() {
       description: row.description,
       price: row.priceDisplay,
       status: row.status,
+      file: null,
     })
     setModal('edit')
   }
@@ -50,14 +52,25 @@ export default function AdminProducts() {
   const handleSave = async () => {
     setSaving(true)
     try {
-      const body = {
-        name: form.name,
-        description: form.description || undefined,
-        price: form.price !== '' ? parseFloat(form.price) : null,
-        status: uiStatusToApi(form.status),
+      if (form.file) {
+        const fd = new FormData()
+        fd.append('name', form.name)
+        if (form.description) fd.append('description', form.description)
+        if (form.price !== '') fd.append('price', form.price)
+        fd.append('status', uiStatusToApi(form.status))
+        fd.append('imageFile', form.file)
+        if (modal === 'add') await emsApi.createProduct(fd)
+        else await emsApi.updateProduct(selected.id, fd)
+      } else {
+        const body = {
+          name: form.name,
+          description: form.description || undefined,
+          price: form.price !== '' ? parseFloat(form.price) : null,
+          status: uiStatusToApi(form.status),
+        }
+        if (modal === 'add') await emsApi.createProduct(body)
+        else await emsApi.updateProduct(selected.id, body)
       }
-      if (modal === 'add') await emsApi.createProduct(body)
-      else await emsApi.updateProduct(selected.id, body)
       close()
       reload()
     } catch (e) {
@@ -82,8 +95,22 @@ export default function AdminProducts() {
 
   const columns = [
     { key: 'name', label: 'Product Name' },
-    { key: 'description', label: 'Description' },
     { key: 'price', label: 'Price', render: (v) => <span className="font-mono text-xs text-primary-600">{v}</span> },
+    {
+      key: 'image',
+      label: 'Product Image',
+      sortable: false,
+      render: (_, row) => (
+        <div className="w-12 h-12 rounded-lg bg-surface-100 dark:bg-surface-950 flex items-center justify-center text-surface-400 border border-surface-200 dark:border-surface-800 overflow-hidden">
+          {row.imageUrl ? (
+            <img src={row.imageUrl} alt={row.name} className="w-full h-full object-cover" />
+          ) : (
+            <Package size={20} />
+          )}
+        </div>
+      ),
+    },
+    { key: 'description', label: 'Description', render: (v) => <span className="text-xs text-surface-500 line-clamp-2 max-w-md block">{v}</span> },
     { key: 'status', label: 'Status', render: (v) => <span className={`badge ${v === 'Active' ? 'badge-success' : 'badge-neutral'}`}>{v}</span> },
   ]
 
@@ -93,7 +120,7 @@ export default function AdminProducts() {
         <div className="page-header">
           <div>
             <h2 className="page-title">Manage Products</h2>
-            <p className="breadcrumb">Admin / Products</p>
+            <p className="breadcrumb">Manage Products &ndash; List</p>
           </div>
           <button type="button" className="btn-primary" onClick={openAdd}><Plus size={15} /> Add Product</button>
         </div>
@@ -127,10 +154,19 @@ export default function AdminProducts() {
           <div className="space-y-4">
             <TextInput label="Product Name" required placeholder="e.g. Basic EMS"
               value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
-            <TextareaInput label="Description" placeholder="Plan description..."
+            <TextareaInput label="Description" placeholder="Product description..."
               value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
             <TextInput label="Price" type="number" placeholder="e.g. 5000"
               value={form.price} onChange={(e) => setForm((f) => ({ ...f, price: e.target.value }))} />
+            <div>
+              <label className="label">Product Image</label>
+              <input
+                type="file"
+                accept="image/*"
+                className="w-full text-sm text-surface-400 file:mr-4 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-primary-600 file:text-white hover:file:bg-primary-700 cursor-pointer"
+                onChange={(e) => setForm((f) => ({ ...f, file: e.target.files?.[0] ?? null }))}
+              />
+            </div>
             <SelectInput label="Status" value={form.status}
               onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
               options={['Active', 'Inactive']} />
@@ -151,6 +187,12 @@ export default function AdminProducts() {
                   <span className="text-xs text-surface-800">{value}</span>
                 </div>
               ))}
+              {selected.imageUrl && (
+                <div className="flex gap-4 items-start">
+                  <span className="text-xs text-surface-500 w-28 flex-shrink-0">Image</span>
+                  <img src={selected.imageUrl} alt={selected.name} className="w-20 h-20 rounded-lg object-cover border border-surface-200" />
+                </div>
+              )}
             </div>
           )}
         </Modal>

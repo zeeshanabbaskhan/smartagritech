@@ -1,19 +1,14 @@
 import { useState } from 'react'
+import DataTable from '../../components/ui/DataTable'
 import Modal from '../../components/ui/Modal'
 import PageState, { useFetch } from '../../components/ui/PageState'
-import { TextInput } from '../../components/ui/FormFields'
-import { Plus, Pencil, Trash2, Zap, Sun, Wind, Activity, Shield, Settings, Droplets, Cpu } from 'lucide-react'
+import { TextInput, ToggleInput } from '../../components/ui/FormFields'
+import { Plus, Pencil, Trash2, Gauge } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
 import { mapIcon } from '../../utils/mappers'
 import { useToast } from '../../context/ToastContext'
 
-const ICON_COMPONENTS = [Zap, Sun, Wind, Activity, Shield, Settings, Droplets, Cpu]
-const ICON_COLORS = [
-  'bg-primary-600', 'bg-warning-600', 'bg-success-600', 'bg-danger-600',
-  'bg-info-600', 'bg-primary-800', 'bg-success-800', 'bg-surface-600',
-]
-
-const blank = { name: '', file: null }
+const blank = { name: '', active: true, file: null }
 
 export default function AdminManageIcons() {
   const { showToast } = useToast()
@@ -28,7 +23,11 @@ export default function AdminManageIcons() {
   const [saving, setSaving] = useState(false)
 
   const openAdd = () => { setForm(blank); setModal('add') }
-  const openEdit = (icon) => { setSelected(icon); setForm({ name: icon.name, file: null }); setModal('edit') }
+  const openEdit = (icon) => {
+    setSelected(icon)
+    setForm({ name: icon.name, active: icon.active !== false, file: null })
+    setModal('edit')
+  }
   const close = () => { setModal(null); setSelected(null) }
 
   const handleSave = async () => {
@@ -40,6 +39,7 @@ export default function AdminManageIcons() {
     try {
       const fd = new FormData()
       fd.append('name', form.name)
+      fd.append('status', form.active ? 'ACTIVE' : 'INACTIVE')
       if (form.file) fd.append('imageFile', form.file)
       if (modal === 'add') await emsApi.createIcon(fd)
       else await emsApi.updateIcon(selected.id, fd)
@@ -67,46 +67,63 @@ export default function AdminManageIcons() {
 
   const imageUrl = (icon) => icon.url || icon._raw?.imageUrl
 
+  const columns = [
+    { key: 'name', label: 'Name' },
+    {
+      key: 'icon',
+      label: 'Icon',
+      sortable: false,
+      render: (_, row) => {
+        const src = imageUrl(row)
+        return (
+          <div className="w-9 h-9 rounded-lg bg-surface-100 dark:bg-surface-950 flex items-center justify-center text-surface-700 dark:text-surface-300 overflow-hidden">
+            {src ? (
+              <img src={src} alt={row.name} className="w-full h-full object-contain" />
+            ) : (
+              <Gauge size={18} />
+            )}
+          </div>
+        )
+      },
+    },
+    {
+      key: 'active',
+      label: 'Active',
+      render: (v) => (
+        <span className={`badge ${v ? 'badge-success' : 'badge-neutral'}`}>
+          {v ? 'Active' : 'Inactive'}
+        </span>
+      ),
+    },
+  ]
+
   return (
     <PageState loading={loading} error={error} onRetry={reload}>
       <div>
         <div className="page-header">
           <div>
             <h2 className="page-title">Manage Icons</h2>
-            <p className="breadcrumb">Admin / Icons</p>
+            <p className="breadcrumb">Manage Icons &ndash; List</p>
           </div>
           <button type="button" className="btn-primary" onClick={openAdd}><Plus size={15} /> Add Icon</button>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-          {(icons ?? []).map((icon, idx) => {
-            const IconComp = ICON_COMPONENTS[idx % ICON_COMPONENTS.length]
-            const colorCls = ICON_COLORS[idx % ICON_COLORS.length]
-            const src = imageUrl(icon)
-            return (
-              <div key={icon.id} className="card p-5 flex flex-col items-center gap-3">
-                <div className={`w-16 h-16 rounded-xl ${src ? 'bg-surface-100' : colorCls} flex items-center justify-center overflow-hidden`}>
-                  {src ? (
-                    <img src={src} alt={icon.name} className="w-full h-full object-contain" />
-                  ) : (
-                    <IconComp size={32} className="text-white" />
-                  )}
-                </div>
-                <div className="text-center">
-                  <p className="text-sm font-medium text-surface-900">{icon.name}</p>
-                </div>
-                <div className="flex gap-2 mt-1">
-                  <button type="button" className="btn-ghost p-1.5 text-xs" onClick={() => openEdit(icon)} title="Edit">
-                    <Pencil size={13} />
-                  </button>
-                  <button type="button" className="btn-danger p-1.5 text-xs" onClick={() => handleDelete(icon)} title="Delete">
-                    <Trash2 size={13} />
-                  </button>
-                </div>
-              </div>
-            )
-          })}
-        </div>
+        <DataTable
+          columns={columns}
+          data={icons ?? []}
+          searchPlaceholder="Search icons..."
+          emptyMessage="No data available in table"
+          actions={(row) => (
+            <>
+              <button type="button" className="btn-ghost p-1.5" onClick={() => openEdit(row)} title="Edit">
+                <Pencil size={13} />
+              </button>
+              <button type="button" className="btn-danger p-1.5" onClick={() => handleDelete(row)} title="Delete">
+                <Trash2 size={13} />
+              </button>
+            </>
+          )}
+        />
 
         <Modal
           open={modal === 'add' || modal === 'edit'}
@@ -122,7 +139,7 @@ export default function AdminManageIcons() {
           }
         >
           <div className="space-y-4">
-            <TextInput label="Icon Name" required placeholder="e.g. Energy Meter"
+            <TextInput label="Icon Name" required placeholder="e.g. AC"
               value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
             <div>
               <label className="label">Icon File{modal === 'add' ? ' (required)' : ' (optional)'}</label>
@@ -133,6 +150,8 @@ export default function AdminManageIcons() {
                 onChange={(e) => setForm((f) => ({ ...f, file: e.target.files?.[0] ?? null }))}
               />
             </div>
+            <ToggleInput label="Active" checked={form.active}
+              onChange={(v) => setForm((f) => ({ ...f, active: v }))} />
           </div>
         </Modal>
       </div>

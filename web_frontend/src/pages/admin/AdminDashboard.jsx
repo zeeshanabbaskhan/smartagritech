@@ -29,12 +29,12 @@ export default function AdminDashboard() {
   const highlightQuery = useMemo(() => searchParams.get('highlight') || '', [searchParams])
   const { selectedDeviceId, selectedSlaveId } = useDevices()
   const { data: stats, loading, error, reload, setData } = useFetch(() => fetchAdminStats(), [])
-  const [chartBundle, setChartBundle] = useState({ power: [], multi: [], lines: [] })
+  const [chartBundle, setChartBundle] = useState({ power: [], multi: [], lines: [], voltagePhases: null })
   const [chartLoading, setChartLoading] = useState(true)
 
   useEffect(() => {
     if (!selectedDeviceId) {
-      setChartBundle({ power: [], multi: [], lines: [] })
+      setChartBundle({ power: [], multi: [], lines: [], voltagePhases: null })
       setChartLoading(false)
       return
     }
@@ -42,7 +42,7 @@ export default function AdminDashboard() {
     setChartLoading(true)
     fetchDashboardChart(selectedDeviceId, '24h', selectedSlaveId)
       .then((chart) => { if (!cancelled) setChartBundle(chart) })
-      .catch(() => { if (!cancelled) setChartBundle({ power: [], multi: [], lines: [] }) })
+      .catch(() => { if (!cancelled) setChartBundle({ power: [], multi: [], lines: [], voltagePhases: null }) })
       .finally(() => { if (!cancelled) setChartLoading(false) })
     return () => { cancelled = true }
   }, [selectedDeviceId, selectedSlaveId])
@@ -140,7 +140,12 @@ export default function AdminDashboard() {
             <StatCard label="Total Alarms" value={stats?.totalAlarms ?? 0} icon={Activity} color="neutral" />
           </div>
 
-          <DashboardTelemetry panelTitle="Master Executive Device Control" highlightQuery={highlightQuery} />
+          <DashboardTelemetry
+            panelTitle="Master Executive Device Control"
+            highlightQuery={highlightQuery}
+            allDevicesLabel="All Organizations"
+            powerKpiLabel="Total Power"
+          />
 
           <DeviceSlaveSelector />
 
@@ -169,14 +174,33 @@ export default function AdminDashboard() {
 
             <div className="card p-5 flex flex-col justify-between">
               <div>
-                <h3 className="text-sm font-bold text-surface-900 leading-none">Device Variables — Today</h3>
+                <h3 className="text-sm font-bold text-surface-900 leading-none">
+                  {chartBundle.voltagePhases?.multi?.length
+                    ? 'Voltage Phases — Today'
+                    : 'Device Variables — Today'}
+                </h3>
                 <p className="text-xs text-surface-400 mt-1 mb-4">
-                  {chartBundle.lines.length
-                    ? chartBundle.lines.map((l) => l.label).join(', ')
-                    : 'Select a device with sensor data'}
+                  {chartBundle.voltagePhases?.multi?.length
+                    ? 'Mean voltage levels in volts across phases'
+                    : chartBundle.lines.length
+                      ? chartBundle.lines.map((l) => l.label).join(', ')
+                      : 'Select a device with sensor data'}
                 </p>
               </div>
-              {chartBundle.multi.length > 0 ? (
+              {chartBundle.voltagePhases?.multi?.length > 0 ? (
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={chartBundle.voltagePhases.multi.filter((_, i) => i % 3 === 0)} barSize={6}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
+                    <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
+                    <YAxis domain={['auto', 'auto']} tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
+                    <Tooltip content={<CustomTooltip />} />
+                    <Legend verticalAlign="bottom" height={36} wrapperStyle={{ fontSize: 11, paddingTop: 10 }} />
+                    {chartBundle.voltagePhases.lines.map((line) => (
+                      <Bar key={line.key} dataKey={line.key} fill={line.color} radius={[2, 2, 0, 0]} name={line.label} unit="V" />
+                    ))}
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : chartBundle.multi.length > 0 ? (
               <ResponsiveContainer width="100%" height={200}>
                 <BarChart data={chartBundle.multi.filter((_, i) => i % 3 === 0)} barSize={6}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
@@ -279,8 +303,8 @@ export default function AdminDashboard() {
               <div className="divide-y divide-surface-100 flex-1">
                 {deviceList.map((d) => (
                   <div key={d.id} className="flex items-center gap-3 px-4 py-3.5 hover:bg-surface-50 transition-colors duration-100">
-                    <span className={`badge ${d.status === 'Online' ? 'badge-success' : 'badge-neutral'}`}>
-                      {d.status}
+                    <span className={`badge ${d.status === 'Online' && d.switchOn ? 'badge-success' : 'badge-neutral'}`}>
+                      {d.status === 'Online' && d.switchOn ? 'Online' : 'Offline'}
                     </span>
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-bold text-surface-800 truncate leading-tight">{d.name}</p>

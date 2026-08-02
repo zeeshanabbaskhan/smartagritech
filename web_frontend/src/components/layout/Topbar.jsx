@@ -224,6 +224,7 @@ export default function Topbar({ title, onMenuClick }) {
       ],
       user: [
         { title: 'My Dashboard', path: '/user', category: 'Pages' },
+        { title: 'Dashboard Detail', path: '/user/detail', category: 'Pages' },
         { title: 'Custom Dashboards', path: '/user/custom-dashboard', category: 'Pages' },
         { title: 'Subscription Info', path: '/user/subscription', category: 'Pages' },
         { title: 'Products Catalogue', path: '/user/products', category: 'Pages' },
@@ -540,7 +541,7 @@ export default function Topbar({ title, onMenuClick }) {
               {/* Menu items */}
               <button
                 type="button"
-                onClick={() => navigate(user?.role === 'admin' ? '/admin/settings' : user?.role === 'org' ? '/org/settings' : '/user/account')}
+                onClick={() => navigate(user?.role === 'admin' ? '/admin/settings' : user?.role === 'org' ? '/org/settings' : '/user/subscription')}
                 className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs text-surface-600 dark:text-surface-400 hover:bg-surface-50 dark:hover:bg-surface-800 hover:text-surface-900 dark:hover:text-surface-200 font-semibold"
               >
                 <User size={14} /> Profile

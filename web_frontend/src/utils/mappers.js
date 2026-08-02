@@ -79,10 +79,12 @@ export const mapDeviceTemplate = (t) => ({
   org: t.organization?.name ?? '—',
   organizationId: t.organizationId,
   method: t.acquisitionMethod ?? '—',
+  description: t.description ?? '',
   slaves: t._count?.slaves ?? t.totalSlaves ?? 0,
   variables: t.totalVariables ?? 0,
   devices: t._count?.devices ?? 0,
   createdAt: fmtDate(t.createdAt),
+  updatedAt: fmtDate(t.updatedAt),
   _raw: t,
 })
 
@@ -91,8 +93,9 @@ export const mapProduct = (p) => ({
   name: p.name,
   category: p.category ?? '—',
   price: p.price != null ? `$${p.price}` : '—',
-  status: p.isActive === false ? 'Inactive' : 'Active',
+  status: p.isActive === false || p.status === 'INACTIVE' ? 'Inactive' : 'Active',
   description: p.description ?? '',
+  imageUrl: p.imageUrl ?? null,
   _raw: p,
 })
 
@@ -101,6 +104,7 @@ export const mapIcon = (i) => ({
   name: i.name,
   category: i.category ?? 'General',
   url: i.url ?? i.imageUrl,
+  active: i.status !== 'INACTIVE',
   _raw: i,
 })
 
@@ -115,10 +119,11 @@ export const mapNotification = (n) => ({
   _raw: n,
 })
 
-const repeatToUi = (r) => ({ DAILY: 'Daily', WEEKLY: 'Weekly', ONCE: 'Monthly' }[r] ?? r)
+const repeatToUi = (r) => ({ DAILY: 'Daily', WEEKLY: 'Weekly', MONTHLY: 'Monthly', ONCE: 'Once' }[r] ?? r)
 
 export const mapScheduledTask = (t) => ({
   id: t.id,
+  serial: t.serial ?? null,
   name: t.variableName,
   org: t.organization?.name ?? '—',
   organizationId: t.organizationId,
@@ -131,9 +136,10 @@ export const mapScheduledTask = (t) => ({
   schedule: `${repeatToUi(t.repeatType)} ${t.scheduledTime}`,
   recipients: '—',
   action: t.action,
-  repeat: t.repeatType,
+  repeat: repeatToUi(t.repeatType),
   status: statusLabel(t.status),
   statusRaw: t.status,
+  createdBy: t.creator?.fullName ?? t.createdByName ?? '—',
   lastRun: fmtDate(t.nextRunAt),
   nextRun: fmtDate(t.nextRunAt),
   _raw: t,
@@ -207,6 +213,7 @@ export const mapSubscriptionUi = (s, orgName) => ({
   endDate: '—',
   status: s.status === 'CLOSED' ? 'Expired' : s.status === 'CONTACTED' ? 'Active' : 'Pending',
   devices: '—',
+  amount: s.amount != null ? String(s.amount) : (s.description || '—'),
   email: s.email,
   phone: s.phone ?? '—',
   description: s.description ?? '',
@@ -251,11 +258,13 @@ export const mapAlarmSetting = (s) => ({
   organizationId: s.organizationId,
   templateTriggerId: s.templateTriggerId,
   pushType: s.pushType ?? 'Template Trigger',
+  pushBody: s.pushBody ?? '',
   pushMethod: s.pushMethod ?? 'Email',
   mechanism: s.pushingMechanism === 'DELAYED' ? 'Delayed' : 'Instant',
   delay: s.pushDelay ?? '',
   status: statusLabel(s.status),
   statusRaw: s.status,
+  founder: s.creator?.fullName ?? s.createdByName ?? '—',
   updatedAt: fmtDate(s.updatedAt),
   devices: s.configDevices?.length ?? s._count?.devices ?? 0,
   _raw: s,
@@ -270,6 +279,7 @@ export const mapAlarmContact = (c, orgName) => ({
   phone: c.mobile ?? c.phone ?? '—',
   whatsapp: c.whatsapp ?? '—',
   remark: c.remark ?? '',
+  addPeople: c.addPeople ?? c.creator?.fullName ?? c.createdByName ?? '—',
   updatedAt: fmtDate(c.updatedAt),
   type: c.contactType ?? 'email',
   _raw: c,
@@ -283,6 +293,8 @@ export const mapVariableAlarm = (a, deviceName) => ({
   variable: a.variableName,
   variableName: a.variableName,
   type: a.triggerType ?? a.triggerName ?? '—',
+  slave: a.slaveName ?? '—',
+  slaveName: a.slaveName ?? '—',
   threshold: a.triggeringCondition ?? '—',
   actual: a.currentValue != null ? String(a.currentValue) : '—',
   time: fmtDate(a.alarmTime),
@@ -303,9 +315,15 @@ export const mapLinkageRecord = (r, deviceName) => ({
   deviceName: deviceName ?? r.deviceId,
   deviceId: r.deviceId,
   srcVar: r.watchedVariableName ?? '—',
-  condition: '—',
+  triggerType: r.triggerType ?? r.trigger?.anomalyType ?? r.actionTaken ?? '—',
+  slave: r.slaveName ?? '—',
+  slaveName: r.slaveName ?? '—',
+  variable: r.watchedVariableName ?? '—',
+  condition: r.triggeringCondition
+    ?? (r.watchedVariableValue != null ? String(r.watchedVariableValue) : '—'),
   threshold: r.watchedVariableValue != null ? String(r.watchedVariableValue) : '—',
-  tgtDevice: r.linkedVariableName ?? '—',
+  tgtDevice: r.triggerDeviceName ?? r.linkedDeviceName ?? r.linkedVariableName ?? '—',
+  triggerDevice: r.triggerDeviceName ?? r.linkedDeviceName ?? r.linkedVariableName ?? '—',
   triggerName: r.triggerName,
   watchedVariableName: r.watchedVariableName,
   currentValue: r.watchedVariableValue,
@@ -331,14 +349,21 @@ export const mapDeviceTimestamp = (t, orgName) => {
   const online = t.onlineStatus === 'ONLINE' || t.device?.status === 'ONLINE'
   const mins = t.lastActiveMinsAgo ?? 0
   const uptimePct = online ? Math.max(0, 100 - Math.min(mins, 100)) : Math.max(0, 100 - Math.min(mins * 2, 100))
+  const relative = (() => {
+    if (mins < 60) return `${mins} min(s) ago`
+    const hours = Math.floor(mins / 60)
+    if (hours < 24) return `${hours} hour(s) ago`
+    return `${Math.floor(hours / 24)} day(s) ago`
+  })()
   return {
     id: t.id,
     device: t.device?.name ?? t.deviceId,
     deviceId: t.deviceId,
     org: orgName ?? '—',
+    lastDate: fmtDate(t.lastActiveAt),
     lastOnline: fmtDate(t.lastActiveAt),
     lastData: fmtDate(t.lastActiveAt),
-    lastActive: fmtDate(t.lastActiveAt),
+    lastActive: relative,
     uptime: `${uptimePct.toFixed(1)}%`,
     downtime: `${(100 - uptimePct).toFixed(1)}%`,
     status: online ? 'Online' : 'Offline',
@@ -362,11 +387,26 @@ export const mapTheme = (t) => ({
   _raw: t,
 })
 
-export const mapSetting = (s) => ({
-  key: s.key,
-  value: s.value,
-  _raw: s,
-})
+export const mapSetting = (s) => {
+  const typeRaw = s.type || 'Text'
+  const type = ({
+    logo: 'Logo', image: 'Logo', Logo: 'Logo',
+    text: 'Text', string: 'Text', Text: 'Text',
+    number: 'Number', Number: 'Number',
+    color: 'Color', Color: 'Color',
+  }[typeRaw] ?? typeRaw)
+  const isLogo = type === 'Logo' || /^https?:\/\//i.test(s.value || '') || /\.(png|jpe?g|gif|webp|svg)(\?|$)/i.test(s.value || '')
+  return {
+    id: s.id ?? s.key,
+    key: s.key,
+    type,
+    value: s.value ?? '',
+    preview: isLogo ? (s.value || null) : null,
+    description: s.description ?? '',
+    updatedAt: fmtDate(s.updatedAt),
+    _raw: s,
+  }
+}
 
 export const mapSubscription = (s) => ({
   id: s.id,

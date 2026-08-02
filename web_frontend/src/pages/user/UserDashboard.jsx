@@ -1,169 +1,142 @@
-import { useState, useEffect } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
-import StatCard from '../../components/ui/StatCard'
-import PageState, { useFetch } from '../../components/ui/PageState'
-import { Cpu, Bell, AlertTriangle, CreditCard, Shield, Calendar, ArrowUpRight } from 'lucide-react'
-import { Skeleton } from 'boneyard-js/react'
-import { useAuth } from '../../context/AuthContext'
-import { fetchUserStats, fetchDashboardChart } from '../../utils/dashboardHelpers'
-import { mapNotificationRow } from '../../utils/mappers'
+import { Download, Zap, Activity, Heart, TrendingUp, AlertTriangle, Waves, Radio, Image as ImageIcon } from 'lucide-react'
+import MetricRangeCard from '../../components/ui/MetricRangeCard'
 import DeviceSlaveSelector from '../../components/shared/DeviceSlaveSelector'
-import DashboardTelemetry from '../../components/dashboard/DashboardTelemetry'
+import PageState, { useFetch } from '../../components/ui/PageState'
 import { useDevices } from '../../context/DeviceContext'
+import emsApi, { list } from '../../api/emsApi'
+import { mapAnomaly } from '../../utils/mappers'
+
+function fmt(v, digits = 2) {
+  if (v == null || Number.isNaN(Number(v))) return '0.00'
+  return Number(v).toFixed(digits)
+}
+
+function toRangeSeries(points = []) {
+  const mapped = (Array.isArray(points) ? points : []).map((p) => ({
+    t: p.time ?? p.t ?? p.label ?? '',
+    v: Number(p.value ?? p.v ?? 0) || 0,
+  }))
+  return { '1h': mapped, '24h': mapped, '7d': mapped, '30d': mapped }
+}
+
+function pickValue(block) {
+  if (block == null) return null
+  if (typeof block === 'number') return block
+  return block.value ?? block.current ?? null
+}
 
 export default function UserDashboard() {
-  const { user } = useAuth()
-  const navigate = useNavigate()
   const { selectedDeviceId, selectedSlaveId } = useDevices()
-  const [activeTab, setActiveTab] = useState('Today')
-  const [chartBundle, setChartBundle] = useState({ power: [], multi: [], lines: [] })
 
-  const { data: stats, loading, error, reload } = useFetch(
-    () => fetchUserStats(user),
-    [user?.id, user?.email]
-  )
-
-  const timeRangeMap = { Today: '24h', Week: '7d', Month: '30d' }
-
-  useEffect(() => {
+  const { data, loading, error, reload } = useFetch(async () => {
     if (!selectedDeviceId) {
-      setChartBundle({ power: [], multi: [], lines: [] })
-      return
+      return { metrics: {}, anomalyCount: 0 }
     }
-    fetchDashboardChart(selectedDeviceId, timeRangeMap[activeTab] ?? '24h', selectedSlaveId).then(setChartBundle)
-  }, [activeTab, selectedDeviceId, selectedSlaveId])
-
-  const getGreeting = () => {
-    const hr = new Date().getHours()
-    if (hr < 12) return 'Good morning'
-    if (hr < 18) return 'Good afternoon'
-    return 'Good evening'
-  }
-
-  const notifications = (stats?.notificationList ?? []).slice(0, 5).map(mapNotificationRow)
-
-  const CustomTooltip = ({ active, payload, label }) => {
-    if (active && payload && payload.length) {
-      return (
-        <div className="bg-white border border-surface-200 p-3 rounded-lg shadow-floating text-xs font-semibold text-surface-800">
-          {label && <p className="text-surface-400 mb-1 font-bold">{label}</p>}
-          {payload.map((item, i) => (
-            <div key={i} className="flex items-center gap-2 mt-0.5">
-              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: item.color }} />
-              <span>{item.name}:</span>
-              <span className="text-surface-900 font-bold">{item.value} {item.unit || ''}</span>
-            </div>
-          ))}
-        </div>
-      )
+    const q = { deviceId: selectedDeviceId, slaveId: selectedSlaveId || undefined, timeRange: '24h' }
+    const [summaryRes, voltRes, curRes, pfRes, energyRes, anomRes] = await Promise.all([
+      emsApi.getDashboardSummary(q).catch(() => null),
+      emsApi.getAiVoltage(q).catch(() => null),
+      emsApi.getAiCurrent(q).catch(() => null),
+      emsApi.getAiPowerFactor(q).catch(() => null),
+      emsApi.getAiEnergy(q).catch(() => null),
+      emsApi.getAnomalies({ limit: 50 }).catch(() => null),
+    ])
+    const s = summaryRes?.data ?? {}
+    const anomalies = list(anomRes).map(mapAnomaly).filter((a) => !a.deviceId || a.deviceId === selectedDeviceId)
+    return {
+      metrics: {
+        totalPower: pickValue(s.totalPowerConsumption) ?? energyRes?.data?.totalConsumption,
+        exportPower: pickValue(s.totalExportPower) ?? energyRes?.data?.totalExport,
+        voltageImbalance: voltRes?.data?.current ?? pickValue(s.voltageImbalance),
+        currentImbalance: curRes?.data?.current ?? pickValue(s.currentImbalance),
+        powerFactor: pfRes?.data?.current ?? pickValue(s.powerFactor),
+        predicted: pickValue(s.predictedConsumption),
+        thdV: pickValue(s.thdV),
+        thdI: pickValue(s.thdI),
+        frequency: pickValue(s.frequency),
+        charts: {
+          totalPower: toRangeSeries(s.totalPowerConsumption?.chartData ?? energyRes?.data?.chartData),
+          exportPower: toRangeSeries(s.totalExportPower?.chartData),
+          voltageImbalance: toRangeSeries(voltRes?.data?.chartData?.voltageImbalance ?? s.voltageImbalance?.chartData),
+          currentImbalance: toRangeSeries(curRes?.data?.chartData?.currentImbalance ?? s.currentImbalance?.chartData),
+          powerFactor: toRangeSeries(pfRes?.data?.chartData ?? s.powerFactor?.chartData),
+          predicted: toRangeSeries(s.predictedConsumption?.chartData),
+          thdV: toRangeSeries(s.thdV?.chartData),
+          thdI: toRangeSeries(s.thdI?.chartData),
+          frequency: toRangeSeries(s.frequency?.chartData),
+        },
+      },
+      anomalyCount: anomalies.length,
     }
-    return null
+  }, [selectedDeviceId, selectedSlaveId])
+
+  const m = data?.metrics ?? {}
+  const charts = m.charts ?? {}
+  const anomalyCount = data?.anomalyCount ?? 0
+
+  const handleDownload = () => {
+    const lines = [
+      'metric,value',
+      `total_power_kwh,${fmt(m.totalPower)}`,
+      `export_power_kwh,${fmt(m.exportPower)}`,
+      `voltage_imbalance,${fmt(m.voltageImbalance)}`,
+      `current_imbalance,${fmt(m.currentImbalance)}`,
+      `power_factor,${fmt(m.powerFactor)}`,
+      `frequency_hz,${fmt(m.frequency)}`,
+      `anomalies,${anomalyCount}`,
+    ]
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'dashboard.csv'
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   return (
     <PageState loading={loading} error={error} onRetry={reload}>
-      <Skeleton name="user-dashboard" loading={loading} transition={300}>
-        <div className="space-y-6">
-          <div className="card p-6 bg-gradient-to-r from-surface-900 to-surface-950 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-none shadow-elevated">
-            <div className="space-y-1">
-              <h2 className="text-xl font-bold tracking-tight text-white">
-                {getGreeting()}, {user?.name ?? 'User'} 👋
-              </h2>
-              <p className="text-xs text-surface-400 flex items-center gap-1.5">
-                <Shield size={12} className="text-primary-500" />
-                Account Tier: <span className="text-primary-600 font-bold uppercase">{stats?.subscription ?? '—'} Plan</span>
-              </p>
-            </div>
-            <button type="button" onClick={() => navigate('/user/interval-history')} className="btn-primary self-start sm:self-auto text-xs py-2 px-3 flex items-center gap-1 font-bold">
-              Interval History <ArrowUpRight size={13} />
-            </button>
-          </div>
-
-          <DashboardTelemetry panelTitle="My Device Telemetry" showAccessFilter={false} />
-
-          <DeviceSlaveSelector className="mb-2" />
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <StatCard label="My Assigned Devices" value={stats?.assignedDevices ?? 0} icon={Cpu} color="primary" />
-            <StatCard label="Active Alarms" value={stats?.activeAlarms ?? 0} icon={AlertTriangle} color="warning" />
-            <StatCard label="Notifications" value={stats?.notifications ?? 0} icon={Bell} color="info" />
-            <StatCard label="Subscription" value={stats?.subscription ?? '—'} icon={CreditCard} color="success" />
-          </div>
-
-          <div className="card p-5 flex flex-col justify-between">
-            <div className="flex items-start justify-between gap-4 mb-4 flex-wrap">
-              <div>
-                <h3 className="text-sm font-bold text-surface-900 leading-none">Live Readings</h3>
-                <p className="text-xs text-surface-400 mt-1">
-                  {chartBundle.lines.length
-                    ? chartBundle.lines.map((l) => l.label).join(', ')
-                    : 'Select a device with ingested data'}
-                </p>
-              </div>
-              <div className="flex bg-surface-200 dark:bg-surface-800 p-0.5 rounded-lg border border-surface-300 dark:border-surface-600">
-                {['Today', 'Week', 'Month'].map((tab) => (
-                  <button key={tab} type="button" onClick={() => setActiveTab(tab)}
-                    className={`px-3 py-1 text-xs font-bold rounded-md transition-colors ${
-                      activeTab === tab
-                        ? 'bg-white dark:bg-surface-700 text-surface-900 dark:text-surface-50 shadow-sm border border-surface-300 dark:border-surface-500'
-                        : 'text-surface-700 dark:text-surface-200 hover:text-surface-900 dark:hover:text-surface-50'
-                    }`}>
-                    {tab}
-                  </button>
-                ))}
-              </div>
-            </div>
-            {(chartBundle.multi.length > 0 || chartBundle.power.length > 0) ? (
-              <ResponsiveContainer width="100%" height={240}>
-                <LineChart data={chartBundle.multi.length ? chartBundle.multi : chartBundle.power}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
-                  <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
-                  <YAxis domain={['auto', 'auto']} tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
-                  <Tooltip content={<CustomTooltip />} />
-                  <Legend verticalAlign="bottom" height={36} wrapperStyle={{ fontSize: 11, paddingTop: 10 }} />
-                  {chartBundle.multi.length > 0 ? chartBundle.lines.map((line) => (
-                    <Line key={line.key} type="monotone" dataKey={line.key} stroke={line.color} dot={false} strokeWidth={2} name={line.label} unit={line.unit} />
-                  )) : (
-                    <Line type="monotone" dataKey="power" stroke="#F5A623" dot={false} strokeWidth={2} name="Power" unit="kW" />
-                  )}
-                </LineChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-60 flex items-center justify-center text-xs text-surface-500">No chart data for selected device in this period.</div>
-            )}
-          </div>
-
-          <div className="card flex flex-col">
-            <div className="flex items-center justify-between p-4 border-b border-surface-200">
-              <div>
-                <h3 className="text-sm font-bold text-surface-900">Recent Notifications</h3>
-                <p className="text-xs text-surface-400 mt-0.5">Critical system updates and threshold alarms</p>
-              </div>
-              <span className="badge badge-neutral flex items-center gap-1"><Calendar size={11} /> Logged events</span>
-            </div>
-            <div className="divide-y divide-surface-100 flex-1">
-              {notifications.length === 0 ? (
-                <div className="p-8 text-center text-surface-500 text-xs">No notifications yet.</div>
-              ) : notifications.map((n) => {
-                const isCritical = n.severity === 'danger' || !n.read
-                return (
-                  <div key={n.id} className={`flex items-start gap-4 px-4 py-4 hover:bg-surface-50 transition-colors duration-100 border-l-4 ${isCritical ? 'border-l-danger-600' : 'border-l-primary-500'}`}>
-                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 border ${isCritical ? 'bg-danger-100/40 text-danger-700 border-danger-600/20' : 'bg-primary-100/40 text-primary-700 border-primary-500/20'}`}>
-                      {isCritical ? <AlertTriangle size={14} /> : <Bell size={14} />}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-bold text-surface-800 leading-tight">{n.triggerName}</p>
-                      <p className="text-xs text-surface-400 mt-0.5 leading-relaxed">{n.description}</p>
-                    </div>
-                    <span className="text-[10px] font-bold text-surface-400 flex-shrink-0 whitespace-nowrap">{n.time?.slice(11) ?? n.time}</span>
-                  </div>
-                )
-              })}
-            </div>
+      <div className="space-y-5">
+        <div className="page-header">
+          <div>
+            <h2 className="page-title">Dashboard</h2>
           </div>
         </div>
-      </Skeleton>
+
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="flex-1 min-w-[280px]">
+            <DeviceSlaveSelector onChange={reload} />
+          </div>
+          <button type="button" className="btn-primary" onClick={handleDownload}>
+            <Download size={14} /> Download Data
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <MetricRangeCard icon={Zap} title="Total Power Consumption" value={fmt(m.totalPower)} unit="kWh" data={charts.totalPower} />
+          <MetricRangeCard icon={Zap} title="Total Export Power" value={fmt(m.exportPower)} unit="kWh" data={charts.exportPower} />
+          <MetricRangeCard icon={Zap} title="Voltage Imbalance (%)" value={fmt(m.voltageImbalance)} data={charts.voltageImbalance} />
+          <MetricRangeCard icon={Activity} title="Current Imbalance" value={fmt(m.currentImbalance)} data={charts.currentImbalance} />
+          <MetricRangeCard icon={Heart} title="Real Time Power Factor (Avg & Trend)" value={fmt(m.powerFactor)} data={charts.powerFactor} />
+          <MetricRangeCard icon={TrendingUp} title="Predicted Consumption" value={fmt(m.predicted)} data={charts.predicted} />
+          <MetricRangeCard
+            icon={AlertTriangle}
+            title="Anomalies Detected (Count & Type)"
+            emptyLabel={anomalyCount === 0 ? 'No anomalies detected' : undefined}
+            value={String(anomalyCount)}
+          />
+          <MetricRangeCard icon={Waves} title="THD-V" value={fmt(m.thdV)} unit="%" data={charts.thdV} />
+          <MetricRangeCard icon={Waves} title="THD-I" value={fmt(m.thdI)} unit="%" data={charts.thdI} />
+          <MetricRangeCard icon={Radio} title="Frequency" value={fmt(m.frequency)} unit="Hz" data={charts.frequency} />
+
+          {[1, 2].map((i) => (
+            <div key={i} className="card p-4 flex flex-col items-center justify-center text-center min-h-[180px]">
+              <ImageIcon size={28} className="text-surface-300 mb-2" />
+              <p className="text-xs text-surface-400">No Additional Metrics</p>
+            </div>
+          ))}
+        </div>
+      </div>
     </PageState>
   )
 }

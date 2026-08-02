@@ -1,280 +1,234 @@
-import { useState, useEffect } from 'react'
-import { ToggleInput } from '../../components/ui/FormFields'
+import { useState } from 'react'
+import DataTable from '../../components/ui/DataTable'
+import Modal from '../../components/ui/Modal'
 import PageState, { useFetch } from '../../components/ui/PageState'
-import { Globe, Shield, Bell, Database, Save } from 'lucide-react'
+import { TextInput, SelectInput, TextareaInput } from '../../components/ui/FormFields'
+import { Plus, Pencil, Trash2, Image as ImageIcon } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
 import { mapSetting } from '../../utils/mappers'
 import { useToast } from '../../context/ToastContext'
 
-const DEFAULTS = {
-  platform: {
-    name: 'CF Smart EMS', supportEmail: 'support@cfsmart.com',
-    supportPhone: '+92-300-0000000', language: 'English', timezone: 'Asia/Karachi',
-  },
-  security: {
-    sessionTimeout: '1 hour', twoFA: false,
-    passwordExpiry: '90', lockoutAttempts: '5',
-  },
-  notifications: {
-    email: true, sms: true, whatsapp: false, frequency: 'Instant',
-  },
-  dataSettings: {
-    retention: '1 year', autoExport: false, exportFormat: 'CSV',
-  },
-}
-
-function settingsToState(settings) {
-  const map = Object.fromEntries(settings.map((s) => [s.key, s.value]))
-  const get = (key, fallback) => map[key] ?? fallback
-  const getBool = (key, fallback) => {
-    const v = map[key]
-    if (v == null) return fallback
-    return v === 'true' || v === true
-  }
-  return {
-    platform: {
-      name: get('platform.name', DEFAULTS.platform.name),
-      supportEmail: get('platform.supportEmail', DEFAULTS.platform.supportEmail),
-      supportPhone: get('platform.supportPhone', DEFAULTS.platform.supportPhone),
-      language: get('platform.language', DEFAULTS.platform.language),
-      timezone: get('platform.timezone', DEFAULTS.platform.timezone),
-    },
-    security: {
-      sessionTimeout: get('security.sessionTimeout', DEFAULTS.security.sessionTimeout),
-      twoFA: getBool('security.twoFA', DEFAULTS.security.twoFA),
-      passwordExpiry: get('security.passwordExpiry', DEFAULTS.security.passwordExpiry),
-      lockoutAttempts: get('security.lockoutAttempts', DEFAULTS.security.lockoutAttempts),
-    },
-    notifications: {
-      email: getBool('notifications.email', DEFAULTS.notifications.email),
-      sms: getBool('notifications.sms', DEFAULTS.notifications.sms),
-      whatsapp: getBool('notifications.whatsapp', DEFAULTS.notifications.whatsapp),
-      frequency: get('notifications.frequency', DEFAULTS.notifications.frequency),
-    },
-    dataSettings: {
-      retention: get('data.retention', DEFAULTS.dataSettings.retention),
-      autoExport: getBool('data.autoExport', DEFAULTS.dataSettings.autoExport),
-      exportFormat: get('data.exportFormat', DEFAULTS.dataSettings.exportFormat),
-    },
-  }
-}
-
-function Section({ icon: Icon, title, description, children, onSave, saving }) {
-  return (
-    <div className="card p-6">
-      <div className="flex items-center justify-between mb-5 pb-4 border-b border-surface-200">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-primary-600/20 flex items-center justify-center">
-            <Icon size={18} className="text-primary-600" />
-          </div>
-          <div>
-            <h3 className="text-sm font-semibold text-surface-900">{title}</h3>
-            {description && <p className="text-xs text-surface-500 mt-0.5">{description}</p>}
-          </div>
-        </div>
-      </div>
-      <div className="space-y-4">
-        {children}
-      </div>
-      <div className="mt-5 pt-4 border-t border-surface-200 flex justify-end">
-        <button type="button" className="btn-primary text-xs" onClick={onSave} disabled={saving}>
-          <Save size={13} /> {saving ? 'Saving...' : 'Save'}
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function Field({ label, children }) {
-  return (
-    <div>
-      <label className="label">{label}</label>
-      {children}
-    </div>
-  )
-}
+const TYPES = ['Logo', 'Text', 'Number', 'Color']
+const blankForm = { key: '', type: 'Logo', value: '', description: '', file: null }
 
 export default function AdminSettings() {
   const { showToast } = useToast()
-  const { data: settings, loading, error, reload } = useFetch(
+  const { data: rows, loading, error, reload } = useFetch(
     async () => list(await emsApi.getSettings()).map(mapSetting),
     []
   )
 
-  const [saving, setSaving] = useState(null)
-  const [platform, setPlatform] = useState(DEFAULTS.platform)
-  const [security, setSecurity] = useState(DEFAULTS.security)
-  const [notifications, setNotifications] = useState(DEFAULTS.notifications)
-  const [dataSettings, setDataSettings] = useState(DEFAULTS.dataSettings)
+  const [modal, setModal] = useState(null)
+  const [selected, setSelected] = useState(null)
+  const [form, setForm] = useState(blankForm)
+  const [saving, setSaving] = useState(false)
 
-  useEffect(() => {
-    if (settings) {
-      const state = settingsToState(settings)
-      setPlatform(state.platform)
-      setSecurity(state.security)
-      setNotifications(state.notifications)
-      setDataSettings(state.dataSettings)
+  const [typeFilter, setTypeFilter] = useState('')
+  const [keyQuery, setKeyQuery] = useState('')
+  const [applied, setApplied] = useState({ type: '', key: '' })
+
+  const openAdd = () => { setForm(blankForm); setSelected(null); setModal('add') }
+  const openEdit = (row) => {
+    setSelected(row)
+    setForm({
+      key: row.key,
+      type: row.type || 'Text',
+      value: row.type === 'Logo' ? '' : (row.value ?? ''),
+      description: row.description ?? '',
+      file: null,
+    })
+    setModal('edit')
+  }
+  const close = () => { setModal(null); setSelected(null) }
+
+  const handleSave = async () => {
+    if (!form.key.trim()) return
+    if (form.type === 'Logo' && modal === 'add' && !form.file) {
+      showToast('Please upload an image for Logo settings.', 'warning')
+      return
     }
-  }, [settings])
-
-  const saveSection = async (section, entries) => {
-    setSaving(section)
+    setSaving(true)
     try {
-      await Promise.all(entries.map(([key, value]) =>
-        emsApi.updateSetting(key, String(value))
-      ))
-      showToast(`${section} settings saved successfully`, 'success')
+      const key = form.key.trim()
+      if (form.type === 'Logo' && form.file) {
+        const fd = new FormData()
+        fd.append('type', form.type)
+        fd.append('description', form.description || '')
+        fd.append('imageFile', form.file)
+        await emsApi.upsertSetting(key, fd)
+      } else if (form.type === 'Logo') {
+        await emsApi.upsertSetting(key, {
+          type: form.type,
+          description: form.description || '',
+          ...(selected?.value ? { value: selected.value } : {}),
+        })
+      } else {
+        await emsApi.upsertSetting(key, {
+          type: form.type,
+          value: form.value,
+          description: form.description || '',
+        })
+      }
+      showToast(modal === 'add' ? 'Setting created successfully' : 'Setting updated successfully')
+      close()
       reload()
     } catch (e) {
       showToast(e.message || 'Save failed', 'error')
     } finally {
-      setSaving(null)
+      setSaving(false)
     }
   }
+
+  const handleDelete = async (row) => {
+    if (!confirm(`Delete setting "${row.key}"?`)) return
+    try {
+      await emsApi.deleteSetting(row.key)
+      showToast('Setting deleted', 'success')
+    } catch (e) {
+      if (e.status === 404) showToast('Setting was already deleted', 'info')
+      else showToast(e.message || 'Delete failed', 'error')
+    } finally {
+      reload()
+    }
+  }
+
+  const handleQuery = () => setApplied({ type: typeFilter, key: keyQuery })
+
+  const filtered = (rows ?? []).filter((r) =>
+    (!applied.type || r.type === applied.type)
+    && (!applied.key || r.key.toLowerCase().includes(applied.key.toLowerCase()))
+  )
+
+  const columns = [
+    { key: 'key', label: 'Key', render: (v) => <span className="text-primary-600 font-medium">{v}</span> },
+    { key: 'type', label: 'Type', render: (v) => <span className="badge badge-info">{v}</span> },
+    {
+      key: 'preview',
+      label: 'Value Preview',
+      sortable: false,
+      render: (v, row) => {
+        if (v) {
+          return <img src={v} alt="preview" className="w-10 h-10 rounded-lg object-cover border border-surface-200" />
+        }
+        if (row.type === 'Logo') {
+          return (
+            <div className="w-10 h-10 rounded-lg bg-surface-100 dark:bg-surface-950 flex items-center justify-center text-surface-400">
+              <ImageIcon size={16} />
+            </div>
+          )
+        }
+        return <span className="text-xs text-surface-600 truncate max-w-[140px] block" title={row.value}>{row.value || '—'}</span>
+      },
+    },
+    { key: 'description', label: 'Description', render: (v) => <span className="text-xs text-surface-500">{v || '—'}</span> },
+    { key: 'updatedAt', label: 'Last Updated' },
+  ]
 
   return (
     <PageState loading={loading} error={error} onRetry={reload}>
       <div>
         <div className="page-header">
           <div>
-            <h2 className="page-title">Settings</h2>
-            <p className="breadcrumb">Admin / System / Settings</p>
+            <h2 className="page-title">Manage Settings</h2>
+            <p className="breadcrumb">Manage Settings &ndash; List</p>
+          </div>
+          <button type="button" className="btn-primary" onClick={openAdd}>
+            <Plus size={15} /> Add Setting
+          </button>
+        </div>
+
+        <div className="card p-4 mb-5">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="w-44">
+              <SelectInput
+                label="Setting Type"
+                placeholder="Setting Type"
+                value={typeFilter}
+                onChange={(e) => setTypeFilter(e.target.value)}
+                options={TYPES}
+              />
+            </div>
+            <div className="flex-1 min-w-48">
+              <TextInput
+                label="Key"
+                placeholder="Search by key..."
+                value={keyQuery}
+                onChange={(e) => setKeyQuery(e.target.value)}
+              />
+            </div>
+            <button type="button" className="btn-primary" onClick={handleQuery}>Query</button>
           </div>
         </div>
 
-        <div className="space-y-6 max-w-2xl">
-          <Section icon={Globe} title="Platform Settings" description="General platform configuration"
-            saving={saving === 'Platform'}
-            onSave={() => saveSection('Platform', [
-              ['platform.name', platform.name],
-              ['platform.supportEmail', platform.supportEmail],
-              ['platform.supportPhone', platform.supportPhone],
-              ['platform.language', platform.language],
-              ['platform.timezone', platform.timezone],
-            ])}>
-            <Field label="Platform Name">
-              <input className="input" value={platform.name}
-                onChange={(e) => setPlatform((p) => ({ ...p, name: e.target.value }))} />
-            </Field>
-            <Field label="Support Email">
-              <input className="input" type="email" value={platform.supportEmail}
-                onChange={(e) => setPlatform((p) => ({ ...p, supportEmail: e.target.value }))} />
-            </Field>
-            <Field label="Support Phone">
-              <input className="input" value={platform.supportPhone}
-                onChange={(e) => setPlatform((p) => ({ ...p, supportPhone: e.target.value }))} />
-            </Field>
-            <Field label="Default Language">
-              <select className="select" value={platform.language}
-                onChange={(e) => setPlatform((p) => ({ ...p, language: e.target.value }))}>
-                <option>English</option>
-                <option>Urdu</option>
-                <option>Arabic</option>
-              </select>
-            </Field>
-            <Field label="Timezone">
-              <select className="select" value={platform.timezone}
-                onChange={(e) => setPlatform((p) => ({ ...p, timezone: e.target.value }))}>
-                <option>Asia/Karachi</option>
-                <option>UTC</option>
-                <option>Asia/Dubai</option>
-              </select>
-            </Field>
-          </Section>
+        <DataTable
+          columns={columns}
+          data={filtered}
+          searchPlaceholder="Search settings..."
+          actions={(row) => (
+            <>
+              <button type="button" className="btn-ghost p-1.5" onClick={() => openEdit(row)} title="Edit"><Pencil size={14} /></button>
+              <button type="button" className="btn-danger p-1.5" onClick={() => handleDelete(row)} title="Delete"><Trash2 size={14} /></button>
+            </>
+          )}
+        />
 
-          <Section icon={Shield} title="Security Settings" description="Authentication and access control"
-            saving={saving === 'Security'}
-            onSave={() => saveSection('Security', [
-              ['security.sessionTimeout', security.sessionTimeout],
-              ['security.twoFA', security.twoFA],
-              ['security.passwordExpiry', security.passwordExpiry],
-              ['security.lockoutAttempts', security.lockoutAttempts],
-            ])}>
-            <Field label="Session Timeout">
-              <select className="select" value={security.sessionTimeout}
-                onChange={(e) => setSecurity((s) => ({ ...s, sessionTimeout: e.target.value }))}>
-                <option>30 minutes</option>
-                <option>1 hour</option>
-                <option>4 hours</option>
-                <option>8 hours</option>
-              </select>
-            </Field>
-            <ToggleInput
-              label="Two-Factor Authentication"
-              description="Require 2FA for all admin logins"
-              checked={security.twoFA}
-              onChange={(v) => setSecurity((s) => ({ ...s, twoFA: v }))}
+        <Modal
+          open={modal === 'add' || modal === 'edit'}
+          onClose={close}
+          title={modal === 'add' ? 'Add Setting' : 'Edit Setting'}
+          footer={
+            <>
+              <button type="button" className="btn-secondary" onClick={close}>Cancel</button>
+              <button type="button" className="btn-primary" onClick={handleSave} disabled={saving}>
+                {saving ? 'Saving...' : modal === 'add' ? 'Create' : 'Save Changes'}
+              </button>
+            </>
+          }
+        >
+          <div className="space-y-4">
+            <TextInput
+              label="Key"
+              required
+              placeholder="e.g. AdminLoginLogo"
+              value={form.key}
+              disabled={modal === 'edit'}
+              onChange={(e) => setForm((f) => ({ ...f, key: e.target.value }))}
             />
-            <Field label="Password Expiry Days">
-              <input className="input" type="number" value={security.passwordExpiry}
-                onChange={(e) => setSecurity((s) => ({ ...s, passwordExpiry: e.target.value }))} />
-            </Field>
-            <Field label="Failed Login Attempts Before Lockout">
-              <select className="select" value={security.lockoutAttempts}
-                onChange={(e) => setSecurity((s) => ({ ...s, lockoutAttempts: e.target.value }))}>
-                <option>3</option>
-                <option>5</option>
-                <option>10</option>
-              </select>
-            </Field>
-          </Section>
-
-          <Section icon={Bell} title="Notification Settings" description="Control how alerts are delivered"
-            saving={saving === 'Notification'}
-            onSave={() => saveSection('Notification', [
-              ['notifications.email', notifications.email],
-              ['notifications.sms', notifications.sms],
-              ['notifications.whatsapp', notifications.whatsapp],
-              ['notifications.frequency', notifications.frequency],
-            ])}>
-            <ToggleInput label="Email Notifications" checked={notifications.email}
-              onChange={(v) => setNotifications((n) => ({ ...n, email: v }))} />
-            <ToggleInput label="SMS Notifications" checked={notifications.sms}
-              onChange={(v) => setNotifications((n) => ({ ...n, sms: v }))} />
-            <ToggleInput label="WhatsApp Notifications" checked={notifications.whatsapp}
-              onChange={(v) => setNotifications((n) => ({ ...n, whatsapp: v }))} />
-            <Field label="Notification Frequency">
-              <select className="select" value={notifications.frequency}
-                onChange={(e) => setNotifications((n) => ({ ...n, frequency: e.target.value }))}>
-                <option>Instant</option>
-                <option>Hourly Digest</option>
-                <option>Daily Digest</option>
-              </select>
-            </Field>
-          </Section>
-
-          <Section icon={Database} title="Data Settings" description="Data retention and export preferences"
-            saving={saving === 'Data'}
-            onSave={() => saveSection('Data', [
-              ['data.retention', dataSettings.retention],
-              ['data.autoExport', dataSettings.autoExport],
-              ['data.exportFormat', dataSettings.exportFormat],
-            ])}>
-            <Field label="Data Retention Period">
-              <select className="select" value={dataSettings.retention}
-                onChange={(e) => setDataSettings((d) => ({ ...d, retention: e.target.value }))}>
-                <option>30 days</option>
-                <option>90 days</option>
-                <option>1 year</option>
-                <option>Forever</option>
-              </select>
-            </Field>
-            <ToggleInput
-              label="Auto Export Data"
-              description="Automatically export data on a scheduled basis"
-              checked={dataSettings.autoExport}
-              onChange={(v) => setDataSettings((d) => ({ ...d, autoExport: v }))}
+            <SelectInput
+              label="Type"
+              value={form.type}
+              onChange={(e) => setForm((f) => ({ ...f, type: e.target.value, file: null, value: '' }))}
+              options={TYPES}
             />
-            <Field label="Export Format">
-              <select className="select" value={dataSettings.exportFormat}
-                onChange={(e) => setDataSettings((d) => ({ ...d, exportFormat: e.target.value }))}>
-                <option>CSV</option>
-                <option>Excel</option>
-                <option>JSON</option>
-              </select>
-            </Field>
-          </Section>
-        </div>
+            {form.type === 'Logo' ? (
+              <div>
+                <label className="label">Upload Image</label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="w-full text-sm text-surface-400 file:mr-4 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-primary-600 file:text-white hover:file:bg-primary-700 cursor-pointer"
+                  onChange={(e) => setForm((f) => ({ ...f, file: e.target.files?.[0] ?? null }))}
+                />
+                {modal === 'edit' && selected?.preview && !form.file && (
+                  <img src={selected.preview} alt="current" className="mt-2 w-16 h-16 rounded-lg object-cover border border-surface-200" />
+                )}
+              </div>
+            ) : (
+              <TextInput
+                label="Value"
+                placeholder="Setting value"
+                value={form.value}
+                onChange={(e) => setForm((f) => ({ ...f, value: e.target.value }))}
+              />
+            )}
+            <TextareaInput
+              label="Description"
+              placeholder="What this setting controls..."
+              value={form.description}
+              onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+            />
+          </div>
+        </Modal>
       </div>
     </PageState>
   )
