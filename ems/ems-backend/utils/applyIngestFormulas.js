@@ -9,7 +9,7 @@ const {
 } = require('./formulaEngine')
 
 /**
- * @param {Array} configVars - DeviceConfigVariable rows with templateVariable + deviceConfigSlave
+ * @param {Array} configVars - DeviceConfigVariable rows with templateVariable + configSlave
  * @param {Array<{variableName, value}>} readings - raw ingest readings
  * @returns {Array<{variableName, value}>} computed readings (includes equation vars)
  */
@@ -25,7 +25,7 @@ const applyIngestFormulas = (configVars, readings) => {
 
   const slaveNameOf = (cv) =>
     cv.templateVariable?.templateSlave?.name ||
-    cv.deviceConfigSlave?.name ||
+    cv.configSlave?.name ||
     ''
 
   // 1) Direct variables from payload (+ acquisition formula)
@@ -116,7 +116,7 @@ const CONFIG_VAR_INCLUDE = {
       templateSlave: { select: { name: true } },
     },
   },
-  deviceConfigSlave: { select: { name: true } },
+  configSlave: { select: { name: true } },
 }
 
 module.exports = { applyIngestFormulas, CONFIG_VAR_INCLUDE }
