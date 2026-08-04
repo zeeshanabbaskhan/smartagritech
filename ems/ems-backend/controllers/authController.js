@@ -150,13 +150,25 @@ const impersonate = async (req, res, next) => {
         select: userSelect,
       })
     } else {
-      // Login-as-Organization must land on an active ORG_ADMIN (never a random USER).
+      // Prefer ORG_ADMIN for org-level impersonation; if none exists, fall back to
+      // any active non-super-admin user so the org portal remains reachable.
       target = await prisma.user.findFirst({
         where: { organizationId, role: 'ORG_ADMIN', status: 'ACTIVE' },
         select: userSelect,
       })
       if (!target) {
-        return next(new AppError('No active Org Admin found for this organization', 404))
+        target = await prisma.user.findFirst({
+          where: {
+            organizationId,
+            status: 'ACTIVE',
+            role: { not: 'SUPER_ADMIN' },
+          },
+          orderBy: { createdAt: 'asc' },
+          select: userSelect,
+        })
+      }
+      if (!target) {
+        return next(new AppError('No active user found for this organization', 404))
       }
     }
 

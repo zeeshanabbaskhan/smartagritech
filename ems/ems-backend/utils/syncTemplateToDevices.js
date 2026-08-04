@@ -55,17 +55,25 @@ const syncTemplateToDevices = async (templateId) => {
           include: { configVariables: { select: { id: true, templateVariableId: true } } },
         })
         slavesAdded += 1
-      } else if (!configSlave.templateSlaveId) {
-        configSlave = await prisma.deviceConfigSlave.update({
-          where: { id: configSlave.id },
-          data: {
-            templateSlaveId: tSlave.id,
-            name: tSlave.name,
-            description: tSlave.description,
-            isDefault: tSlave.isDefault,
-          },
-          include: { configVariables: { select: { id: true, templateVariableId: true } } },
-        })
+      } else {
+        // Keep provisioned slave metadata in sync with template (name/default/etc.)
+        const needsMeta =
+          !configSlave.templateSlaveId ||
+          configSlave.name !== tSlave.name ||
+          configSlave.description !== tSlave.description ||
+          configSlave.isDefault !== tSlave.isDefault
+        if (needsMeta) {
+          configSlave = await prisma.deviceConfigSlave.update({
+            where: { id: configSlave.id },
+            data: {
+              templateSlaveId: tSlave.id,
+              name: tSlave.name,
+              description: tSlave.description,
+              isDefault: tSlave.isDefault,
+            },
+            include: { configVariables: { select: { id: true, templateVariableId: true } } },
+          })
+        }
       }
 
       const existingVarIds = new Set(

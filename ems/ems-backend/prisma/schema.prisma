@@ -147,6 +147,7 @@ model DeviceTemplateSlave {
   organizationId String
   name           String
   description    String?
+  protocol       String?
   isDefault      Boolean  @default(false)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -161,19 +162,47 @@ model DeviceTemplateSlave {
 }
 
 model DeviceTemplateVariable {
-  id              String   @id @default(uuid())
-  templateSlaveId String
-  templateId      String
-  organizationId  String
-  name            String
-  displayName     String?
-  unit            String?
-  registerAddress String?
-  iconId          String?
-  dataType        DataType @default(FLOAT)
-  isActive        Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                   String       @id @default(uuid())
+  templateSlaveId      String
+  templateId           String
+  organizationId       String
+  name                 String
+  displayName          String?
+  unit                 String?
+  registerAddress      String?
+  iconId               String?
+  dataType             DataType     @default(FLOAT)
+  isActive             Boolean      @default(true)
+  sortNumber           Int?
+  identifier           String?
+  machineId            String?
+  machineControl       String?
+  iconLabel            String?
+  lineChartColor       String?
+  lineChartLimit       String?
+  lowLimitLineChart    String?
+  peakTimeStart        String?
+  peakTimeEnd          String?
+  peakOffTimeStart     String?
+  peakOffTimeEnd       String?
+  peakTimeColor        String?
+  peakOffTimeColor     String?
+  variableType         VariableType @default(DIRECT)
+  registerFuncCode     String?
+  dataFormat           String?
+  numberFormat         String?
+  decimalPlacesPadding Boolean      @default(false)
+  storageVariable      Boolean      @default(true)
+  storageTiming        Boolean      @default(true)
+  readWrite            String?
+  acquisitionFormula   String?
+  controlFormula       String?
+  mainPageSelection    Boolean      @default(false)
+  sortOrder            Int?
+  defaultUnitSelection Boolean      @default(false)
+  equationSlaveIds     Json?
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
 
   templateSlave      DeviceTemplateSlave    @relation(fields: [templateSlaveId], references: [id], onDelete: Cascade)
   icon               Icon?                  @relation(fields: [iconId], references: [id])
@@ -192,6 +221,11 @@ enum DataType {
   INTEGER
   BOOLEAN
   STRING
+}
+
+enum VariableType {
+  DIRECT
+  EQUATION
 }
 
 model Device {

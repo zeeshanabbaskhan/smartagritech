@@ -1,10 +1,12 @@
 // ─── Ingest persistence service ───────────────────────────────────────────────
 // P-06 bulk SQL, P-09 Redis latest + optional PG skip, P-14 narrow values, P-29 device room emit.
+// Formulas: acquisition (=s/100) + equation (Slave$$Var) applied before currentValue writes.
 
 const crypto = require('crypto')
 const prisma = require('../config/database')
 const redis  = require('../config/redis')
 const { markDirty } = require('./valueFlushService')
+const { applyIngestFormulas, CONFIG_VAR_INCLUDE } = require('../utils/applyIngestFormulas')
 
 const enqueueAnomaly = (payload) => {
   try {
@@ -41,7 +43,6 @@ const emitReading = (organizationId, deviceId, readings, now) => {
     io = getIO()
     const last = lastEmitByDevice.get(deviceId) || 0
     if (Date.now() - last >= EMIT_DEBOUNCE_MS) {
-      // P-29: device room only for readings; org room reserved for alarms
       io.to(`device_${deviceId}`).emit('reading:new', { deviceId, readings, timestamp: now })
       lastEmitByDevice.set(deviceId, Date.now())
     }
@@ -92,12 +93,20 @@ const insertReadingValues = async (tx, sensorReadingId, payload, now) => {
   if (rows.length) await tx.sensorReadingValue.createMany({ data: rows })
 }
 
+const loadConfigVars = (deviceId) =>
+  prisma.deviceConfigVariable.findMany({
+    where: { deviceId },
+    include: CONFIG_VAR_INCLUDE,
+  })
+
 const persistIngest = async ({ deviceId, slaveId, readings, organizationId }) => {
   const now = Date.now()
   const ts  = new Date(now)
 
-  const configVars = await prisma.deviceConfigVariable.findMany({ where: { deviceId } })
-  const varUpdates = buildVarUpdates(configVars, readings)
+  const configVars = await loadConfigVars(deviceId)
+  // Raw stays in SensorReading.readings; computed drives currentValue / values / redis / socket
+  const computed = applyIngestFormulas(configVars, readings)
+  const varUpdates = buildVarUpdates(configVars, computed)
 
   const sensorReading = await prisma.$transaction(async (tx) => {
     const reading = await tx.sensorReading.create({
@@ -121,11 +130,11 @@ const persistIngest = async ({ deviceId, slaveId, readings, organizationId }) =>
       create: { deviceId, organizationId, lastActiveAt: ts },
     })
     await bulkUpdateVariables(tx, deviceId, varUpdates, ts)
-    await insertReadingValues(tx, reading.id, { deviceId, slaveId, readings, organizationId }, ts)
+    await insertReadingValues(tx, reading.id, { deviceId, slaveId, readings: computed, organizationId }, ts)
     return { reading, goOnline }
   })
 
-  await cacheLatestValues(deviceId, readings)
+  await cacheLatestValues(deviceId, computed)
   if (sensorReading.goOnline) {
     try {
       const { emitDeviceStatus } = require('./devicePresenceService')
@@ -135,7 +144,12 @@ const persistIngest = async ({ deviceId, slaveId, readings, organizationId }) =>
       })
     } catch (_) {}
   }
-  return { sensorReading: sensorReading.reading, now: ts, goOnline: sensorReading.goOnline }
+  return {
+    sensorReading: sensorReading.reading,
+    now: ts,
+    goOnline: sensorReading.goOnline,
+    computedReadings: computed,
+  }
 }
 
 /** Batch persist for BullMQ worker (P-08, P-10). */
@@ -144,22 +158,38 @@ const processIngestBatch = async (payloads) => {
   if (payloads.length === 1) return processIngest(payloads[0])
 
   const now = new Date()
+  const deviceIds = [...new Set(payloads.map((p) => p.deviceId))]
+  const allConfigVars = await prisma.deviceConfigVariable.findMany({
+    where: { deviceId: { in: deviceIds } },
+    include: CONFIG_VAR_INCLUDE,
+  })
+  const varsByDevice = {}
+  for (const v of allConfigVars) {
+    if (!varsByDevice[v.deviceId]) varsByDevice[v.deviceId] = []
+    varsByDevice[v.deviceId].push(v)
+  }
+
+  const computedByPayload = payloads.map((p) => ({
+    ...p,
+    computed: applyIngestFormulas(varsByDevice[p.deviceId] ?? [], p.readings),
+  }))
+
   const readingRows = payloads.map((p) => ({
     id:                  crypto.randomUUID(),
     deviceId:            p.deviceId,
     deviceConfigSlaveId: p.slaveId || null,
     organizationId:      p.organizationId,
-    readings:            p.readings,
+    readings:            p.readings, // raw
     timestamp:           now,
   }))
 
   await prisma.sensorReading.createMany({ data: readingRows })
 
   const valueRows = []
-  for (const row of readingRows) {
-    const payload = payloads.find((p) => p.deviceId === row.deviceId && p.organizationId === row.organizationId)
-    if (!payload) continue
-    for (const r of payload.readings) {
+  for (let i = 0; i < readingRows.length; i++) {
+    const row = readingRows[i]
+    const computed = computedByPayload[i].computed
+    for (const r of computed) {
       const num = parseFloat(r.value)
       if (r.variableName == null || Number.isNaN(num)) continue
       valueRows.push({
@@ -177,24 +207,14 @@ const processIngestBatch = async (payloads) => {
   if (valueRows.length) await prisma.sensorReadingValue.createMany({ data: valueRows })
 
   if (!skipPgCurrentValue()) {
-    const deviceIds = [...new Set(payloads.map((p) => p.deviceId))]
-    const allConfigVars = await prisma.deviceConfigVariable.findMany({
-      where: { deviceId: { in: deviceIds } },
-    })
-    const varsByDevice = {}
-    for (const v of allConfigVars) {
-      if (!varsByDevice[v.deviceId]) varsByDevice[v.deviceId] = []
-      varsByDevice[v.deviceId].push(v)
-    }
     await prisma.$transaction(async (tx) => {
-      for (const p of payloads) {
-        const updates = buildVarUpdates(varsByDevice[p.deviceId] ?? [], p.readings)
+      for (const p of computedByPayload) {
+        const updates = buildVarUpdates(varsByDevice[p.deviceId] ?? [], p.computed)
         await bulkUpdateVariables(tx, p.deviceId, updates, now)
       }
     })
   }
 
-  const deviceIds = [...new Set(payloads.map((p) => p.deviceId))]
   const switchRows = await prisma.device.findMany({
     where: { id: { in: deviceIds } },
     select: { id: true, switchState: true },
@@ -221,9 +241,9 @@ const processIngestBatch = async (payloads) => {
     }),
   ])
 
-  for (const p of payloads) {
-    await cacheLatestValues(p.deviceId, p.readings)
-    emitReading(p.organizationId, p.deviceId, p.readings, now)
+  for (const p of computedByPayload) {
+    await cacheLatestValues(p.deviceId, p.computed)
+    emitReading(p.organizationId, p.deviceId, p.computed, now)
     if (switchById[p.deviceId] !== 'OFF') {
       try {
         const { emitDeviceStatus } = require('./devicePresenceService')
@@ -236,15 +256,18 @@ const processIngestBatch = async (payloads) => {
     enqueueAnomaly({
       deviceId: p.deviceId,
       organizationId: p.organizationId,
-      readings: p.readings,
+      readings: p.computed,
     })
   }
 }
 
 const processIngest = async ({ deviceId, slaveId, readings, organizationId }) => {
-  const { sensorReading, now } = await persistIngest({ deviceId, slaveId, readings, organizationId })
-  const io = emitReading(organizationId, deviceId, readings, now)
-  enqueueAnomaly({ deviceId, organizationId, readings, io: !!io })
+  const { sensorReading, now, computedReadings } = await persistIngest({
+    deviceId, slaveId, readings, organizationId,
+  })
+  const computed = computedReadings || readings
+  const io = emitReading(organizationId, deviceId, computed, now)
+  enqueueAnomaly({ deviceId, organizationId, readings: computed, io: !!io })
   return sensorReading
 }
 

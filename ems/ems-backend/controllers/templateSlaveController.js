@@ -7,8 +7,6 @@ const { paginate } = require('../utils/helpers')
 const refCache = require('../utils/referenceCache')
 const { syncTemplateToDevices } = require('../utils/syncTemplateToDevices')
 
-// Slaves change the template's totalSlaves/totalVariables counts, which the
-// cached templates list reflects — clear both viewer-org buckets + the template.
 const invalidateTemplateCaches = async (organizationId, templateId) => {
   await refCache.invalidateOrg('all')
   if (organizationId) await refCache.invalidateOrg(organizationId)
@@ -16,7 +14,6 @@ const invalidateTemplateCaches = async (organizationId, templateId) => {
 }
 
 // @desc  List slaves for a template
-// @access SUPER_ADMIN | ORG_ADMIN
 const getSlaves = async (req, res, next) => {
   try {
     const { page, limit, skip } = paginate(req.query)
@@ -35,10 +32,9 @@ const getSlaves = async (req, res, next) => {
 }
 
 // @desc  Create a slave; if isDefault is true, clears existing default first
-// @access SUPER_ADMIN | ORG_ADMIN
 const createSlave = async (req, res, next) => {
   try {
-    const { name, description, isDefault } = req.body
+    const { name, description, protocol, isDefault } = req.body
     const { templateId } = req.params
 
     const template = await prisma.deviceTemplate.findUnique({ where: { id: templateId } })
@@ -49,7 +45,14 @@ const createSlave = async (req, res, next) => {
         await tx.deviceTemplateSlave.updateMany({ where: { templateId }, data: { isDefault: false } })
       }
       const slave = await tx.deviceTemplateSlave.create({
-        data: { templateId, organizationId: template.organizationId, name, description, isDefault: !!isDefault },
+        data: {
+          templateId,
+          organizationId: template.organizationId,
+          name,
+          description,
+          protocol: protocol || null,
+          isDefault: !!isDefault,
+        },
       })
       await tx.deviceTemplate.update({ where: { id: templateId }, data: { totalSlaves: { increment: 1 } } })
       return slave
@@ -62,11 +65,10 @@ const createSlave = async (req, res, next) => {
 }
 
 // @desc  Update a slave; if isDefault is set, clears other defaults first
-// @access SUPER_ADMIN | ORG_ADMIN
 const updateSlave = async (req, res, next) => {
   try {
     const { slaveId, templateId } = req.params
-    const { name, description, isDefault } = req.body
+    const { name, description, protocol, isDefault } = req.body
 
     const existing = await prisma.deviceTemplateSlave.findFirst({ where: { id: slaveId, templateId } })
     if (!existing) return next(new AppError('Slave not found', 404))
@@ -78,16 +80,24 @@ const updateSlave = async (req, res, next) => {
           data:  { isDefault: false },
         })
       }
-      return tx.deviceTemplateSlave.update({ where: { id: slaveId }, data: { name, description, isDefault } })
+      return tx.deviceTemplateSlave.update({
+        where: { id: slaveId },
+        data: {
+          name,
+          description,
+          ...(protocol !== undefined ? { protocol } : {}),
+          isDefault,
+        },
+      })
     })
 
     await invalidateTemplateCaches(existing.organizationId, templateId)
-    res.json({ success: true, data })
+    const sync = await syncTemplateToDevices(templateId)
+    res.json({ success: true, data, sync })
   } catch (err) { next(err) }
 }
 
 // @desc  Delete a slave; blocked when provisioned devices use it
-// @access SUPER_ADMIN | ORG_ADMIN
 const deleteSlave = async (req, res, next) => {
   try {
     const { slaveId, templateId } = req.params
@@ -98,13 +108,22 @@ const deleteSlave = async (req, res, next) => {
     const inUse = await prisma.deviceConfigSlave.count({ where: { templateSlaveId: slaveId } })
     if (inUse) return next(new AppError('Cannot delete: slave is in use by provisioned devices.', 400))
 
+    const varCount = await prisma.deviceTemplateVariable.count({ where: { templateSlaveId: slaveId } })
+
     await prisma.$transaction([
       prisma.deviceTemplateSlave.delete({ where: { id: slaveId } }),
-      prisma.deviceTemplate.update({ where: { id: templateId }, data: { totalSlaves: { decrement: 1 } } }),
+      prisma.deviceTemplate.update({
+        where: { id: templateId },
+        data: {
+          totalSlaves: { decrement: 1 },
+          ...(varCount ? { totalVariables: { decrement: varCount } } : {}),
+        },
+      }),
     ])
 
     await invalidateTemplateCaches(existing.organizationId, templateId)
-    res.json({ success: true, message: 'Slave deleted' })
+    const sync = await syncTemplateToDevices(templateId)
+    res.json({ success: true, message: 'Slave deleted', sync })
   } catch (err) { next(err) }
 }
 
