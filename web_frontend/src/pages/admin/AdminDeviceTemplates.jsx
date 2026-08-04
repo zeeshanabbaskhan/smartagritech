@@ -166,7 +166,7 @@ export default function AdminDeviceTemplates() {
             <>
               <button type="button" className="btn-ghost p-1.5" onClick={() => openView(row)} title="View"><Eye size={14} /></button>
               <button type="button" className="btn-ghost p-1.5" onClick={() => openEdit(row)} title="Edit"><Pencil size={14} /></button>
-              <button type="button" className="btn-ghost p-1.5 text-info-600" onClick={() => navigate(`/admin/device-templates/${row.id}`)} title="Slaves & Variables"><List size={14} /></button>
+              <button type="button" className="btn-ghost p-1.5 text-info-600" onClick={() => navigate(`/admin/device-templates/${row.id}/slaves`)} title="Slaves & Variables"><List size={14} /></button>
               <button type="button" className="btn-danger p-1.5" onClick={() => handleDelete(row)} title="Delete"><Trash2 size={14} /></button>
             </>
           )}

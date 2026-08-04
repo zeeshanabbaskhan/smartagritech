@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { ThemeProvider } from './context/ThemeContext'
 import { DeviceProvider } from './context/DeviceContext'
@@ -18,6 +18,7 @@ import AdminGateways       from './pages/admin/AdminGateways'
 import AdminMqttBridges       from './pages/admin/AdminMqttBridges'
 import AdminDevices           from './pages/admin/AdminDevices'
 import AdminDeviceTemplates   from './pages/admin/AdminDeviceTemplates'
+import AdminDeviceTemplateSlaves from './pages/admin/AdminDeviceTemplateSlaves'
 import AdminManageIcons       from './pages/admin/AdminManageIcons'
 import AdminProducts          from './pages/admin/AdminProducts'
 import AdminDataCenter        from './pages/admin/AdminDataCenter'
@@ -37,6 +38,7 @@ import OrgDashboard        from './pages/org/OrgDashboard'
 import OrgDevices          from './pages/org/OrgDevices'
 import OrgGateways            from './pages/org/OrgGateways'
 import OrgDeviceTemplates     from './pages/org/OrgDeviceTemplates'
+import OrgDeviceTemplateSlaves from './pages/org/OrgDeviceTemplateSlaves'
 import OrgHistoricalData      from './pages/org/OrgHistoricalData'
 import OrgTemplateTriggers    from './pages/org/OrgTemplateTriggers'
 import OrgAlarmSettings       from './pages/org/OrgAlarmSettings'
@@ -65,7 +67,6 @@ import DeviceDetailPage       from './pages/shared/DeviceDetailPage'
 import DashboardList          from './pages/shared/DashboardList'
 import DashboardEditor        from './pages/shared/DashboardEditor'
 
-import TemplateDetailPage     from './pages/shared/TemplateDetailPage'
 import AdminAccessGroups      from './pages/admin/AdminAccessGroups'
 import AdminDeviceGroups      from './pages/admin/AdminDeviceGroups'
 import OrgAccessGroups        from './pages/org/OrgAccessGroups'
@@ -83,6 +84,12 @@ function ProtectedRoute({ children, requiredRole }) {
   if (!user) return <Navigate to="/login" replace />
   if (requiredRole && user.role !== requiredRole) return <Navigate to={`/${user.role}`} replace />
   return children
+}
+
+/** Legacy template detail URL → portal slaves path */
+function RedirectTemplateToSlaves({ basePath }) {
+  const { templateId } = useParams()
+  return <Navigate to={`${basePath}/device-templates/${templateId}/slaves`} replace />
 }
 
 function AppRoutes() {
@@ -113,6 +120,8 @@ function AppRoutes() {
         <Route path="gateways"          element={<AdminGateways />} />
         <Route path="devices"           element={<AdminDevices />} />
         <Route path="device-templates"  element={<AdminDeviceTemplates />} />
+        <Route path="device-templates/:templateId/slaves" element={<AdminDeviceTemplateSlaves />} />
+        <Route path="device-templates/:templateId" element={<RedirectTemplateToSlaves basePath="/admin" />} />
         <Route path="access-groups"     element={<AdminAccessGroups />} />
         <Route path="device-groups"     element={<AdminDeviceGroups />} />
         <Route path="icons"             element={<AdminManageIcons />} />
@@ -148,7 +157,8 @@ function AppRoutes() {
         <Route path="gateways"          element={<OrgGateways />} />
         <Route path="mqtt-bridges"      element={<AdminMqttBridges basePath="/org" />} />
         <Route path="device-templates"  element={<OrgDeviceTemplates />} />
-        <Route path="device-templates/:templateId" element={<TemplateDetailPage basePath="/org" />} />
+        <Route path="device-templates/:templateId/slaves" element={<OrgDeviceTemplateSlaves />} />
+        <Route path="device-templates/:templateId" element={<RedirectTemplateToSlaves basePath="/org" />} />
         <Route path="ai-analytics"      element={<Navigate to="/org/ai-analytics/voltage-imbalance" replace />} />
         <Route path="ai-analytics/voltage-imbalance"  element={<OrgVoltageImbalance />} />
         <Route path="ai-analytics/current-imbalance"  element={<OrgCurrentImbalance />} />

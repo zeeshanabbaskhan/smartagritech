@@ -35,6 +35,10 @@ const emsApi = {
     api.put(`/device-templates/${templateId}/slaves/${slaveId}/variables/${variableId}`, body),
   deleteTemplateVariable: (templateId, slaveId, variableId) =>
     api.delete(`/device-templates/${templateId}/slaves/${slaveId}/variables/${variableId}`),
+  sortTemplateVariables: (templateId, slaveId, items) =>
+    api.post(`/device-templates/${templateId}/slaves/${slaveId}/variables/sort`, { items }),
+  setTemplateVariableDefaultUnit: (templateId, slaveId, variableId) =>
+    api.post(`/device-templates/${templateId}/slaves/${slaveId}/variables/${variableId}/default-unit`),
 
   updateMe: (userId, body) => api.put(`/users/${userId}`, body),
 

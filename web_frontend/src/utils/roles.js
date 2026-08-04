@@ -12,9 +12,10 @@ export const FRONTEND_ROLES = {
 }
 
 export const backendToFrontend = (role) => {
-  if (role === BACKEND_ROLES.SUPER_ADMIN) return FRONTEND_ROLES.ADMIN
-  if (role === BACKEND_ROLES.ORG_ADMIN) return FRONTEND_ROLES.ORG
-  if (role === BACKEND_ROLES.USER) return FRONTEND_ROLES.USER
+  // Accept legacy aliases from older deployments/backfills.
+  if (role === BACKEND_ROLES.SUPER_ADMIN || role === 'ADMIN') return FRONTEND_ROLES.ADMIN
+  if (role === BACKEND_ROLES.ORG_ADMIN || role === 'ORG') return FRONTEND_ROLES.ORG
+  if (role === BACKEND_ROLES.USER || role === 'CUSTOMER') return FRONTEND_ROLES.USER
   return null
 }
 

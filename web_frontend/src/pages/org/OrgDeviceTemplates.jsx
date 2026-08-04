@@ -66,7 +66,7 @@ export default function OrgDeviceTemplates() {
               <button
                 type="button"
                 className="btn-ghost p-1.5 text-info-600"
-                onClick={() => navigate(`/org/device-templates/${row.id}`)}
+                onClick={() => navigate(`/org/device-templates/${row.id}/slaves`)}
                 title="Slaves & Variables"
               >
                 <List size={14} />
