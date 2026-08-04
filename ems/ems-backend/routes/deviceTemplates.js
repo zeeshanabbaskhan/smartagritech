@@ -11,14 +11,14 @@ router.use(protect);
 
 router.route('/')
   .get(getDeviceTemplates)
-  .post(authorize('SUPER_ADMIN', 'ORG_ADMIN'), createDeviceTemplate);
+  .post(authorize('SUPER_ADMIN'), createDeviceTemplate);
 
 router.route('/:id')
   .get(getDeviceTemplate)
-  .put(authorize('SUPER_ADMIN', 'ORG_ADMIN'), updateDeviceTemplate)
-  .delete(authorize('SUPER_ADMIN', 'ORG_ADMIN'), deleteDeviceTemplate);
+  .put(authorize('SUPER_ADMIN'), updateDeviceTemplate)
+  .delete(authorize('SUPER_ADMIN'), deleteDeviceTemplate);
 
-router.post('/:id/clone', authorize('SUPER_ADMIN', 'ORG_ADMIN'), cloneDeviceTemplate);
-router.post('/:id/sync-devices', authorize('SUPER_ADMIN', 'ORG_ADMIN'), syncDeviceTemplate);
+router.post('/:id/clone', authorize('SUPER_ADMIN'), cloneDeviceTemplate);
+router.post('/:id/sync-devices', authorize('SUPER_ADMIN'), syncDeviceTemplate);
 
 module.exports = router;

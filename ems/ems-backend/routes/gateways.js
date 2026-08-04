@@ -9,11 +9,11 @@ router.use(protect);
 
 router.route('/')
   .get(getGateways)
-  .post(authorize('SUPER_ADMIN', 'ORG_ADMIN'), createGateway);
+  .post(authorize('SUPER_ADMIN'), createGateway);
 
 router.route('/:id')
   .get(getGateway)
-  .put(authorize('SUPER_ADMIN', 'ORG_ADMIN'), updateGateway)
-  .delete(authorize('SUPER_ADMIN', 'ORG_ADMIN'), deleteGateway);
+  .put(authorize('SUPER_ADMIN'), updateGateway)
+  .delete(authorize('SUPER_ADMIN'), deleteGateway);
 
 module.exports = router;
