@@ -3,6 +3,7 @@ import AnalyticsDetailPage from '../../components/ui/AnalyticsDetailPage'
 import { useFetch } from '../../components/ui/PageState'
 import { useDevices } from '../../context/DeviceContext'
 import emsApi from '../../api/emsApi'
+import { userEnergyDummy, withUserDetailFallback } from '../../data/analyticsDummy'
 
 const UNIT_OPTIONS = ['Power Consumption (kWh)', 'Export Power (kWh)', 'Cost (PKR)']
 
@@ -20,7 +21,7 @@ export default function UserEnergyConsumption() {
 
   const { data, loading, reload } = useFetch(async () => {
     if (!selectedDeviceId) {
-      return { value: '—', predictedData: [], overTimeData: [] }
+      return withUserDetailFallback(null, userEnergyDummy)
     }
     const q = { deviceId: selectedDeviceId, slaveId: selectedSlaveId || undefined, timeRange }
     const [res, predRes] = await Promise.all([
@@ -35,27 +36,28 @@ export default function UserEnergyConsumption() {
     const value = raw != null
       ? `${Number(raw).toFixed(2)}${unit.startsWith('Cost') ? ' PKR' : ' kWh'}`
       : '—'
-    return {
+    return withUserDetailFallback({
       value,
       predictedData: toPoints(Array.isArray(predictions) ? predictions : []),
       overTimeData: toPoints(overTime),
-    }
+      anomalyRows: [],
+    }, userEnergyDummy)
   }, [selectedDeviceId, selectedSlaveId, unit, timeRange])
 
   return (
     <AnalyticsDetailPage
       title="Total Power Consumption"
       valueLabel="Total Power Consumption"
-      value={data?.value ?? '—'}
+      value={data?.value ?? userEnergyDummy.value}
       noAnomalies
       extraAnomalyColumn="Consumption"
       predictedTitle="Predicted Power Consumption"
       predictedType="line"
-      predictedData={data?.predictedData ?? []}
+      predictedData={data?.predictedData ?? userEnergyDummy.predictedData}
       predictedColor="#3B82F6"
       overTimeTitle="Power Consumption Imbalance Over Time"
       overTimeType="bar"
-      overTimeData={data?.overTimeData ?? []}
+      overTimeData={data?.overTimeData ?? userEnergyDummy.overTimeData}
       overTimeColor="#3B82F6"
       backTo="/user"
       onDeviceChange={reload}

@@ -7,6 +7,7 @@ import { useDevices } from '../../context/DeviceContext'
 import emsApi from '../../api/emsApi'
 import { latestToReadings } from '../../utils/sensorReadings'
 import { formatTs } from '../../utils/analyticsHelpers'
+import { withUserAiFallback } from '../../data/analyticsDummy'
 
 const TABS = ['Next 10 Minutes', 'Next 5 Hours', 'Next 7 Days', 'Custom']
 const VARIABLE_OPTIONS = ['Voltage Phase A', 'Current Phase A', 'Active Power', 'Power Factor', 'Frequency']
@@ -32,7 +33,7 @@ export default function UserAIAnalytics() {
   const [customTo, setCustomTo] = useState('')
 
   const { data, loading, error, reload } = useFetch(async () => {
-    if (!selectedDeviceId) return { rows: [], chart: [{ t: 'T0', v: 0 }] }
+    if (!selectedDeviceId) return withUserAiFallback(null)
     const q = { deviceId: selectedDeviceId, slaveId: selectedSlaveId || undefined }
     const latestRes = await emsApi.getLatestReadings(q).catch(() => null)
     const readings = latestToReadings(latestRes)
@@ -69,7 +70,10 @@ export default function UserAIAnalytics() {
       v: Number(p.value ?? p.v ?? 0) || 0,
     }))
 
-    return { rows, chart: chart.length ? chart : [{ t: 'T0', v: 0 }] }
+    return withUserAiFallback({
+      rows,
+      chart: chart.length && !(chart.length === 1 && chart[0].v === 0) ? chart : [],
+    })
   }, [selectedDeviceId, selectedSlaveId, variables, tab, customFrom, customTo])
 
   const toggleVariable = (v) => {

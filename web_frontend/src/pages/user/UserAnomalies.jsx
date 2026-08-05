@@ -11,6 +11,7 @@ import { useDevices } from '../../context/DeviceContext'
 import emsApi, { list } from '../../api/emsApi'
 import { mapAnomaly } from '../../utils/mappers'
 import { formatTs } from '../../utils/analyticsHelpers'
+import { withUserAnomaliesFallback } from '../../data/analyticsDummy'
 
 const RANGES = ['1h', '24h', '7d', '30d']
 const COLORS = ['#EF4444', '#F5A623', '#F97316', '#3B82F6', '#10B981']
@@ -97,11 +98,11 @@ export default function UserAnomalies() {
       .slice(0, 6)
       .map((i, idx) => ({ ...i, color: COLORS[idx % COLORS.length] }))
 
-    return {
+    return withUserAnomaliesFallback({
       totalAnomalies: rows.length,
       issues: issues.length ? issues : [{ key: 'none', label: 'None', category: '—', count: 0, color: '#9AA09A' }],
       timelineData: timelineData.length ? timelineData : [{ t: '—', v: 0 }],
-    }
+    })
   }, [selectedDeviceId, selectedSlaveId, timelineRange])
 
   const totalAnomalies = data?.totalAnomalies ?? 0

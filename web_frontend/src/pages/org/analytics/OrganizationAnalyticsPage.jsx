@@ -18,6 +18,7 @@ import {
   anomalyActivitySeries,
 } from '../../../utils/analyticsHelpers'
 import { ChartEmpty } from '../../../components/ui/PageState'
+import { withOrgAnalyticsFallback } from '../../../data/analyticsDummy'
 
 const PAGE_CONFIG = {
   voltage: {
@@ -225,7 +226,7 @@ export default function OrganizationAnalyticsPage({ type }) {
     setLoading(true)
     try {
       const result = await loadAnalytics({ type, deviceId: deviceId || null, timeRange })
-      setData(result)
+      setData(withOrgAnalyticsFallback(type, result))
     } finally {
       setLoading(false)
     }
