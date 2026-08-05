@@ -109,14 +109,29 @@ export default function AdminHistoricalData() {
     }
   }
 
-  const handleDownload = () => {
-    if (!tableData.length) {
-      showToast('No data loaded to download', 'warning')
+  const handleDownload = async () => {
+    if (!deviceFilter) {
+      showToast('Please select a device', 'warning')
       return
     }
-    const header = ['Variable Name', 'Display Value', 'Received Time']
-    const rows = tableData.map((r) => [r.variable, r.value, r.time])
-    downloadCsv('historical_data.csv', header, rows)
+    try {
+      await emsApi.downloadSensorCsv({
+        deviceId: deviceFilter,
+        variableName: variableKey || undefined,
+        startDate: dateFrom,
+        endDate: dateTo,
+      })
+      showToast('Download started', 'success')
+    } catch (e) {
+      // Fallback to client CSV from loaded table
+      if (!tableData.length) {
+        showToast(e.message || 'Download failed', 'error')
+        return
+      }
+      const header = ['Variable Name', 'Display Value', 'Received Time']
+      const rows = tableData.map((r) => [r.variable, r.value, r.time])
+      downloadCsv('historical_data.csv', header, rows)
+    }
   }
 
   const handleDeleteData = async () => {

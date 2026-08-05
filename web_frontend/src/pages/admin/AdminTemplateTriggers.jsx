@@ -30,9 +30,17 @@ export default function AdminTemplateTriggers() {
     }
   }, [])
 
+  const [orgFilter, setOrgFilter] = useState('')
+  const [triggerQuery, setTriggerQuery] = useState('')
+  const [templateQuery, setTemplateQuery] = useState('')
+  const [applied, setApplied] = useState({ organizationId: '', trigger: '', template: '' })
+
   const { data: rows, loading, error, reload } = useFetch(async () => {
+    const params = { limit: 200 }
+    if (applied.organizationId) params.organizationId = applied.organizationId
+    if (applied.trigger) params.search = applied.trigger
     const [templatesRes, orgsRes] = await Promise.all([
-      emsApi.getAlarmTemplates({ limit: 100 }),
+      emsApi.getAlarmTemplates(params),
       emsApi.getOrganizations({ limit: 100 }),
     ])
     const orgMap = Object.fromEntries(list(orgsRes).map((o) => [o.id, mapOrganization(o).name]))
@@ -41,23 +49,16 @@ export default function AdminTemplateTriggers() {
       org: orgMap[t.organizationId] ?? t.organization?.name ?? '—',
       organizationId: t.organizationId,
     }))
-  }, [])
+  }, [applied.organizationId, applied.trigger])
 
   const [modal, setModal] = useState(null)
   const [selected, setSelected] = useState(null)
   const [form, setForm] = useState(blankForm)
   const [saving, setSaving] = useState(false)
 
-  const [orgFilter, setOrgFilter] = useState('')
-  const [triggerQuery, setTriggerQuery] = useState('')
-  const [templateQuery, setTemplateQuery] = useState('')
-  const [applied, setApplied] = useState({ organizationId: '', trigger: '', template: '' })
-
   const handleQuery = () => setApplied({ organizationId: orgFilter, trigger: triggerQuery, template: templateQuery })
 
   const filtered = (rows ?? []).filter((r) =>
-    (!applied.organizationId || r.organizationId === applied.organizationId) &&
-    (!applied.trigger || r.name.toLowerCase().includes(applied.trigger.toLowerCase())) &&
     (!applied.template || (r.template || r.templateName || '').toLowerCase().includes(applied.template.toLowerCase()))
   )
 

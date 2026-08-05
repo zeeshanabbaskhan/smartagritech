@@ -5,15 +5,24 @@ import { Download } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
 import { mapDevice, mapGateway, bucketToChart } from '../../utils/mappers'
 import { fetchDeviceVariables } from '../../utils/sensorReadings'
+import { downloadCsv } from '../../utils/csv'
+import { useToast } from '../../context/ToastContext'
 
 const CHART_COLORS = ['#F5A623', '#3B82F6', '#EF4444', '#10B981', '#06b6d4', '#8B5CF6']
-const RANGE_MAP = { today: '24h', yesterday: '24h', '7days': '7d', '30days': '30d', custom: '30d' }
+const RANGE_MAP = { today: '24h', '7days': '7d', '30days': '30d' }
+
+function yesterdayIso() {
+  const d = new Date()
+  d.setDate(d.getDate() - 1)
+  return d.toISOString().slice(0, 10)
+}
 
 export default function OrgHistoricalData() {
+  const { showToast } = useToast()
   const { data: lookups, loading, error, reload } = useFetch(async () => {
     const [devicesRes, gatewaysRes] = await Promise.all([
-      emsApi.getDevices({ limit: 100 }),
-      emsApi.getGateways({ limit: 100 }),
+      emsApi.getDevices({ limit: 200 }),
+      emsApi.getGateways({ limit: 200 }),
     ])
     return {
       devices: list(devicesRes).map(mapDevice),
@@ -21,18 +30,34 @@ export default function OrgHistoricalData() {
     }
   }, [])
 
-  const [deviceId, setDeviceId] = useState('')
+  const [sourceId, setSourceId] = useState('') // device or gateway id
+  const [sourceKind, setSourceKind] = useState('device') // 'device' | 'gateway'
   const [dateRange, setDateRange] = useState('today')
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo, setCustomTo] = useState('')
   const [deviceVariables, setDeviceVariables] = useState([])
   const [selectedVars, setSelectedVars] = useState([])
   const [chartData, setChartData] = useState([])
   const [chartLoading, setChartLoading] = useState(false)
 
   const devices = lookups?.devices ?? []
+  const gateways = lookups?.gateways ?? []
+
+  const resolveDeviceId = useCallback(() => {
+    if (!sourceId) return ''
+    if (sourceKind === 'device') return sourceId
+    const underGateway = devices.filter((d) => d.gatewayId === sourceId)
+    return underGateway[0]?.id ?? ''
+  }, [sourceId, sourceKind, devices])
+
+  const deviceId = resolveDeviceId()
 
   useEffect(() => {
-    if (!deviceId && devices[0]?.id) setDeviceId(devices[0].id)
-  }, [devices, deviceId])
+    if (!sourceId && devices[0]?.id) {
+      setSourceId(devices[0].id)
+      setSourceKind('device')
+    }
+  }, [devices, sourceId])
 
   useEffect(() => {
     if (!deviceId) {
@@ -61,9 +86,45 @@ export default function OrgHistoricalData() {
     }
     setChartLoading(true)
     try {
-      const timeRange = RANGE_MAP[dateRange] ?? '24h'
+      const useHistory = dateRange === 'custom' || dateRange === 'yesterday'
+      let startDate
+      let endDate
+      let timeRange
+      if (dateRange === 'yesterday') {
+        startDate = yesterdayIso()
+        endDate = startDate
+      } else if (dateRange === 'custom') {
+        startDate = customFrom
+        endDate = customTo
+        if (!startDate || !endDate) {
+          setChartData([])
+          setChartLoading(false)
+          return
+        }
+      } else {
+        timeRange = RANGE_MAP[dateRange] ?? '24h'
+      }
+
       const series = await Promise.all(
         selectedVars.map(async (variableName) => {
+          if (useHistory) {
+            const res = await emsApi.getSensorHistory({
+              deviceId,
+              variableName,
+              startDate,
+              endDate,
+              limit: 200,
+            })
+            const points = Array.isArray(res?.data) ? res.data : list(res)
+            const chartPts = [...points].reverse().map((p) => ({
+              time: new Date(p.receivedTime ?? p.timestamp).toLocaleString([], {
+                month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+              }),
+              [variableName]: p.value,
+              value: p.value,
+            }))
+            return { key: variableName, points: chartPts }
+          }
           const res = await emsApi.getSensorAggregate({ deviceId, variableName, timeRange })
           return { key: variableName, points: bucketToChart(res?.data ?? [], variableName) }
         }),
@@ -80,7 +141,7 @@ export default function OrgHistoricalData() {
     } finally {
       setChartLoading(false)
     }
-  }, [deviceId, dateRange, selectedVars])
+  }, [deviceId, dateRange, selectedVars, customFrom, customTo])
 
   useEffect(() => { loadChart() }, [loadChart])
 
@@ -88,7 +149,10 @@ export default function OrgHistoricalData() {
     setSelectedVars((prev) => (prev.includes(name) ? prev.filter((x) => x !== name) : [...prev, name]))
   }
 
-  const deviceName = devices.find((d) => d.id === deviceId)?.name ?? ''
+  const sourceName = sourceKind === 'gateway'
+    ? (gateways.find((g) => g.id === sourceId)?.name ?? '')
+    : (devices.find((d) => d.id === sourceId)?.name ?? '')
+
   const tableColumns = ['Variable Name', 'Min', 'Max', 'Average', 'Last Value']
   const tableData = selectedVars.map((name) => {
     const values = chartData.map((d) => d[name]).filter((x) => x != null)
@@ -101,6 +165,25 @@ export default function OrgHistoricalData() {
     return { key: name, label: name, unit: meta?.unit ?? '', min, max, avg, last }
   })
 
+  const handleExport = () => {
+    if (!tableData.length || !chartData.length) {
+      showToast('No data to export', 'warning')
+      return
+    }
+    const header = ['Time', ...selectedVars]
+    const rows = chartData.map((row) => [row.time, ...selectedVars.map((v) => row[v] ?? '')])
+    downloadCsv('org_historical_data.csv', header, rows)
+    showToast('Export started', 'success')
+  }
+
+  const onSourceChange = (e) => {
+    const val = e.target.value
+    const opt = e.target.selectedOptions?.[0]
+    const kind = opt?.dataset?.kind || 'device'
+    setSourceId(val)
+    setSourceKind(kind)
+  }
+
   return (
     <PageState loading={loading} error={error} onRetry={reload}>
       <div>
@@ -109,17 +192,27 @@ export default function OrgHistoricalData() {
             <h2 className="page-title">Historical Data</h2>
             <p className="breadcrumb">Organization / Historical Data</p>
           </div>
-          <button type="button" className="btn-secondary"><Download size={14} /> Export CSV</button>
+          <button type="button" className="btn-secondary" onClick={handleExport}>
+            <Download size={14} /> Export CSV
+          </button>
         </div>
 
         <div className="card p-4 mb-5">
           <div className="flex flex-wrap items-end gap-4">
             <div className="flex-1 min-w-40">
               <label className="label">Device</label>
-              <select className="select" value={deviceId} onChange={(e) => setDeviceId(e.target.value)}>
+              <select className="select" value={sourceId} onChange={onSourceChange}>
                 <option value="">Select Device</option>
-                {devices.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                {devices.map((d) => (
+                  <option key={d.id} value={d.id} data-kind="device">{d.name}</option>
+                ))}
+                {gateways.map((g) => (
+                  <option key={g.id} value={g.id} data-kind="gateway">{g.name} (Gateway)</option>
+                ))}
               </select>
+              {sourceKind === 'gateway' && sourceId && !deviceId && (
+                <p className="text-[10px] text-warning-600 mt-1">No devices linked to this gateway</p>
+              )}
             </div>
             <div className="flex-1 min-w-40">
               <label className="label">Date Range</label>
@@ -131,12 +224,22 @@ export default function OrgHistoricalData() {
                 <option value="custom">Custom</option>
               </select>
             </div>
+            {dateRange === 'custom' && (
+              <div className="flex-1 min-w-56">
+                <label className="label">Custom Range</label>
+                <div className="flex items-center gap-1.5">
+                  <input type="date" className="input text-xs" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} />
+                  <span className="text-surface-400 text-xs">-</span>
+                  <input type="date" className="input text-xs" value={customTo} onChange={(e) => setCustomTo(e.target.value)} />
+                </div>
+              </div>
+            )}
             <div className="flex-1 min-w-40">
               <label className="label">Variables</label>
               <div className="flex flex-wrap gap-2">
                 {deviceVariables.length === 0 ? (
                   <span className="text-xs text-surface-500">Select a device with configured variables</span>
-                ) : deviceVariables.map((v, i) => (
+                ) : deviceVariables.map((v) => (
                   <button
                     key={v.name}
                     type="button"
@@ -157,7 +260,7 @@ export default function OrgHistoricalData() {
 
         <div className="card p-5 mb-5">
           <h3 className="text-sm font-semibold text-surface-700 mb-4">
-            {deviceName || 'Select a device'} — Variable Trend
+            {sourceName || 'Select a device'} — Variable Trend
             {chartLoading && <span className="text-xs text-surface-400 ml-2">Loading...</span>}
           </h3>
           {selectedVars.length === 0 ? (

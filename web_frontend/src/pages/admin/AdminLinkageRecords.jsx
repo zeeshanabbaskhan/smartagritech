@@ -7,35 +7,41 @@ import { Eye, Download } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
 import { mapLinkageRecord, mapDevice } from '../../utils/mappers'
 import { useToast } from '../../context/ToastContext'
-import { downloadCsv } from '../../utils/csv'
+
+const EMPTY = []
 
 export default function AdminLinkageRecords() {
   const { showToast } = useToast()
-  const { data, loading, error, reload } = useFetch(async () => {
-    const [recordsRes, devicesRes] = await Promise.all([
-      emsApi.getLinkageHistory({ limit: 100 }),
-      emsApi.getDevices({ limit: 100 }),
-    ])
-    const devices = list(devicesRes).map(mapDevice)
-    const deviceMap = Object.fromEntries(devices.map((d) => [d.id, d.name]))
-    const rows = list(recordsRes).map((r) => mapLinkageRecord(r, deviceMap[r.deviceId]))
-    return { rows, devices }
-  }, [])
-
-  const rows = data?.rows ?? []
-  const devices = data?.devices ?? []
-
-  const [modal, setModal] = useState(null)
-  const [selected, setSelected] = useState(null)
-  const [selectedIds, setSelectedIds] = useState([])
-  const [deleting, setDeleting] = useState(false)
 
   const [device, setDevice] = useState('')
   const [trigger, setTrigger] = useState('')
   const [variableFilter, setVariableFilter] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
-  const [applied, setApplied] = useState({ device: '', trigger: '', variable: '', dateFrom: '', dateTo: '' })
+  const [applied, setApplied] = useState({ deviceId: '', trigger: '', variable: '', dateFrom: '', dateTo: '' })
+
+  const { data: devicesData, loading: devicesLoading } = useFetch(async () => {
+    return list(await emsApi.getDevices({ limit: 200 })).map(mapDevice)
+  }, [])
+  const devices = devicesData ?? EMPTY
+
+  const { data, loading, error, reload } = useFetch(async () => {
+    const params = { limit: 200 }
+    if (applied.deviceId) params.deviceId = applied.deviceId
+    if (applied.dateFrom) params.from = applied.dateFrom
+    if (applied.dateTo) params.to = applied.dateTo
+    const recordsRes = await emsApi.getLinkageHistory(params)
+    const deviceMap = Object.fromEntries(devices.map((d) => [d.id, d.name]))
+    return list(recordsRes).map((r) => mapLinkageRecord(r, deviceMap[r.deviceId]))
+  }, [applied.deviceId, applied.dateFrom, applied.dateTo, devicesData])
+
+  const rows = data ?? []
+
+  const [modal, setModal] = useState(null)
+  const [selected, setSelected] = useState(null)
+  const [selectedIds, setSelectedIds] = useState([])
+  const [deleting, setDeleting] = useState(false)
+  const [downloading, setDownloading] = useState(false)
 
   const triggerOptions = useMemo(() => [...new Set(rows.map((r) => r.triggerName).filter(Boolean))], [rows])
   const variableOptions = useMemo(() => [...new Set(rows.map((r) => r.watchedVariableName).filter(Boolean))], [rows])
@@ -43,15 +49,21 @@ export default function AdminLinkageRecords() {
   const openView = (row) => { setSelected(row); setModal('view') }
   const close = () => { setModal(null); setSelected(null) }
 
-  const handleQuery = () => setApplied({ device, trigger, variable: variableFilter, dateFrom, dateTo })
+  const handleQuery = () => {
+    const match = devices.find((d) => d.name === device)
+    setApplied({
+      deviceId: match?.id ?? '',
+      trigger,
+      variable: variableFilter,
+      dateFrom,
+      dateTo,
+    })
+    setSelectedIds([])
+  }
 
   const filtered = rows.filter((r) => {
-    if (applied.device && r.srcDevice !== applied.device) return false
     if (applied.trigger && r.triggerName !== applied.trigger) return false
     if (applied.variable && r.watchedVariableName !== applied.variable) return false
-    const day = (r._raw?.firedAt || '').slice(0, 10)
-    if (applied.dateFrom && day && day < applied.dateFrom) return false
-    if (applied.dateTo && day && day > applied.dateTo) return false
     return true
   })
 
@@ -71,12 +83,20 @@ export default function AdminLinkageRecords() {
     }
   }
 
-  const handleDownload = () => {
-    const header = ['Device Name', 'Trigger Name', 'Trigger Type', 'Slave Name', 'Variable Name', 'Triggering Condition', 'Trigger Device', 'Linkage Time']
-    const csvRows = filtered.map((r) => [
-      r.srcDevice, r.triggerName, r.triggerType, r.slave, r.variable, r.condition, r.triggerDevice, r.createdAt,
-    ])
-    downloadCsv('linkage_record.csv', header, csvRows)
+  const handleDownload = async () => {
+    setDownloading(true)
+    try {
+      const params = {}
+      if (applied.deviceId) params.deviceId = applied.deviceId
+      if (applied.dateFrom) params.from = applied.dateFrom
+      if (applied.dateTo) params.to = applied.dateTo
+      await emsApi.downloadLinkageCsv(params)
+      showToast('Download started', 'success')
+    } catch (e) {
+      showToast(e.message || 'Download failed', 'error')
+    } finally {
+      setDownloading(false)
+    }
   }
 
   const columns = [
@@ -93,7 +113,7 @@ export default function AdminLinkageRecords() {
   ]
 
   return (
-    <PageState loading={loading} error={error} onRetry={reload}>
+    <PageState loading={(loading || devicesLoading) && !data} error={error} onRetry={reload}>
       <div>
         <div className="page-header">
           <div>
@@ -101,7 +121,9 @@ export default function AdminLinkageRecords() {
             <p className="breadcrumb">Data Center &ndash; Linkage Record</p>
           </div>
           <div className="flex items-center gap-2">
-            <button type="button" className="btn-primary" onClick={handleDownload}><Download size={14} /> Download Data</button>
+            <button type="button" className="btn-primary" onClick={handleDownload} disabled={downloading}>
+              <Download size={14} /> {downloading ? 'Downloading...' : 'Download Data'}
+            </button>
             <button type="button" className="btn-secondary" onClick={handleBatchDelete} disabled={!selectedIds.length || deleting}>
               {deleting ? 'Deleting...' : 'Batch Delete'}
             </button>

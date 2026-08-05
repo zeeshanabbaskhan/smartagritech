@@ -148,9 +148,11 @@ const emsApi = {
   getVariableAlarmHistory: (params) => api.get('/alarm-history/variable-alarms', q(params)),
   processVariableAlarm: (id) => api.patch(`/alarm-history/variable-alarms/${id}/process`),
   batchDeleteVariableAlarms: (body) => api.delete('/alarm-history/variable-alarms', body),
+  downloadVariableAlarmCsv: (params) => api.download('/alarm-history/variable-alarms/csv', q(params), 'variable-alarms.csv'),
 
   getLinkageHistory: (params) => api.get('/alarm-history/linkage-records', q(params)),
   batchDeleteLinkageHistory: (body) => api.delete('/alarm-history/linkage-records', body),
+  downloadLinkageCsv: (params) => api.download('/alarm-history/linkage-records/csv', q(params), 'linkage-records.csv'),
 
   getAlarmHistoryNotifications: (params) => api.get('/alarm-history/notifications', q(params)),
 

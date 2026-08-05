@@ -21,14 +21,21 @@ export default function AdminAlarmContacts() {
     return { organizations: list(orgsRes).map(mapOrganization) }
   }, [])
 
+  const [orgFilter, setOrgFilter] = useState('')
+  const [query, setQuery] = useState('')
+  const [applied, setApplied] = useState({ organizationId: '', query: '' })
+
   const { data: rows, loading, error, reload } = useFetch(async () => {
+    const params = { limit: 200 }
+    if (applied.organizationId) params.organizationId = applied.organizationId
+    if (applied.query) params.search = applied.query
     const [contactsRes, orgsRes] = await Promise.all([
-      emsApi.getAlarmContacts({ limit: 100 }),
+      emsApi.getAlarmContacts(params),
       emsApi.getOrganizations({ limit: 100 }),
     ])
     const orgMap = Object.fromEntries(list(orgsRes).map((o) => [o.id, o.name]))
     return list(contactsRes).map((c) => mapAlarmContact(c, orgMap[c.organizationId]))
-  }, [])
+  }, [applied.organizationId, applied.query])
 
   const [modal, setModal] = useState(null)
   const [selected, setSelected] = useState(null)
@@ -37,16 +44,12 @@ export default function AdminAlarmContacts() {
   const [selectedIds, setSelectedIds] = useState([])
   const [deleting, setDeleting] = useState(false)
 
-  const [orgFilter, setOrgFilter] = useState('')
-  const [query, setQuery] = useState('')
-  const [applied, setApplied] = useState({ organizationId: '', query: '' })
+  const handleQuery = () => {
+    setApplied({ organizationId: orgFilter, query })
+    setSelectedIds([])
+  }
 
-  const handleQuery = () => setApplied({ organizationId: orgFilter, query })
-
-  const filteredRows = (rows ?? []).filter((r) =>
-    (!applied.organizationId || r.organizationId === applied.organizationId) &&
-    (!applied.query || r.name.toLowerCase().includes(applied.query.toLowerCase()) || String(r.phone).includes(applied.query))
-  )
+  const filteredRows = rows ?? []
 
   const openAdd = () => { setForm(blankForm); setModal('add') }
   const openEdit = (row) => {

@@ -92,7 +92,7 @@ export default function Sidebar({ navItems, role, mobileOpen = false, onMobileCl
   }, [collapsed])
 
   // Close mobile sidebar on route change is handled by parent via mobileOpen prop
-  const roleLabels = { admin: 'Super Admin', org: 'Organization', user: 'User' }
+  const roleLabels = { admin: 'Super Admin', org: 'Organization Admin', user: 'User' }
   const roleColors = {
     admin: 'text-danger-600',
     org:   'text-info-600',
@@ -110,30 +110,16 @@ export default function Sidebar({ navItems, role, mobileOpen = false, onMobileCl
     >
       {/* Logo Area */}
       <div className="flex items-center gap-3 px-4 py-4 border-b border-surface-800 min-h-[57px]">
-        <div className="w-8 h-8 bg-primary-500 rounded-lg flex items-center justify-center flex-shrink-0">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-surface-950">
-            <circle cx="4" cy="6"  r="2" fill="currentColor"/>
-            <circle cx="4" cy="12" r="2" fill="currentColor"/>
-            <circle cx="4" cy="18" r="2" fill="currentColor"/>
-            <line x1="6"  y1="6"  x2="12" y2="6"  stroke="currentColor" strokeWidth="1.5"/>
-            <line x1="6"  y1="12" x2="16" y2="12" stroke="currentColor" strokeWidth="1.5"/>
-            <line x1="6"  y1="18" x2="14" y2="18" stroke="currentColor" strokeWidth="1.5"/>
-            <line x1="12" y1="6"  x2="12" y2="9"  stroke="currentColor" strokeWidth="1.5"/>
-            <line x1="16" y1="12" x2="16" y2="15" stroke="currentColor" strokeWidth="1.5"/>
-            <line x1="14" y1="18" x2="14" y2="21" stroke="currentColor" strokeWidth="1.5"/>
-            <line x1="12" y1="9"  x2="20" y2="9"  stroke="currentColor" strokeWidth="1.5"/>
-            <line x1="16" y1="15" x2="20" y2="15" stroke="currentColor" strokeWidth="1.5"/>
-            <line x1="14" y1="21" x2="20" y2="21" stroke="currentColor" strokeWidth="1.5"/>
-          </svg>
+        <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden p-0.5 shadow-sm">
+          <img src="/elsa_logo.jpeg" alt="Elsa Energy" className="w-full h-full object-contain rounded-md" />
         </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-bold text-surface-100 leading-none tracking-wide">
-            EMBED<span className="text-primary-500">AI</span>OT
-          </p>
-          <p className="text-[9px] font-semibold tracking-widest text-surface-500 uppercase mt-0.5">
-            Smarter Solutions
-          </p>
-        </div>
+        {!collapsed && (
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-bold text-surface-100 leading-none tracking-wide">
+              Elsa Energy
+            </p>
+          </div>
+        )}
         {/* Close button — mobile only */}
         <button
           type="button"

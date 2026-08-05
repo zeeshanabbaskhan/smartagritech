@@ -7,35 +7,41 @@ import { Eye, CheckCircle, Download } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
 import { mapVariableAlarm, mapDevice } from '../../utils/mappers'
 import { useToast } from '../../context/ToastContext'
-import { downloadCsv } from '../../utils/csv'
+
+const EMPTY = []
 
 export default function AdminVariableAlarms() {
   const { showToast } = useToast()
-  const { data, loading, error, reload, setData } = useFetch(async () => {
-    const [alarmsRes, devicesRes] = await Promise.all([
-      emsApi.getVariableAlarmHistory({ limit: 100 }),
-      emsApi.getDevices({ limit: 100 }),
-    ])
-    const devices = list(devicesRes).map(mapDevice)
-    const deviceMap = Object.fromEntries(devices.map((d) => [d.id, d.name]))
-    const rows = list(alarmsRes).map((a) => mapVariableAlarm(a, deviceMap[a.deviceId]))
-    return { rows, devices }
-  }, [])
-
-  const rows = data?.rows ?? []
-  const devices = data?.devices ?? []
-
-  const [selected, setSelected] = useState(null)
-  const [modal, setModal] = useState(null)
-  const [selectedIds, setSelectedIds] = useState([])
-  const [deleting, setDeleting] = useState(false)
 
   const [device, setDevice] = useState('')
   const [trigger, setTrigger] = useState('')
   const [variableFilter, setVariableFilter] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
-  const [applied, setApplied] = useState({ device: '', trigger: '', variable: '', dateFrom: '', dateTo: '' })
+  const [applied, setApplied] = useState({ deviceId: '', trigger: '', variable: '', dateFrom: '', dateTo: '' })
+
+  const { data: devicesData, loading: devicesLoading } = useFetch(async () => {
+    return list(await emsApi.getDevices({ limit: 200 })).map(mapDevice)
+  }, [])
+  const devices = devicesData ?? EMPTY
+
+  const { data, loading, error, reload, setData } = useFetch(async () => {
+    const params = { limit: 200 }
+    if (applied.deviceId) params.deviceId = applied.deviceId
+    if (applied.dateFrom) params.from = applied.dateFrom
+    if (applied.dateTo) params.to = applied.dateTo
+    const alarmsRes = await emsApi.getVariableAlarmHistory(params)
+    const deviceMap = Object.fromEntries(devices.map((d) => [d.id, d.name]))
+    return list(alarmsRes).map((a) => mapVariableAlarm(a, deviceMap[a.deviceId]))
+  }, [applied.deviceId, applied.dateFrom, applied.dateTo, devicesData])
+
+  const rows = data ?? []
+
+  const [selected, setSelected] = useState(null)
+  const [modal, setModal] = useState(null)
+  const [selectedIds, setSelectedIds] = useState([])
+  const [deleting, setDeleting] = useState(false)
+  const [downloading, setDownloading] = useState(false)
 
   const triggerOptions = useMemo(() => [...new Set(rows.map((r) => r.triggerName).filter(Boolean))], [rows])
   const variableOptions = useMemo(() => [...new Set(rows.map((r) => r.variable).filter(Boolean))], [rows])
@@ -46,25 +52,29 @@ export default function AdminVariableAlarms() {
   const markResolved = async (row) => {
     try {
       await emsApi.processVariableAlarm(row.id)
-      setData((prev) => prev && {
-        ...prev,
-        rows: prev.rows.map((r) => (r.id === row.id ? { ...r, status: 'Resolved', processState: 'PROCESSED' } : r)),
-      })
+      setData((prev) => (prev ?? []).map((r) => (r.id === row.id ? { ...r, status: 'Resolved', processState: 'PROCESSED' } : r)))
       showToast('Alarm marked as resolved', 'success')
     } catch (e) {
       showToast(e.message || 'Failed to resolve alarm', 'error')
     }
   }
 
-  const handleQuery = () => setApplied({ device, trigger, variable: variableFilter, dateFrom, dateTo })
+  const handleQuery = () => {
+    const match = devices.find((d) => d.name === device)
+    setApplied({
+      deviceId: match?.id ?? '',
+      trigger,
+      variable: variableFilter,
+      dateFrom,
+      dateTo,
+    })
+    setSelectedIds([])
+  }
 
+  // Trigger / variable are not server-side params — refine client-side on the API result set
   const filtered = rows.filter((r) => {
-    if (applied.device && r.device !== applied.device) return false
     if (applied.trigger && r.triggerName !== applied.trigger) return false
     if (applied.variable && r.variable !== applied.variable) return false
-    const day = (r.alarmTime || '').slice(0, 10)
-    if (applied.dateFrom && day && day < applied.dateFrom) return false
-    if (applied.dateTo && day && day > applied.dateTo) return false
     return true
   })
 
@@ -84,13 +94,20 @@ export default function AdminVariableAlarms() {
     }
   }
 
-  const handleDownload = () => {
-    const header = ['Device Name', 'Trigger Name', 'Trigger Type', 'Slave Name', 'Variable', 'Current Value', 'Triggering Condition', 'Alarm Time', 'Alarm State', 'Process State']
-    const csvRows = filtered.map((r) => [
-      r.device, r.triggerName, r.type, r.slave, r.variable, r.actual, r.threshold, r.time, r.status,
-      r.processState === 'PROCESSED' ? 'Processed' : 'Unprocessed',
-    ])
-    downloadCsv('variable_alarm_record.csv', header, csvRows)
+  const handleDownload = async () => {
+    setDownloading(true)
+    try {
+      const params = {}
+      if (applied.deviceId) params.deviceId = applied.deviceId
+      if (applied.dateFrom) params.from = applied.dateFrom
+      if (applied.dateTo) params.to = applied.dateTo
+      await emsApi.downloadVariableAlarmCsv(params)
+      showToast('Download started', 'success')
+    } catch (e) {
+      showToast(e.message || 'Download failed', 'error')
+    } finally {
+      setDownloading(false)
+    }
   }
 
   const columns = [
@@ -107,7 +124,7 @@ export default function AdminVariableAlarms() {
   ]
 
   return (
-    <PageState loading={loading} error={error} onRetry={reload}>
+    <PageState loading={(loading || devicesLoading) && !data} error={error} onRetry={reload}>
       <div>
         <div className="page-header">
           <div>
@@ -115,7 +132,9 @@ export default function AdminVariableAlarms() {
             <p className="breadcrumb">Data Center &ndash; Variable Alarm Record</p>
           </div>
           <div className="flex items-center gap-2">
-            <button type="button" className="btn-primary" onClick={handleDownload}><Download size={14} /> Download Data</button>
+            <button type="button" className="btn-primary" onClick={handleDownload} disabled={downloading}>
+              <Download size={14} /> {downloading ? 'Downloading...' : 'Download Data'}
+            </button>
             <button type="button" className="btn-secondary" onClick={handleBatchDelete} disabled={!selectedIds.length || deleting}>
               {deleting ? 'Deleting...' : 'Batch Delete'}
             </button>

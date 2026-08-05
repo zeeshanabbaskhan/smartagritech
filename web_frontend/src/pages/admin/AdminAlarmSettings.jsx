@@ -27,9 +27,16 @@ export default function AdminAlarmSettings() {
     }
   }, [])
 
+  const [orgFilter, setOrgFilter] = useState('')
+  const [pushTypeFilter, setPushTypeFilter] = useState('')
+  const [nameQuery, setNameQuery] = useState('')
+  const [applied, setApplied] = useState({ organizationId: '', pushType: '', name: '' })
+
   const { data: rows, loading, error, reload } = useFetch(async () => {
+    const params = { limit: 200 }
+    if (applied.organizationId) params.organizationId = applied.organizationId
     const [settingsRes, orgsRes] = await Promise.all([
-      emsApi.getAlarmSettings({ limit: 100 }),
+      emsApi.getAlarmSettings(params),
       emsApi.getOrganizations({ limit: 100 }),
     ])
     const orgMap = Object.fromEntries(list(orgsRes).map((o) => [o.id, mapOrganization(o).name]))
@@ -38,7 +45,7 @@ export default function AdminAlarmSettings() {
       org: orgMap[s.organizationId] ?? s.organization?.name ?? '—',
       organizationId: s.organizationId,
     }))
-  }, [])
+  }, [applied.organizationId])
 
   const [modal, setModal] = useState(null)
   const [selected, setSelected] = useState(null)
@@ -47,15 +54,13 @@ export default function AdminAlarmSettings() {
   const [selectedIds, setSelectedIds] = useState([])
   const [deleting, setDeleting] = useState(false)
 
-  const [orgFilter, setOrgFilter] = useState('')
-  const [pushTypeFilter, setPushTypeFilter] = useState('')
-  const [nameQuery, setNameQuery] = useState('')
-  const [applied, setApplied] = useState({ organizationId: '', pushType: '', name: '' })
+  const handleQuery = () => {
+    setApplied({ organizationId: orgFilter, pushType: pushTypeFilter, name: nameQuery })
+    setSelectedIds([])
+  }
 
-  const handleQuery = () => setApplied({ organizationId: orgFilter, pushType: pushTypeFilter, name: nameQuery })
-
+  // pushType / name refined client-side (backend supports organizationId + templateTriggerId)
   const filteredRows = (rows ?? []).filter((r) =>
-    (!applied.organizationId || r.organizationId === applied.organizationId) &&
     (!applied.pushType || r.pushType === applied.pushType) &&
     (!applied.name || r.name.toLowerCase().includes(applied.name.toLowerCase()))
   )
