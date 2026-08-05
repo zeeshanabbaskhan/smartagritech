@@ -1,10 +1,38 @@
+import { useEffect, useMemo } from 'react'
 import { useDevices } from '../../context/DeviceContext'
 
-export default function DeviceSlaveSelector({ onChange, className = '', slaveLabel = 'Slave' }) {
+/**
+ * Device + slave picker for chart/history sections.
+ * @param {Array} [devicesOverride] — when set (e.g. org-scoped admin filter), options come from this list
+ */
+export default function DeviceSlaveSelector({
+  onChange,
+  className = '',
+  slaveLabel = 'Slave',
+  devicesOverride,
+}) {
   const {
-    devices, slaves, selectedDeviceId, selectedSlaveId,
-    setSelectedSlaveId, selectDevice, loading,
+    devices: contextDevices,
+    slaves,
+    selectedDeviceId,
+    selectedSlaveId,
+    setSelectedSlaveId,
+    selectDevice,
+    loading,
   } = useDevices()
+
+  const devices = useMemo(() => {
+    if (Array.isArray(devicesOverride)) return devicesOverride
+    return contextDevices
+  }, [devicesOverride, contextDevices])
+
+  // Keep selection valid when override list changes (e.g. org filter)
+  useEffect(() => {
+    if (!devices.length) return
+    if (!selectedDeviceId || !devices.some((d) => d.id === selectedDeviceId)) {
+      selectDevice(devices[0].id)
+    }
+  }, [devices, selectedDeviceId, selectDevice])
 
   return (
     <div className={`flex flex-wrap gap-3 ${className}`}>
@@ -12,7 +40,7 @@ export default function DeviceSlaveSelector({ onChange, className = '', slaveLab
         <label className="label text-[10px] uppercase tracking-wider">Device</label>
         <select
           className="input py-2 text-xs w-full"
-          value={selectedDeviceId ?? ''}
+          value={selectedDeviceId && devices.some((d) => d.id === selectedDeviceId) ? selectedDeviceId : ''}
           disabled={loading || !devices.length}
           onChange={async (e) => {
             await selectDevice(e.target.value || null)

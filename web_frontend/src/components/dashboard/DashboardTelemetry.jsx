@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Zap, Activity, Gauge, TrendingUp, Radio, Search, ChevronRight, Cpu } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
-import { mapDevice } from '../../utils/mappers'
+import { mapDevice, mapOrganization } from '../../utils/mappers'
 import {
   readDeviceMetric,
   computeDynamicKpis,
@@ -38,6 +38,11 @@ function formatTileValue(value, name) {
   return value.toFixed(1)
 }
 
+/**
+ * Shared KPI + Master Device Control panel.
+ * @param {'group'|'org'} filterMode — admin uses `org`; org dashboard uses access `group`
+ * @param {React.ReactNode} between — rendered between KPI cards and telemetry (e.g. StatCards)
+ */
 export default function DashboardTelemetry({
   panelTitle = 'Master Executive Device Control',
   showAccessFilter = true,
@@ -46,18 +51,26 @@ export default function DashboardTelemetry({
   allDevicesLabel = 'All Devices',
   powerKpiLabel,
   emptyGroupsHint = 'No groups found.',
+  filterMode = 'group',
+  between = null,
+  onScopeChange,
+  telemetrySubtitle,
 }) {
   const { showToast } = useToast()
   const [devices, setDevices] = useState([])
   const [groups, setGroups] = useState([])
+  const [organizations, setOrganizations] = useState([])
   const [groupFilter, setGroupFilter] = useState('all')
   const [drillMetric, setDrillMetric] = useState(null)
   const [deviceSearch, setDeviceSearch] = useState('')
   const [filterOpen, setFilterOpen] = useState(false)
   const [filterSearch, setFilterSearch] = useState('')
   const filterRef = useRef(null)
+  const onScopeChangeRef = useRef(onScopeChange)
+  onScopeChangeRef.current = onScopeChange
   const showKpis = sections === 'all' || sections === 'kpis'
   const showTelemetry = sections === 'all' || sections === 'telemetry'
+  const isOrgMode = filterMode === 'org'
 
   const loadDevices = () => {
     emsApi.getDevices({ limit: 100, withMetrics: true })
@@ -105,6 +118,12 @@ export default function DashboardTelemetry({
 
   useEffect(() => {
     if (!showAccessFilter) return
+    if (isOrgMode) {
+      emsApi.getOrganizations({ limit: 100 })
+        .then((res) => setOrganizations(list(res).map(mapOrganization)))
+        .catch(() => setOrganizations([]))
+      return
+    }
     emsApi.getAccessGroups({ limit: 100 })
       .then((res) => setGroups(list(res).map((g) => ({
         id: g.id,
@@ -113,7 +132,7 @@ export default function DashboardTelemetry({
         deviceIds: g.deviceIds ?? (g.devices || []).map((d) => d.id ?? d.deviceId).filter(Boolean),
       }))))
       .catch(() => {})
-  }, [showAccessFilter])
+  }, [showAccessFilter, isOrgMode])
 
   useEffect(() => {
     if (!filterOpen) return
@@ -122,12 +141,29 @@ export default function DashboardTelemetry({
     return () => document.removeEventListener('mousedown', onClick)
   }, [filterOpen])
 
+  const selectedOrg = useMemo(() => {
+    if (!isOrgMode || groupFilter === 'all') return null
+    return organizations.find((o) => o.id === groupFilter) || null
+  }, [isOrgMode, groupFilter, organizations])
+
   const activeDevices = useMemo(() => {
     if (groupFilter === 'all') return devices
+    if (isOrgMode) {
+      return devices.filter((d) => d.organizationId === groupFilter || d.org === selectedOrg?.name)
+    }
     const group = groups.find((g) => g.id === groupFilter)
     if (!group) return devices
     return devices.filter((d) => group.deviceIds.includes(d.id))
-  }, [devices, groups, groupFilter])
+  }, [devices, groups, groupFilter, isOrgMode, selectedOrg])
+
+  useEffect(() => {
+    onScopeChangeRef.current?.({
+      filterId: groupFilter,
+      organizationId: isOrgMode && groupFilter !== 'all' ? groupFilter : null,
+      organization: selectedOrg,
+      devices: activeDevices,
+    })
+  }, [groupFilter, isOrgMode, selectedOrg, activeDevices])
 
   const kpiState = useMemo(() => computeDynamicKpis(activeDevices), [activeDevices])
 
@@ -144,15 +180,22 @@ export default function DashboardTelemetry({
 
   const activeGroupLabel = useMemo(() => {
     if (groupFilter === 'all') return allDevicesLabel
+    if (isOrgMode) return selectedOrg?.name || allDevicesLabel
     const g = groups.find((x) => x.id === groupFilter)
     return g ? `${g.name} (${g.org})` : allDevicesLabel
-  }, [groupFilter, groups, allDevicesLabel])
+  }, [groupFilter, groups, allDevicesLabel, isOrgMode, selectedOrg])
 
-  const searchedGroups = useMemo(() => {
+  const searchedOptions = useMemo(() => {
     const q = filterSearch.toLowerCase().trim()
+    if (isOrgMode) {
+      if (!q) return organizations
+      return organizations.filter((o) =>
+        o.name.toLowerCase().includes(q) || (o.status || '').toLowerCase().includes(q)
+      )
+    }
     if (!q) return groups
     return groups.filter((g) => g.name.toLowerCase().includes(q) || g.org.toLowerCase().includes(q))
-  }, [groups, filterSearch])
+  }, [groups, organizations, filterSearch, isOrgMode])
 
   const filteredDevices = useMemo(() => {
     const q = deviceSearch.toLowerCase().trim()
@@ -164,7 +207,7 @@ export default function DashboardTelemetry({
         || (d.template ?? '').toLowerCase().includes(q)
       )
     }
-    return [...activeDevices].slice(0, 5)
+    return [...activeDevices].reverse().slice(0, 5)
   }, [activeDevices, deviceSearch])
 
   const handleToggleSwitch = async (device) => {
@@ -191,6 +234,9 @@ export default function DashboardTelemetry({
   }
 
   const drillCfg = drillMetric ? KPI_CONFIG.find((k) => k.key === drillMetric) : null
+  const defaultTelemetryHint = deviceSearch.trim()
+    ? `Search results for "${deviceSearch}"`
+    : (telemetrySubtitle || 'Showing 5 latest devices. Use the search bar to find past devices.')
 
   return (
     <div className="space-y-6">
@@ -198,8 +244,10 @@ export default function DashboardTelemetry({
         <div className="space-y-3">
           {showAccessFilter && (
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[10px] font-black text-surface-600 dark:text-surface-400 uppercase tracking-widest flex-shrink-0">Filter KPIs:</span>
-              <div className="relative" ref={filterRef}>
+              <span className="text-[10px] font-black text-surface-400 uppercase tracking-widest flex-shrink-0">
+                Filter KPIs:
+              </span>
+              <div className="relative group-filter-dropdown-container" ref={filterRef}>
                 <button
                   type="button"
                   onClick={() => setFilterOpen((o) => !o)}
@@ -215,7 +263,7 @@ export default function DashboardTelemetry({
                       <input
                         type="text"
                         className="w-full px-2 py-1 text-xs input"
-                        placeholder="Search groups or orgs..."
+                        placeholder={isOrgMode ? 'Search organizations...' : 'Search groups...'}
                         value={filterSearch}
                         onChange={(e) => setFilterSearch(e.target.value)}
                         autoFocus
@@ -229,12 +277,26 @@ export default function DashboardTelemetry({
                       >
                         {allDevicesLabel}
                       </button>
-                      {groups.length === 0 ? (
+                      {(isOrgMode ? organizations : groups).length === 0 ? (
                         <p className="p-3 text-[10px] text-center text-surface-400 font-medium">{emptyGroupsHint}</p>
-                      ) : searchedGroups.length === 0 ? (
-                        <p className="p-3 text-xs text-center text-surface-400">No matching groups found.</p>
+                      ) : searchedOptions.length === 0 ? (
+                        <p className="p-3 text-xs text-center text-surface-400">
+                          {isOrgMode ? 'No matching organizations found.' : 'No matching groups found.'}
+                        </p>
+                      ) : isOrgMode ? (
+                        searchedOptions.map((o) => (
+                          <button
+                            key={o.id}
+                            type="button"
+                            onClick={() => { setGroupFilter(o.id); setFilterOpen(false); setFilterSearch('') }}
+                            className={`w-full text-left px-3 py-2 text-xs font-bold transition-colors hover:bg-surface-50 dark:hover:bg-surface-800 flex flex-col ${groupFilter === o.id ? 'text-primary-600 bg-primary-50 dark:bg-primary-950/20' : 'text-surface-700 dark:text-surface-300'}`}
+                          >
+                            <span>{o.name}</span>
+                            <span className="text-[9px] text-surface-400 font-normal">{o.status}</span>
+                          </button>
+                        ))
                       ) : (
-                        searchedGroups.map((g) => (
+                        searchedOptions.map((g) => (
                           <button
                             key={g.id}
                             type="button"
@@ -267,7 +329,7 @@ export default function DashboardTelemetry({
                   className="card p-4 text-left hover:shadow-elevated hover:border-primary-200 dark:hover:border-primary-800 transition-all duration-200 cursor-pointer group border border-surface-200 dark:border-surface-800 w-full"
                 >
                   <div className="flex items-start justify-between mb-2">
-                    <span className="text-[10px] font-black text-surface-600 dark:text-surface-400 uppercase tracking-wider leading-tight truncate pr-2">{label}</span>
+                    <span className="text-[10px] font-black text-surface-400 uppercase tracking-wider leading-tight truncate pr-2">{label}</span>
                     <Icon size={13} style={{ color }} className="flex-shrink-0 mt-0.5" />
                   </div>
                   <div className="flex items-baseline gap-1">
@@ -287,6 +349,8 @@ export default function DashboardTelemetry({
         </div>
       )}
 
+      {between}
+
       {showTelemetry && (
         <div className="card p-5 bg-white dark:bg-surface-900 border border-surface-200 dark:border-surface-800 shadow-sm rounded-xl space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-surface-100 dark:border-surface-800 pb-3">
@@ -294,11 +358,7 @@ export default function DashboardTelemetry({
               <Radio className="text-primary-600 animate-pulse" size={18} />
               <div>
                 <h3 className="text-base font-extrabold text-surface-900 dark:text-surface-100 tracking-tight leading-tight">{panelTitle}</h3>
-                <p className="text-xs text-surface-400 font-semibold mt-0.5">
-                  {deviceSearch.trim()
-                    ? `Search results for "${deviceSearch}"`
-                    : 'Live variables from each device. Use search to find more.'}
-                </p>
+                <p className="text-xs text-surface-400 font-semibold mt-0.5">{defaultTelemetryHint}</p>
               </div>
             </div>
             <div className="relative w-full sm:w-64">
@@ -306,7 +366,7 @@ export default function DashboardTelemetry({
               <input
                 type="text"
                 className="input pl-8 pr-3 py-1 text-xs bg-surface-50 dark:bg-surface-950 border-surface-200 dark:border-surface-800 w-full"
-                placeholder="Search device, gateway or org..."
+                placeholder={isOrgMode ? 'Search device, gateway or org...' : 'Search device or gateway...'}
                 value={deviceSearch}
                 onChange={(e) => setDeviceSearch(e.target.value)}
               />
@@ -316,7 +376,7 @@ export default function DashboardTelemetry({
           <div className="grid grid-cols-1 gap-6">
             {filteredDevices.length === 0 ? (
               <div className="p-8 text-center text-xs text-surface-500 font-bold bg-surface-50/30 dark:bg-surface-900/40 rounded-xl border border-dashed border-surface-200 dark:border-surface-800">
-                No matching devices found.
+                No matching devices found. Clear search to see latest devices.
               </div>
             ) : (
               filteredDevices.map((d) => {
@@ -342,7 +402,7 @@ export default function DashboardTelemetry({
                           {offline || switchOff ? 'Offline' : 'Online'}
                         </span>
                         <label className="flex items-center gap-1.5 cursor-pointer">
-                          <span className="text-[10px] text-surface-600 dark:text-surface-400 font-black uppercase select-none">Control Switch</span>
+                          <span className="text-[10px] text-surface-400 font-black uppercase select-none">Control Switch</span>
                           <button
                             type="button"
                             onClick={() => handleToggleSwitch(d)}
@@ -377,7 +437,7 @@ export default function DashboardTelemetry({
                               {unit ? <span className="text-[10px] text-surface-400 font-semibold ml-1">{unit}</span> : null}
                             </div>
                             <div className="text-[9px] text-surface-400/80 mt-1 truncate border-t border-surface-100 dark:border-surface-800/40 pt-1.5 font-bold uppercase tracking-widest">
-                              {offline ? 'last reading · ' : ''}{d.name}
+                              {offline ? 'last reading · ' : ''}for {d.name}
                             </div>
                           </div>
                         ))}
