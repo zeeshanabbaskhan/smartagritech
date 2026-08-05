@@ -1,6 +1,6 @@
 import DeviceTemplateSlavesPage from '../shared/DeviceTemplateSlavesPage'
 
-/** Org can view/edit slaves & variables (ORG_ADMIN); mirrors admin portal pattern. */
+/** Org can view slaves & variables (read-only). Mutations are SUPER_ADMIN-only. */
 export default function OrgDeviceTemplateSlaves() {
-  return <DeviceTemplateSlavesPage basePath="/org" />
+  return <DeviceTemplateSlavesPage basePath="/org" readOnly />
 }

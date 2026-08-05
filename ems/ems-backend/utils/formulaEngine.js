@@ -1,7 +1,7 @@
 /**
  * Safe arithmetic formula evaluator for ingest-time transforms.
  * Supports: numbers, + - * /, parentheses, optional leading '='.
- * Acquisition formulas use `s` as the raw reading.
+ * Control formulas (DIRECT vars) use `s` as the raw reading, e.g. =s/100.
  * Equation formulas may contain SlaveName$$VariableName tokens (replaced before eval).
  * No eval() / Function() — recursive-descent parser only.
  */
@@ -139,7 +139,7 @@ const evaluate = (formula, env = {}) => {
 }
 
 /**
- * Apply acquisition formula to a raw reading.
+ * Apply a control/acquisition formula (`s` = raw) to a reading.
  * Empty formula → returns raw as number (or NaN).
  */
 const applyAcquisitionFormula = (formula, rawValue) => {

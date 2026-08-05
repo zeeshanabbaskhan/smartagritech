@@ -14,7 +14,7 @@ router.route('/')
   .post(authorize('SUPER_ADMIN'), createDeviceTemplate);
 
 router.route('/:id')
-  .get(getDeviceTemplate)
+  .get(authorize('SUPER_ADMIN', 'ORG_ADMIN', 'USER'), getDeviceTemplate)
   .put(authorize('SUPER_ADMIN'), updateDeviceTemplate)
   .delete(authorize('SUPER_ADMIN'), deleteDeviceTemplate);
 

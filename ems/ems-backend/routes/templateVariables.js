@@ -9,18 +9,18 @@ const {
 router.use(protect);
 
 router.route('/')
-  .get(getVariables)
-  .post(authorize('SUPER_ADMIN', 'ORG_ADMIN'), createVariable);
+  .get(authorize('SUPER_ADMIN', 'ORG_ADMIN', 'USER'), getVariables)
+  .post(authorize('SUPER_ADMIN'), createVariable);
 
-router.post('/sort', authorize('SUPER_ADMIN', 'ORG_ADMIN'), sortVariables);
+router.post('/sort', authorize('SUPER_ADMIN'), sortVariables);
 
 router.route('/:variableId')
-  .put(authorize('SUPER_ADMIN', 'ORG_ADMIN'), updateVariable)
-  .delete(authorize('SUPER_ADMIN', 'ORG_ADMIN'), deleteVariable);
+  .put(authorize('SUPER_ADMIN'), updateVariable)
+  .delete(authorize('SUPER_ADMIN'), deleteVariable);
 
 router.post(
   '/:variableId/default-unit',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN'),
+  authorize('SUPER_ADMIN'),
   setDefaultUnit
 );
 

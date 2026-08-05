@@ -49,5 +49,65 @@ assert('rejects unknown ident', (() => {
   try { evaluate('foo+1', {}); return false } catch { return true }
 })())
 
+const { applyIngestFormulas } = require('../utils/applyIngestFormulas')
+
+console.log('applyIngestFormulas (control formula)')
+
+const mkDirect = (name, { controlFormula, acquisitionFormula } = {}) => ({
+  name,
+  currentValue: null,
+  templateVariable: {
+    variableType: 'DIRECT',
+    controlFormula: controlFormula || null,
+    acquisitionFormula: acquisitionFormula || null,
+    templateSlave: { name: 'Slave1' },
+  },
+  configSlave: { name: 'Slave1' },
+})
+
+{
+  const out = applyIngestFormulas(
+    [mkDirect('Voltage', { controlFormula: '=s/100' })],
+    [{ variableName: 'Voltage', value: 2300 }]
+  )
+  assert('controlFormula =s/100 scales ingest', approx(out[0].value, 23))
+}
+
+{
+  const out = applyIngestFormulas(
+    [mkDirect('Voltage', { acquisitionFormula: '=s/10' })],
+    [{ variableName: 'Voltage', value: 230 }]
+  )
+  assert('acquisitionFormula fallback when control empty', approx(out[0].value, 23))
+}
+
+{
+  const out = applyIngestFormulas(
+    [mkDirect('Voltage', { controlFormula: '=s/100', acquisitionFormula: '=s/10' })],
+    [{ variableName: 'Voltage', value: 2300 }]
+  )
+  assert('controlFormula preferred over acquisition', approx(out[0].value, 23))
+}
+
+{
+  const vars = [
+    mkDirect('Voltage', { controlFormula: '=s/100' }),
+    {
+      name: 'Sum',
+      currentValue: null,
+      templateVariable: {
+        variableType: 'EQUATION',
+        controlFormula: 'Slave1$$Voltage * 2',
+        acquisitionFormula: null,
+        templateSlave: { name: 'Slave1' },
+      },
+      configSlave: { name: 'Slave1' },
+    },
+  ]
+  const out = applyIngestFormulas(vars, [{ variableName: 'Voltage', value: 2300 }])
+  const sum = out.find((r) => r.variableName === 'Sum')
+  assert('equation uses scaled control values', sum && approx(sum.value, 46))
+}
+
 console.log(`\n${passed} passed, ${failed} failed`)
 process.exit(failed ? 1 : 0)

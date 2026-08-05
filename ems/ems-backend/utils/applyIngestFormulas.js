@@ -1,5 +1,7 @@
 /**
- * Apply template acquisition + equation formulas to an ingest payload.
+ * Apply template control (e.g. =s/100) + equation formulas to an ingest payload.
+ * Direct vars: prefer controlFormula, fall back to acquisitionFormula.
+ * Equation vars: controlFormula with Slave$$Var refs (not =s/100).
  * Returns computed readings suitable for currentValue / SensorReadingValue / Redis / socket.
  * Raw readings remain unchanged in SensorReading.readings JSON.
  */
@@ -28,7 +30,8 @@ const applyIngestFormulas = (configVars, readings) => {
     cv.configSlave?.name ||
     ''
 
-  // 1) Direct variables from payload (+ acquisition formula)
+  // 1) Direct variables from payload (+ control formula, e.g. =s/100)
+  // Prefer controlFormula; fall back to acquisitionFormula for older rows.
   for (const r of readings || []) {
     if (r.variableName == null) continue
     const cv = byName[r.variableName]
@@ -36,11 +39,14 @@ const applyIngestFormulas = (configVars, readings) => {
     const isEquation = tv?.variableType === 'EQUATION'
     let value = r.value
 
-    if (!isEquation && tv?.acquisitionFormula) {
-      value = applyAcquisitionFormula(tv.acquisitionFormula, r.value)
-    } else if (!isEquation) {
-      const num = Number(r.value)
-      value = Number.isNaN(num) ? r.value : num
+    if (!isEquation) {
+      const scaleFormula = tv?.controlFormula || tv?.acquisitionFormula
+      if (scaleFormula) {
+        value = applyAcquisitionFormula(scaleFormula, r.value)
+      } else {
+        const num = Number(r.value)
+        value = Number.isNaN(num) ? r.value : num
+      }
     }
 
     computedByName[r.variableName] = value

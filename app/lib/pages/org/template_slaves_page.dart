@@ -11,9 +11,11 @@ class TemplateSlavesPage extends StatefulWidget {
     super.key,
     required this.templateId,
     required this.templateName,
+    this.readOnly = true,
   });
   final String templateId;
   final String templateName;
+  final bool readOnly;
 
   @override
   State<TemplateSlavesPage> createState() => _TemplateSlavesPageState();
@@ -54,6 +56,7 @@ class _TemplateSlavesPageState extends State<TemplateSlavesPage> {
       ));
 
   void _showModal([Map<String, dynamic>? item]) {
+    if (widget.readOnly) return;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -80,6 +83,7 @@ class _TemplateSlavesPageState extends State<TemplateSlavesPage> {
   }
 
   void _confirmDelete(Map<String, dynamic> item) {
+    if (widget.readOnly) return;
     showDialog(
       context: context,
       builder: (_) => deleteConfirmDialog(
@@ -119,13 +123,15 @@ class _TemplateSlavesPageState extends State<TemplateSlavesPage> {
             style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: Colors.white)),
         elevation: 0,
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showModal(),
-        backgroundColor: kNavy,
-        foregroundColor: Colors.white,
-        icon: const Icon(Icons.add, size: 18),
-        label: const Text('Add Slave', style: TextStyle(fontWeight: FontWeight.w600)),
-      ),
+      floatingActionButton: widget.readOnly
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: () => _showModal(),
+              backgroundColor: kNavy,
+              foregroundColor: Colors.white,
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('Add Slave', style: TextStyle(fontWeight: FontWeight.w600)),
+            ),
       body: Column(children: [
         Container(
           color: Colors.white,
@@ -201,20 +207,23 @@ class _TemplateSlavesPageState extends State<TemplateSlavesPage> {
                   templateId: widget.templateId,
                   slaveId: item['id'] as String,
                   slaveName: item['name'] as String? ?? '',
+                  readOnly: widget.readOnly,
                 )),
               ),
               child: const Icon(Icons.list_outlined, size: 17, color: kNavy),
             ),
-            const SizedBox(width: 8),
-            GestureDetector(
-              onTap: () => _showModal(item),
-              child: const Icon(Icons.edit_outlined, size: 17, color: kBlue),
-            ),
-            const SizedBox(width: 8),
-            GestureDetector(
-              onTap: () => _confirmDelete(item),
-              child: const Icon(Icons.delete_outline, size: 17, color: kRed),
-            ),
+            if (!widget.readOnly) ...[
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: () => _showModal(item),
+                child: const Icon(Icons.edit_outlined, size: 17, color: kBlue),
+              ),
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: () => _confirmDelete(item),
+                child: const Icon(Icons.delete_outline, size: 17, color: kRed),
+              ),
+            ],
           ]),
         ),
       ]),

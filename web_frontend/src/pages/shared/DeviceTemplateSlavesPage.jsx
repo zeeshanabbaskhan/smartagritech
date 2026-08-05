@@ -14,6 +14,7 @@ const blankSlave = { name: '', protocol: 'Modbus RTU', description: '', isDefaul
 
 /**
  * Shared portal-style Device Template Slaves page (admin + org).
+ * Pass readOnly for ORG_ADMIN view-only (no add/edit/delete).
  * @param {{ basePath?: string, readOnly?: boolean }} props
  */
 export default function DeviceTemplateSlavesPage({ basePath = '/admin', readOnly = false }) {

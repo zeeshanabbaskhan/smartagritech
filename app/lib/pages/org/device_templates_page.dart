@@ -8,7 +8,8 @@ import 'org_helpers.dart';
 import 'template_slaves_page.dart';
 
 class DeviceTemplatesTab extends StatefulWidget {
-  const DeviceTemplatesTab({super.key});
+  const DeviceTemplatesTab({super.key, this.readOnly = true});
+  final bool readOnly;
 
   @override
   State<DeviceTemplatesTab> createState() => _DeviceTemplatesTabState();
@@ -38,6 +39,7 @@ class _DeviceTemplatesTabState extends State<DeviceTemplatesTab> {
   }
 
   void _showModal([int? index]) {
+    if (widget.readOnly) return;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -81,6 +83,7 @@ class _DeviceTemplatesTabState extends State<DeviceTemplatesTab> {
   }
 
   void _confirmDelete(int index) {
+    if (widget.readOnly) return;
     showDialog(
       context: context,
       builder: (_) => deleteConfirmDialog(
@@ -124,15 +127,19 @@ class _DeviceTemplatesTabState extends State<DeviceTemplatesTab> {
       );
     }
 
+    final readOnly = widget.readOnly;
+
     return Scaffold(
       backgroundColor: kBg,
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showModal(),
-        backgroundColor: kNavy,
-        foregroundColor: Colors.white,
-        icon: const Icon(Icons.add, size: 18),
-        label: const Text('Add Template', style: TextStyle(fontWeight: FontWeight.w600)),
-      ),
+      floatingActionButton: readOnly
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: () => _showModal(),
+              backgroundColor: kNavy,
+              foregroundColor: Colors.white,
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('Add Template', style: TextStyle(fontWeight: FontWeight.w600)),
+            ),
       body: Column(
         children: [
           Container(
@@ -143,6 +150,11 @@ class _DeviceTemplatesTabState extends State<DeviceTemplatesTab> {
               const SizedBox(width: 16),
               StatChip('Variables',
                   _templates.fold(0, (s, t) => s + (t['variables'] as int)), kBlue),
+              if (readOnly) ...[
+                const SizedBox(width: 16),
+                Text('View only',
+                    style: TextStyle(fontSize: 11, color: Colors.grey.shade500, fontWeight: FontWeight.w600)),
+              ],
             ]),
           ),
           Expanded(
@@ -208,28 +220,30 @@ class _DeviceTemplatesTabState extends State<DeviceTemplatesTab> {
           SizedBox(
             width: _widths[5],
             child: Row(children: [
-              GestureDetector(
-                onTap: () async {
-                  try {
-                    await EmsApi.instance.cloneDeviceTemplate(t['id'] as String);
-                    await _load();
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(orgSnack('Template cloned'));
+              if (!widget.readOnly) ...[
+                GestureDetector(
+                  onTap: () async {
+                    try {
+                      await EmsApi.instance.cloneDeviceTemplate(t['id'] as String);
+                      await _load();
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(orgSnack('Template cloned'));
+                      }
+                    } catch (e) {
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(e is ApiException ? e.message : 'Clone failed'),
+                            backgroundColor: kRed,
+                          ),
+                        );
+                      }
                     }
-                  } catch (e) {
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(e is ApiException ? e.message : 'Clone failed'),
-                          backgroundColor: kRed,
-                        ),
-                      );
-                    }
-                  }
-                },
-                child: const Icon(Icons.copy_outlined, size: 17, color: kGreen),
-              ),
-              const SizedBox(width: 8),
+                  },
+                  child: const Icon(Icons.copy_outlined, size: 17, color: kGreen),
+                ),
+                const SizedBox(width: 8),
+              ],
               GestureDetector(
                 onTap: () => Navigator.push(
                   context,
@@ -237,17 +251,20 @@ class _DeviceTemplatesTabState extends State<DeviceTemplatesTab> {
                     builder: (_) => TemplateSlavesPage(
                       templateId: t['id'] as String,
                       templateName: t['name'] as String,
+                      readOnly: widget.readOnly,
                     ),
                   ),
                 ),
                 child: const Icon(Icons.list_outlined, size: 17, color: kNavy),
               ),
-              const SizedBox(width: 8),
-              GestureDetector(onTap: () => _showModal(idx),
-                  child: const Icon(Icons.edit_outlined, size: 17, color: kBlue)),
-              const SizedBox(width: 8),
-              GestureDetector(onTap: () => _confirmDelete(idx),
-                  child: const Icon(Icons.delete_outline, size: 17, color: kRed)),
+              if (!widget.readOnly) ...[
+                const SizedBox(width: 8),
+                GestureDetector(onTap: () => _showModal(idx),
+                    child: const Icon(Icons.edit_outlined, size: 17, color: kBlue)),
+                const SizedBox(width: 8),
+                GestureDetector(onTap: () => _confirmDelete(idx),
+                    child: const Icon(Icons.delete_outline, size: 17, color: kRed)),
+              ],
             ]),
           ),
         ]),

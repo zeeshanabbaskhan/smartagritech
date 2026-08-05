@@ -5,20 +5,18 @@ import PageState, { useFetch } from '../../components/ui/PageState'
 import { TextInput, SelectInput } from '../../components/ui/FormFields'
 import { Eye, BarChart2 } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
-import { mapDevice, mapGateway, mapDeviceTemplate } from '../../utils/mappers'
+import { mapDevice, mapGateway } from '../../utils/mappers'
 
 export default function OrgDevices() {
   const navigate = useNavigate()
   const { data, loading, error, reload } = useFetch(async () => {
-    const [devicesRes, gatewaysRes, templatesRes] = await Promise.all([
+    const [devicesRes, gatewaysRes] = await Promise.all([
       emsApi.getDevices({ limit: 100 }),
       emsApi.getGateways({ limit: 100 }),
-      emsApi.getDeviceTemplates({ limit: 100 }),
     ])
     return {
       rows: list(devicesRes).map(mapDevice),
       gateways: list(gatewaysRes).map(mapGateway),
-      templates: list(templatesRes).map(mapDeviceTemplate),
     }
   }, [])
 

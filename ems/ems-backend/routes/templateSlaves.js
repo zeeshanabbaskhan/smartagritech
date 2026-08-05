@@ -8,11 +8,11 @@ const {
 router.use(protect);
 
 router.route('/')
-  .get(getSlaves)
-  .post(authorize('SUPER_ADMIN', 'ORG_ADMIN'), createSlave);
+  .get(authorize('SUPER_ADMIN', 'ORG_ADMIN', 'USER'), getSlaves)
+  .post(authorize('SUPER_ADMIN'), createSlave);
 
 router.route('/:slaveId')
-  .put(authorize('SUPER_ADMIN', 'ORG_ADMIN'), updateSlave)
-  .delete(authorize('SUPER_ADMIN', 'ORG_ADMIN'), deleteSlave);
+  .put(authorize('SUPER_ADMIN'), updateSlave)
+  .delete(authorize('SUPER_ADMIN'), deleteSlave);
 
 module.exports = router;

@@ -11,10 +11,12 @@ class TemplateVariablesPage extends StatefulWidget {
     required this.templateId,
     required this.slaveId,
     required this.slaveName,
+    this.readOnly = true,
   });
   final String templateId;
   final String slaveId;
   final String slaveName;
+  final bool readOnly;
 
   @override
   State<TemplateVariablesPage> createState() => _TemplateVariablesPageState();
@@ -62,27 +64,31 @@ class _TemplateVariablesPageState extends State<TemplateVariablesPage> {
       backgroundColor: Colors.transparent,
       builder: (_) => _VariableFormModal(
         item: item,
-        onSave: (data) async {
-          try {
-            if (item != null) {
-              await EmsApi.instance.updateTemplateVariable(
-                  widget.templateId, widget.slaveId, item['id'] as String, data);
-              _snack('Variable updated');
-            } else {
-              await EmsApi.instance.createTemplateVariable(
-                  widget.templateId, widget.slaveId, data);
-              _snack('Variable added');
-            }
-            await _load();
-          } catch (e) {
-            _snack(e is ApiException ? e.message : 'Save failed', error: true);
-          }
-        },
+        readOnly: widget.readOnly,
+        onSave: widget.readOnly
+            ? (_) {}
+            : (data) async {
+                try {
+                  if (item != null) {
+                    await EmsApi.instance.updateTemplateVariable(
+                        widget.templateId, widget.slaveId, item['id'] as String, data);
+                    _snack('Variable updated');
+                  } else {
+                    await EmsApi.instance.createTemplateVariable(
+                        widget.templateId, widget.slaveId, data);
+                    _snack('Variable added');
+                  }
+                  await _load();
+                } catch (e) {
+                  _snack(e is ApiException ? e.message : 'Save failed', error: true);
+                }
+              },
       ),
     );
   }
 
   void _confirmDelete(Map<String, dynamic> item) {
+    if (widget.readOnly) return;
     showDialog(
       context: context,
       builder: (_) => deleteConfirmDialog(
@@ -122,13 +128,15 @@ class _TemplateVariablesPageState extends State<TemplateVariablesPage> {
             style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: Colors.white)),
         elevation: 0,
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showModal(),
-        backgroundColor: kNavy,
-        foregroundColor: Colors.white,
-        icon: const Icon(Icons.add, size: 18),
-        label: const Text('Add Variable', style: TextStyle(fontWeight: FontWeight.w600)),
-      ),
+      floatingActionButton: widget.readOnly
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: () => _showModal(),
+              backgroundColor: kNavy,
+              foregroundColor: Colors.white,
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('Add Variable', style: TextStyle(fontWeight: FontWeight.w600)),
+            ),
       body: Column(children: [
         Container(
           color: Colors.white,
@@ -213,15 +221,20 @@ class _TemplateVariablesPageState extends State<TemplateVariablesPage> {
         ),
         SizedBox(
           width: _widths[6],
-          child: Row(children: [
-            GestureDetector(
-                onTap: () => _showModal(item),
-                child: const Icon(Icons.edit_outlined, size: 17, color: kBlue)),
-            const SizedBox(width: 10),
-            GestureDetector(
-                onTap: () => _confirmDelete(item),
-                child: const Icon(Icons.delete_outline, size: 17, color: kRed)),
-          ]),
+          child: widget.readOnly
+              ? GestureDetector(
+                  onTap: () => _showModal(item),
+                  child: const Icon(Icons.visibility_outlined, size: 17, color: kNavy),
+                )
+              : Row(children: [
+                  GestureDetector(
+                      onTap: () => _showModal(item),
+                      child: const Icon(Icons.edit_outlined, size: 17, color: kBlue)),
+                  const SizedBox(width: 10),
+                  GestureDetector(
+                      onTap: () => _confirmDelete(item),
+                      child: const Icon(Icons.delete_outline, size: 17, color: kRed)),
+                ]),
         ),
       ]),
     );
@@ -230,9 +243,10 @@ class _TemplateVariablesPageState extends State<TemplateVariablesPage> {
 
 // ── Form Modal ─────────────────────────────────────────────────────────────────
 class _VariableFormModal extends StatefulWidget {
-  const _VariableFormModal({this.item, required this.onSave});
+  const _VariableFormModal({this.item, required this.onSave, this.readOnly = false});
   final Map<String, dynamic>? item;
   final void Function(Map<String, dynamic>) onSave;
+  final bool readOnly;
 
   @override
   State<_VariableFormModal> createState() => _VariableFormModalState();
@@ -272,29 +286,36 @@ class _VariableFormModalState extends State<_VariableFormModal> {
   @override
   Widget build(BuildContext context) {
     return ModalShell(
-      title: widget.item != null ? 'Edit Variable' : 'Add Variable',
+      title: widget.readOnly
+          ? 'View Variable'
+          : widget.item != null
+              ? 'Edit Variable'
+              : 'Add Variable',
       child: Form(
         key: _formKey,
         child: Column(children: [
           ModalField('Name', _name,
               hint: 'e.g. VoltageA',
+              enabled: !widget.readOnly,
               validator: (v) => v!.trim().isEmpty ? 'Required' : null),
           const SizedBox(height: 14),
           ModalField('Data Address', _dataAddress,
               hint: '0',
               keyboard: TextInputType.number,
+              enabled: !widget.readOnly,
               validator: (v) => int.tryParse(v ?? '') == null ? 'Enter a number' : null),
           const SizedBox(height: 14),
           ModalDropdown('Data Type', _dataType,
               ['FLOAT', 'INTEGER', 'BOOLEAN', 'STRING'],
-              (v) => setState(() => _dataType = v!)),
+              widget.readOnly ? (_) {} : (v) => setState(() => _dataType = v!)),
           const SizedBox(height: 14),
           ModalField('Scaling Factor', _scalingFactor,
               hint: '1.0',
               keyboard: const TextInputType.numberWithOptions(decimal: true),
+              enabled: !widget.readOnly,
               validator: (v) => double.tryParse(v ?? '') == null ? 'Enter a number' : null),
           const SizedBox(height: 14),
-          ModalField('Unit', _unit, hint: 'V, A, kW, etc.'),
+          ModalField('Unit', _unit, hint: 'V, A, kW, etc.', enabled: !widget.readOnly),
           const SizedBox(height: 14),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -303,29 +324,38 @@ class _VariableFormModalState extends State<_VariableFormModal> {
                   style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: kNavy)),
               Switch(
                 value: _isDefault,
-                onChanged: (v) => setState(() => _isDefault = v),
+                onChanged: widget.readOnly ? null : (v) => setState(() => _isDefault = v),
                 activeThumbColor: Colors.white,
                 activeTrackColor: kNavy,
               ),
             ],
           ),
           const SizedBox(height: 24),
-          ModalActions(
-            onCancel: () => Navigator.pop(context),
-            onSave: () {
-              if (_formKey.currentState!.validate()) {
-                Navigator.pop(context);
-                widget.onSave({
-                  'name': _name.text.trim(),
-                  'dataAddress': int.parse(_dataAddress.text.trim()),
-                  'dataType': _dataType,
-                  'scalingFactor': double.parse(_scalingFactor.text.trim()),
-                  'unit': _unit.text.trim(),
-                  'isDefault': _isDefault,
-                });
-              }
-            },
-          ),
+          if (widget.readOnly)
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Close'),
+              ),
+            )
+          else
+            ModalActions(
+              onCancel: () => Navigator.pop(context),
+              onSave: () {
+                if (_formKey.currentState!.validate()) {
+                  Navigator.pop(context);
+                  widget.onSave({
+                    'name': _name.text.trim(),
+                    'dataAddress': int.parse(_dataAddress.text.trim()),
+                    'dataType': _dataType,
+                    'scalingFactor': double.parse(_scalingFactor.text.trim()),
+                    'unit': _unit.text.trim(),
+                    'isDefault': _isDefault,
+                  });
+                }
+              },
+            ),
         ]),
       ),
     );

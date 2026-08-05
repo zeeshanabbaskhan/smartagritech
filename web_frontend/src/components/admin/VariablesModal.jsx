@@ -1,13 +1,14 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import Modal from '../ui/Modal'
 import { TextInput, SelectInput, CheckboxInput, RadioInput } from '../ui/FormFields'
-import { Plus, Pencil, Trash2, Info, ChevronDown, ChevronUp } from 'lucide-react'
+import { Plus, Pencil, Trash2, Info, ChevronDown, ChevronUp, Eye } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
 import { useToast } from '../../context/ToastContext'
 import {
   REGISTER_FUNCTIONS, DATA_FORMATS, NUMBER_FORMATS, READ_WRITE_OPTIONS,
   VARIABLE_TYPE_DIRECT, VARIABLE_TYPE_EQUATION,
   registerDisplayCode, apiVarToUi, uiVarToApi, formatSyncToast,
+  VARIABLE_CSV_HEADERS, variableToCsvRow, parseCsvLine, csvRowToUiVar,
 } from '../../data/slaveVariables'
 
 const blankVariable = {
@@ -181,38 +182,17 @@ export default function VariablesModal({ templateId, slave, allSlaves = [], onCl
   }
 
   const handleExportVariable = () => {
-    const header = ['Number', 'Variable Name', 'Variable Type', 'Value Type', 'Register', 'Write & Read', 'Storage Mode', 'Unit', 'Acquisition Formula', 'Control Formula', 'Data Format', 'Register Func', 'ReadWrite']
-    const rows = variables.map((v) => [
-      v.number, v.name, v.variableType, registerDisplayCode(v.dataFormat), v.registerAddress, v.readWrite,
-      [v.storageVariable && 'Variable Storage', v.storageTiming && 'Timing Storage'].filter(Boolean).join('-'),
-      v.unit, v.acquisitionFormula, v.controlFormula, v.dataFormat, v.registerFuncCode, v.readWrite,
-    ])
-    const csv = [header, ...rows].map((r) => r.map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n')
-    const blob = new Blob([csv], { type: 'text/csv' })
+    const rows = variables.map(variableToCsvRow)
+    const csv = [VARIABLE_CSV_HEADERS, ...rows]
+      .map((r) => r.map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(','))
+      .join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
     a.download = `${slave.name}-variables.csv`
     a.click()
     URL.revokeObjectURL(url)
-  }
-
-  const parseCsvLine = (line) => {
-    const out = []
-    let cur = ''
-    let inQ = false
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i]
-      if (ch === '"') {
-        if (inQ && line[i + 1] === '"') { cur += '"'; i += 1 }
-        else inQ = !inQ
-      } else if (ch === ',' && !inQ) {
-        out.push(cur)
-        cur = ''
-      } else cur += ch
-    }
-    out.push(cur)
-    return out
   }
 
   const handleImportFile = async () => {
@@ -225,39 +205,44 @@ export default function VariablesModal({ templateId, slave, allSlaves = [], onCl
       const text = await importFile.text()
       const lines = text.split(/\r?\n/).filter((l) => l.trim())
       if (lines.length < 2) throw new Error('CSV has no data rows')
-      const headers = parseCsvLine(lines[0]).map((h) => h.trim().toLowerCase())
-      const nameIdx = headers.findIndex((h) => h.includes('variable name') || h === 'name')
-      if (nameIdx < 0) throw new Error('CSV missing Variable Name column')
+      const headers = parseCsvLine(lines[0]).map((h) => h.trim())
+      const headerKeys = headers.map((h) => h.toLowerCase())
+      const hasName = headerKeys.some((h) => h === 'variable name' || h === 'name')
+      if (!hasName) throw new Error('CSV missing Variable Name column')
+
+      const byName = new Map(variables.map((v) => [v.name.toLowerCase(), v]))
       let created = 0
+      let updated = 0
       let lastSync = null
+
       for (let i = 1; i < lines.length; i++) {
         const cols = parseCsvLine(lines[i])
-        const name = (cols[nameIdx] || '').trim()
-        if (!name) continue
-        const get = (label) => {
-          const idx = headers.findIndex((h) => h === label || h.includes(label))
-          return idx >= 0 ? (cols[idx] || '').trim() : ''
+        const ui = csvRowToUiVar(headers, cols, blankVariable)
+        if (!ui) continue
+
+        const body = uiVarToApi(ui)
+        const existing = byName.get(ui.name.toLowerCase())
+        let res
+        if (existing) {
+          res = await emsApi.updateTemplateVariable(templateId, slave.id, existing.id, body)
+          updated += 1
+        } else {
+          res = await emsApi.createTemplateVariable(templateId, slave.id, body)
+          created += 1
+          if (res?.data?.id) {
+            byName.set(ui.name.toLowerCase(), { id: res.data.id, name: ui.name })
+          }
         }
-        const body = uiVarToApi({
-          ...blankVariable,
-          name,
-          unit: get('unit'),
-          registerAddress: get('register'),
-          variableType: get('variable type').toLowerCase().includes('equation')
-            ? VARIABLE_TYPE_EQUATION
-            : VARIABLE_TYPE_DIRECT,
-          dataFormat: get('data format') || 'Unsigned Word',
-          registerFuncCode: get('register func') || REGISTER_FUNCTIONS[0],
-          readWrite: get('write') || get('readwrite') || 'Read Only',
-          acquisitionFormula: get('acquisition'),
-          controlFormula: get('control'),
-        })
-        const res = await emsApi.createTemplateVariable(templateId, slave.id, body)
         lastSync = res?.sync
-        created += 1
       }
+
+      if (!created && !updated) throw new Error('No valid variable rows found in CSV')
+
       toastSync(showToast, lastSync)
-      showToast(`Imported ${created} variable(s)`, 'success')
+      const parts = []
+      if (created) parts.push(`${created} created`)
+      if (updated) parts.push(`${updated} updated`)
+      showToast(`Imported ${parts.join(', ')}`, 'success')
       setSubModal(null)
       setImportFile(null)
       await load()
@@ -275,7 +260,19 @@ export default function VariablesModal({ templateId, slave, allSlaves = [], onCl
     <>
       <Modal open onClose={onClose} title={`Variables — ${slave.name}`} size="2xl">
         <div className="space-y-4">
-          {!readOnly && (
+          {readOnly ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex-1 min-w-[10rem]" />
+              <input
+                type="text"
+                className="input py-1.5 text-xs w-44"
+                placeholder="Please Input variable name"
+                value={nameQuery}
+                onChange={(e) => setNameQuery(e.target.value)}
+              />
+              <button type="button" className="btn-primary" onClick={handleQuery}>Query</button>
+            </div>
+          ) : (
             <div className="flex flex-wrap items-center gap-2">
               <button type="button" className="btn-primary" onClick={openAddVariable} disabled={busy}>
                 <Plus size={14} /> Add Variable
@@ -332,13 +329,13 @@ export default function VariablesModal({ templateId, slave, allSlaves = [], onCl
                     <th>Register</th>
                     <th>Write &amp; Read</th>
                     <th>Storage Mode</th>
-                    {!readOnly && <th className="!text-center">Operation</th>}
+                    <th className="!text-center">Operation</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={readOnly ? 10 : 11} className="text-center py-10 text-xs text-surface-400">No variables found.</td>
+                      <td colSpan={11} className="text-center py-10 text-xs text-surface-400">No variables found.</td>
                     </tr>
                   ) : (
                     filtered.map((v) => (
@@ -382,14 +379,20 @@ export default function VariablesModal({ templateId, slave, allSlaves = [], onCl
                         <td className="text-xs text-surface-500">
                           {[v.storageVariable && 'Variable Storage', v.storageTiming && 'Timing Storage'].filter(Boolean).join('-') || '—'}
                         </td>
-                        {!readOnly && (
-                          <td className="!text-center">
-                            <div className="flex items-center justify-center gap-1">
-                              <button type="button" className="btn-ghost p-1.5" onClick={() => openEdit(v)} title="Edit"><Pencil size={13} /></button>
-                              <button type="button" className="btn-danger p-1.5" onClick={() => handleDeleteVariable(v)} title="Delete"><Trash2 size={13} /></button>
-                            </div>
-                          </td>
-                        )}
+                        <td className="!text-center">
+                          <div className="flex items-center justify-center gap-1">
+                            {readOnly ? (
+                              <button type="button" className="btn-ghost p-1.5" onClick={() => openEdit(v)} title="View">
+                                <Eye size={13} />
+                              </button>
+                            ) : (
+                              <>
+                                <button type="button" className="btn-ghost p-1.5" onClick={() => openEdit(v)} title="Edit"><Pencil size={13} /></button>
+                                <button type="button" className="btn-danger p-1.5" onClick={() => handleDeleteVariable(v)} title="Delete"><Trash2 size={13} /></button>
+                              </>
+                            )}
+                          </div>
+                        </td>
                       </tr>
                     ))
                   )}
@@ -409,6 +412,7 @@ export default function VariablesModal({ templateId, slave, allSlaves = [], onCl
           onClose={closeSub}
           onSubmit={handleSubmitVariable}
           busy={busy}
+          readOnly={readOnly}
         />
       )}
       {subModal === 'addEquation' && editingVar && (
@@ -420,9 +424,10 @@ export default function VariablesModal({ templateId, slave, allSlaves = [], onCl
           onSubmit={handleSubmitVariable}
           slaveNames={slaveNames}
           busy={busy}
+          readOnly={readOnly}
         />
       )}
-      {subModal === 'import' && (
+      {subModal === 'import' && !readOnly && (
         <ImportVariableModal
           onClose={() => { setSubModal(null); setImportFile(null) }}
           onImport={handleImportFile}
@@ -465,27 +470,29 @@ function TimeRangeField({ label, start, end, onStart, onEnd }) {
   )
 }
 
-function AddVariableModal({ value, isEdit, onChange, onClose, onSubmit, busy }) {
+function AddVariableModal({ value, isEdit, onChange, onClose, onSubmit, busy, readOnly = false }) {
   const [showAdvanced, setShowAdvanced] = useState(true)
-  const set = (patch) => onChange({ ...value, ...patch })
+  const set = (patch) => { if (!readOnly) onChange({ ...value, ...patch }) }
   const registerDisplay = `${String(value.registerAddress || '0').padStart(5, '0')}(${registerDisplayCode(value.dataFormat)})`
 
   return (
     <Modal
       open
       onClose={onClose}
-      title={isEdit ? 'Edit Variable' : 'Add Variable'}
+      title={readOnly ? 'View Variable' : isEdit ? 'Edit Variable' : 'Add Variable'}
       size="2xl"
       footer={
         <>
           <button type="button" className="btn-secondary" onClick={onClose}>Close</button>
-          <button type="button" className="btn-primary" onClick={onSubmit} disabled={busy}>
-            {busy ? 'Saving…' : 'Submit'}
-          </button>
+          {!readOnly && (
+            <button type="button" className="btn-primary" onClick={onSubmit} disabled={busy}>
+              {busy ? 'Saving…' : 'Submit'}
+            </button>
+          )}
         </>
       }
     >
-      <div className="space-y-4">
+      <fieldset disabled={readOnly} className="space-y-4 border-0 p-0 m-0 min-w-0 disabled:opacity-90">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <TextInput label="Variable Name" required placeholder="e.g. Voltage"
             value={value.name} onChange={(e) => set({ name: e.target.value })} />
@@ -554,36 +561,38 @@ function AddVariableModal({ value, isEdit, onChange, onClose, onSubmit, busy }) 
           onClick={() => setShowAdvanced((s) => !s)}
         >
           Advanced Options {showAdvanced ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-          <span className="text-surface-400 font-normal ml-2">Acquisition / control formulas</span>
+          <span className="text-surface-400 font-normal ml-2">Control formula (e.g. =s/100)</span>
         </button>
         {showAdvanced && (
           <div className="space-y-4">
             <div className="space-y-1.5">
               <label className="label flex items-center gap-1.5">
-                Acquisition Formula <Info size={12} className="text-surface-400" title="e.g. =s/100 — s is the raw register value" />
+                Control Formula <Info size={12} className="text-surface-400" title="e.g. =s/100 — s is the raw sensor value; applied on ingest and shown everywhere" />
               </label>
               <input type="text" className="input" placeholder="e.g. =s/100"
-                value={value.acquisitionFormula}
-                onChange={(e) => set({ acquisitionFormula: e.target.value })} />
+                value={value.controlFormula}
+                onChange={(e) => set({ controlFormula: e.target.value })} />
             </div>
             <div className="space-y-1.5">
               <label className="label flex items-center gap-1.5">
-                Control Formula <Info size={12} className="text-surface-400" title="Formula applied when writing a value to the device" />
+                Acquisition Formula <Info size={12} className="text-surface-400" title="Optional legacy field — used only if Control Formula is empty" />
               </label>
-              <input type="text" className="input" value={value.controlFormula}
-                onChange={(e) => set({ controlFormula: e.target.value })} />
+              <input type="text" className="input" placeholder="Optional"
+                value={value.acquisitionFormula}
+                onChange={(e) => set({ acquisitionFormula: e.target.value })} />
             </div>
           </div>
         )}
-      </div>
+      </fieldset>
     </Modal>
   )
 }
 
-function AddEquationModal({ value, isEdit, onChange, onClose, onSubmit, slaveNames, busy }) {
+function AddEquationModal({ value, isEdit, onChange, onClose, onSubmit, slaveNames, busy, readOnly = false }) {
   const [slavesOpen, setSlavesOpen] = useState(false)
-  const set = (patch) => onChange({ ...value, ...patch })
+  const set = (patch) => { if (!readOnly) onChange({ ...value, ...patch }) }
   const toggleSlave = (name) => {
+    if (readOnly) return
     const cur = value.slaves || []
     const next = cur.includes(name) ? cur.filter((s) => s !== name) : [...cur, name]
     set({ slaves: next })
@@ -593,18 +602,20 @@ function AddEquationModal({ value, isEdit, onChange, onClose, onSubmit, slaveNam
     <Modal
       open
       onClose={onClose}
-      title={isEdit ? 'Edit Equation Variable' : 'Add Equation Variable'}
+      title={readOnly ? 'View Equation Variable' : isEdit ? 'Edit Equation Variable' : 'Add Equation Variable'}
       size="lg"
       footer={
         <>
           <button type="button" className="btn-secondary" onClick={onClose}>Close</button>
-          <button type="button" className="btn-primary" onClick={onSubmit} disabled={busy}>
-            {busy ? 'Saving…' : 'Submit'}
-          </button>
+          {!readOnly && (
+            <button type="button" className="btn-primary" onClick={onSubmit} disabled={busy}>
+              {busy ? 'Saving…' : 'Submit'}
+            </button>
+          )}
         </>
       }
     >
-      <div className="space-y-4">
+      <fieldset disabled={readOnly} className="space-y-4 border-0 p-0 m-0 min-w-0 disabled:opacity-90">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <TextInput label="Variable Name" required placeholder="e.g. Total Power"
             value={value.name} onChange={(e) => set({ name: e.target.value })} />
@@ -621,13 +632,13 @@ function AddEquationModal({ value, isEdit, onChange, onClose, onSubmit, slaveNam
           <h4 className="text-sm font-bold text-surface-900 dark:text-surface-100 mt-3 mb-3">Equation Variables</h4>
           <div className="space-y-1.5 relative">
             <label className="label">Slaves <span className="text-danger-600">*</span></label>
-            <button type="button" onClick={() => setSlavesOpen((o) => !o)} className="select text-left flex items-center justify-between w-full">
+            <button type="button" onClick={() => !readOnly && setSlavesOpen((o) => !o)} className="select text-left flex items-center justify-between w-full">
               <span className={value.slaves?.length ? 'text-surface-800 dark:text-surface-100' : 'text-surface-400'}>
                 {value.slaves?.length ? value.slaves.join(', ') : 'Please select slaves'}
               </span>
               <ChevronDown size={14} className="text-surface-400 flex-shrink-0" />
             </button>
-            {slavesOpen && (
+            {slavesOpen && !readOnly && (
               <div className="absolute z-10 mt-1 w-full bg-white dark:bg-surface-900 border border-surface-200 dark:border-surface-700 rounded-xl shadow-floating overflow-hidden">
                 {slaveNames.map((s) => (
                   <label key={s} className="flex items-center gap-2 px-3 py-2 text-xs font-semibold text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-800 cursor-pointer">
@@ -641,14 +652,14 @@ function AddEquationModal({ value, isEdit, onChange, onClose, onSubmit, slaveNam
           </div>
           <div className="space-y-1.5 mt-4">
             <label className="label flex items-center gap-1.5">
-              Control Formula (Slave Name$$Variable Name)
-              <Info size={12} className="text-surface-400" title="e.g. Slave$$Voltage + Slave$$Current" />
+              Equation Formula (Slave Name$$Variable Name)
+              <Info size={12} className="text-surface-400" title="Combine other variables, e.g. Slave$$Voltage + Slave$$Current. Do not use =s/100 here — that belongs on a direct variable’s Control Formula." />
             </label>
             <input type="text" className="input" placeholder={`e.g. ${slaveNames[0] || 'Slave'}$$Voltage * 2`}
               value={value.controlFormula} onChange={(e) => set({ controlFormula: e.target.value })} />
           </div>
         </div>
-      </div>
+      </fieldset>
     </Modal>
   )
 }

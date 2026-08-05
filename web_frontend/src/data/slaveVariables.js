@@ -37,6 +37,220 @@ export function registerDisplayCode(dataFormat) {
   return map[dataFormat] || 'ushort'
 }
 
+/** Reverse of registerDisplayCode — portal "Value Type" column → dataFormat */
+export function dataFormatFromValueType(valueType) {
+  if (!valueType) return null
+  const key = String(valueType).trim().toLowerCase()
+  const map = {
+    bit: 'Bit',
+    ushort: 'Unsigned Word',
+    short: 'Signed Word',
+    ulong: 'Unsigned Long',
+    long: 'Signed Long',
+    ulonglong: 'Unsigned Long Long',
+    longlong: 'Signed Long Long',
+    float: 'Float',
+    double: 'Double',
+    ascii: 'ASCII',
+  }
+  if (map[key]) return map[key]
+  // Already a portal dataFormat label?
+  if (DATA_FORMATS.includes(valueType.trim())) return valueType.trim()
+  return null
+}
+
+/**
+ * CSV columns: portal table headers first (so portal-exported CSVs import),
+ * then formula / register / storage extras needed for a full round-trip.
+ */
+export const VARIABLE_CSV_HEADERS = [
+  'Number',
+  'Variable Name',
+  'Variable Type',
+  'Value Type',
+  'Register',
+  'Write & Read',
+  'Storage Mode',
+  'Unit',
+  'Acquisition Formula',
+  'Control Formula',
+  'Data Format',
+  'Register Func',
+  'Number Format',
+  'Identifier',
+  'Icon',
+  'Main Page Selection',
+  'Sort',
+  'Default Unit Selection',
+  'Decimal Places Padding',
+]
+
+function storageModeLabel(v) {
+  return [v.storageVariable && 'Variable Storage', v.storageTiming && 'Timing Storage']
+    .filter(Boolean)
+    .join('-')
+}
+
+function parseStorageMode(raw) {
+  const s = String(raw || '').toLowerCase()
+  if (!s.trim()) return { storageVariable: true, storageTiming: true }
+  return {
+    storageVariable: s.includes('variable'),
+    storageTiming: s.includes('timing'),
+  }
+}
+
+function parseBool(raw, fallback = false) {
+  if (raw == null || String(raw).trim() === '') return fallback
+  const s = String(raw).trim().toLowerCase()
+  if (['1', 'true', 'yes', 'y', 'on', 'checked'].includes(s)) return true
+  if (['0', 'false', 'no', 'n', 'off', ''].includes(s)) return false
+  return fallback
+}
+
+function extractEquationSlaves(formula) {
+  if (!formula) return []
+  const out = []
+  // Tokens like SlaveName$$Variable or "Slave Name"$$Voltage
+  const re = /([^$+\-*/()]+?)\$\$/g
+  let m
+  while ((m = re.exec(String(formula)))) {
+    const name = m[1].trim()
+    if (name && !out.includes(name)) out.push(name)
+  }
+  return out
+}
+
+/** Build one CSV data row aligned with VARIABLE_CSV_HEADERS */
+export function variableToCsvRow(v) {
+  return [
+    v.number ?? '',
+    v.name ?? '',
+    v.variableType ?? VARIABLE_TYPE_DIRECT,
+    registerDisplayCode(v.dataFormat),
+    v.registerAddress ?? '',
+    v.readWrite ?? '',
+    storageModeLabel(v),
+    v.unit ?? '',
+    v.acquisitionFormula ?? '',
+    v.controlFormula ?? '',
+    v.dataFormat ?? '',
+    v.registerFuncCode ?? '',
+    v.numberFormat ?? '',
+    v.identifier ?? '',
+    v.icon ?? '',
+    v.mainPageSelection ? 'true' : 'false',
+    v.sort ?? '',
+    v.defaultUnitSelection ? 'true' : 'false',
+    v.decimalPlacesPadding ? 'true' : 'false',
+  ]
+}
+
+/** RFC-style CSV line parser (handles quoted commas / escaped quotes) */
+export function parseCsvLine(line) {
+  const out = []
+  let cur = ''
+  let inQ = false
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]
+    if (ch === '"') {
+      if (inQ && line[i + 1] === '"') {
+        cur += '"'
+        i += 1
+      } else inQ = !inQ
+    } else if (ch === ',' && !inQ) {
+      out.push(cur)
+      cur = ''
+    } else cur += ch
+  }
+  out.push(cur)
+  return out
+}
+
+/**
+ * Exact-alias column lookup (avoids get('unit') matching "Default Unit Selection"
+ * or get('register') matching "Register Func").
+ */
+function csvGet(headerIndex, cols, aliases) {
+  for (const alias of aliases) {
+    const idx = headerIndex.get(alias)
+    if (idx != null) return (cols[idx] || '').trim()
+  }
+  return ''
+}
+
+/**
+ * Map a CSV data row → portal UI variable shape (ready for uiVarToApi).
+ * Does not invent equation type from controlFormula (=s/100 stays DIRECT).
+ */
+export function csvRowToUiVar(headers, cols, blank) {
+  const headerIndex = new Map()
+  headers.forEach((h, i) => {
+    const key = String(h || '').trim().toLowerCase()
+    if (key && !headerIndex.has(key)) headerIndex.set(key, i)
+  })
+
+  const get = (...aliases) => csvGet(headerIndex, cols, aliases.map((a) => a.toLowerCase()))
+
+  const name = get('variable name', 'name')
+  if (!name) return null
+
+  const typeRaw = get('variable type', 'type')
+  const isEquation = typeRaw.toLowerCase().includes('equation')
+
+  const dataFormatRaw = get('data format')
+  const valueTypeRaw = get('value type')
+  const dataFormat =
+    (dataFormatRaw && DATA_FORMATS.includes(dataFormatRaw) ? dataFormatRaw : null)
+    || dataFormatFromValueType(dataFormatRaw)
+    || dataFormatFromValueType(valueTypeRaw)
+    || blank.dataFormat
+    || 'Unsigned Word'
+
+  const readWrite =
+    get('write & read', 'readwrite', 'read/write', 'read write')
+    || blank.readWrite
+    || 'Read Only'
+
+  const storage = parseStorageMode(get('storage mode', 'storage'))
+  const controlFormula = get('control formula', 'control')
+  const acquisitionFormula = get('acquisition formula', 'acquisition')
+  const numberRaw = get('number')
+  const sortRaw = get('sort')
+
+  const registerFunc =
+    get('register func', 'register func code', 'register function')
+    || blank.registerFuncCode
+    || REGISTER_FUNCTIONS[0]
+
+  const numberFormat = get('number format') || blank.numberFormat || 'Integer'
+
+  const ui = {
+    ...blank,
+    name,
+    unit: get('unit', 'variable unit'),
+    identifier: get('identifier', 'variable identifier'),
+    icon: get('icon'),
+    variableType: isEquation ? VARIABLE_TYPE_EQUATION : VARIABLE_TYPE_DIRECT,
+    registerAddress: get('register', 'register address'),
+    registerFuncCode: registerFunc,
+    dataFormat,
+    numberFormat,
+    readWrite,
+    acquisitionFormula,
+    controlFormula,
+    storageVariable: storage.storageVariable,
+    storageTiming: storage.storageTiming,
+    mainPageSelection: parseBool(get('main page selection', 'main page'), !!blank.mainPageSelection),
+    defaultUnitSelection: parseBool(get('default unit selection', 'default unit'), !!blank.defaultUnitSelection),
+    decimalPlacesPadding: parseBool(get('decimal places padding', 'decimalplacespadding'), !!blank.decimalPlacesPadding),
+    number: numberRaw !== '' && Number.isFinite(Number(numberRaw)) ? Number(numberRaw) : (blank.number || 0),
+    sort: sortRaw !== '' ? sortRaw : (numberRaw !== '' ? numberRaw : (blank.sort || '')),
+    slaves: isEquation ? extractEquationSlaves(controlFormula) : [],
+  }
+  return ui
+}
+
 /** Map API variable → portal UI shape */
 export function apiVarToUi(v) {
   if (!v) return null

@@ -49,7 +49,7 @@ const getDeviceTemplates = async (req, res, next) => {
 }
 
 // @desc  Get a single template with its full slave + variable tree
-// @access SUPER_ADMIN | ORG_ADMIN
+// @access SUPER_ADMIN | ORG_ADMIN | USER (ORG_ADMIN is read-only; mutations are SUPER_ADMIN-only)
 const getDeviceTemplate = async (req, res, next) => {
   try {
     const where = { id: req.params.id, ...orgScope(req.user) }
@@ -69,7 +69,7 @@ const getDeviceTemplate = async (req, res, next) => {
 }
 
 // @desc  Create a new device template
-// @access SUPER_ADMIN | ORG_ADMIN
+// @access SUPER_ADMIN
 const createDeviceTemplate = async (req, res, next) => {
   try {
     const { name, organizationId, acquisitionMethod } = req.body
@@ -81,7 +81,7 @@ const createDeviceTemplate = async (req, res, next) => {
 }
 
 // @desc  Update template name / acquisition method
-// @access SUPER_ADMIN | ORG_ADMIN
+// @access SUPER_ADMIN
 const updateDeviceTemplate = async (req, res, next) => {
   try {
     const where    = { id: req.params.id, ...orgScope(req.user) }

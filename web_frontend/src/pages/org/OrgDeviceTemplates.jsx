@@ -7,6 +7,7 @@ import { Eye, List } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
 import { mapDeviceTemplate } from '../../utils/mappers'
 
+/** Org can list/view templates (read-only). Mutations are SUPER_ADMIN-only. */
 export default function OrgDeviceTemplates() {
   const navigate = useNavigate()
   const { data: rows, loading, error, reload } = useFetch(
@@ -50,7 +51,7 @@ export default function OrgDeviceTemplates() {
         <div className="page-header">
           <div>
             <h2 className="page-title">Device Templates</h2>
-            <p className="breadcrumb">Organization / Device Templates</p>
+            <p className="breadcrumb">Organization / Device Templates (view only)</p>
           </div>
         </div>
 
@@ -91,7 +92,7 @@ export default function OrgDeviceTemplates() {
                 </div>
               ))}
               <p className="text-xs text-surface-500 pt-2">
-                Use the list icon to add slaves and register-address variables for MQTT mapping.
+                Template definitions are managed by platform admins. You can view slaves and variables.
               </p>
             </div>
           )}
