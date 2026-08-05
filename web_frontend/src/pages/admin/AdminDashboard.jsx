@@ -258,7 +258,7 @@ export default function AdminDashboard() {
           <DashboardTelemetry
             filterMode="org"
             highlightQuery={highlightQuery}
-            allDevicesLabel="All Devices"
+            allDevicesLabel="All Organizations"
             powerKpiLabel="Total Power"
             emptyGroupsHint="No organizations found."
             onScopeChange={handleScopeChange}
