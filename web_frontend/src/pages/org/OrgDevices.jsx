@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import DataTable from '../../components/ui/DataTable'
 import PageState, { useFetch } from '../../components/ui/PageState'
 import { TextInput, SelectInput } from '../../components/ui/FormFields'
-import { Eye, BarChart2 } from 'lucide-react'
+import { Eye, BarChart2, ChevronDown, ChevronUp } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
 import { mapDevice, mapGateway } from '../../utils/mappers'
 import {
@@ -34,6 +34,7 @@ export default function OrgDevices() {
   const [modifiedFrom, setModifiedFrom] = useState('')
   const [modifiedTo, setModifiedTo] = useState('')
   const [nameQuery, setNameQuery] = useState('')
+  const [showMoreFilters, setShowMoreFilters] = useState(false)
   const [applied, setApplied] = useState({
     status: '', gateway: '', name: '',
     createdFrom: '', createdTo: '', modifiedFrom: '', modifiedTo: '',
@@ -61,6 +62,8 @@ export default function OrgDevices() {
     modifiedFrom,
     modifiedTo,
   })
+
+  const hasActiveDateFilters = !!(applied.createdFrom || applied.createdTo || applied.modifiedFrom || applied.modifiedTo)
 
   const columns = [
     { key: 'status', label: 'Device Status', render: (v) => <span className={`badge ${deviceStatusBadgeClass(v)}`}>{v}</span> },
@@ -92,13 +95,12 @@ export default function OrgDevices() {
 
         <div className="card p-4 mb-4">
           <div className="flex flex-wrap items-end gap-3">
-            <SelectInput
-              label="Status"
-              className="w-40"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              options={DEVICE_STATUS_OPTIONS}
-              placeholder="All status"
+            <TextInput
+              label="Device Name"
+              className="flex-1 min-w-48"
+              value={nameQuery}
+              onChange={(e) => setNameQuery(e.target.value)}
+              placeholder="Search by name…"
             />
             <SelectInput
               label="Gateway"
@@ -108,33 +110,51 @@ export default function OrgDevices() {
               options={gatewayOptions}
               placeholder="All"
             />
-            <div className="w-56">
-              <label className="label">Create Time</label>
-              <div className="flex items-center gap-1.5">
-                <input type="date" className="input text-xs" value={createdFrom} onChange={(e) => setCreatedFrom(e.target.value)} />
-                <span className="text-surface-400 text-xs">-</span>
-                <input type="date" className="input text-xs" value={createdTo} onChange={(e) => setCreatedTo(e.target.value)} />
-              </div>
-            </div>
-            <div className="w-56">
-              <label className="label">Modify Time</label>
-              <div className="flex items-center gap-1.5">
-                <input type="date" className="input text-xs" value={modifiedFrom} onChange={(e) => setModifiedFrom(e.target.value)} />
-                <span className="text-surface-400 text-xs">-</span>
-                <input type="date" className="input text-xs" value={modifiedTo} onChange={(e) => setModifiedTo(e.target.value)} />
-              </div>
-            </div>
-            <TextInput
-              label="Device Name"
-              className="w-44"
-              value={nameQuery}
-              onChange={(e) => setNameQuery(e.target.value)}
-              placeholder="Search…"
+            <SelectInput
+              label="Status"
+              className="w-40"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              options={DEVICE_STATUS_OPTIONS}
+              placeholder="All status"
             />
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => setShowMoreFilters((v) => !v)}
+              aria-expanded={showMoreFilters}
+            >
+              {showMoreFilters ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              More filters
+              {hasActiveDateFilters && !showMoreFilters && (
+                <span className="ml-1 w-1.5 h-1.5 rounded-full bg-primary-500 inline-block" />
+              )}
+            </button>
             <button type="button" className="btn-primary" onClick={handleQuery}>
               Query
             </button>
           </div>
+
+          {showMoreFilters && (
+            <div className="flex flex-wrap items-end gap-3 mt-3 pt-3 border-t border-surface-200 dark:border-surface-700">
+              <div className="w-56">
+                <label className="label">Create Time</label>
+                <div className="flex items-center gap-1.5">
+                  <input type="date" className="input text-xs" value={createdFrom} onChange={(e) => setCreatedFrom(e.target.value)} />
+                  <span className="text-surface-400 text-xs">-</span>
+                  <input type="date" className="input text-xs" value={createdTo} onChange={(e) => setCreatedTo(e.target.value)} />
+                </div>
+              </div>
+              <div className="w-56">
+                <label className="label">Modify Time</label>
+                <div className="flex items-center gap-1.5">
+                  <input type="date" className="input text-xs" value={modifiedFrom} onChange={(e) => setModifiedFrom(e.target.value)} />
+                  <span className="text-surface-400 text-xs">-</span>
+                  <input type="date" className="input text-xs" value={modifiedTo} onChange={(e) => setModifiedTo(e.target.value)} />
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         <DataTable

@@ -4,9 +4,9 @@ import Modal from '../../components/ui/Modal'
 import MqttConfigModal from '../../components/ui/MqttConfigModal'
 import PageState, { useFetch } from '../../components/ui/PageState'
 import { TextInput, SelectInput, ToggleInput } from '../../components/ui/FormFields'
-import { Plus, Pencil, Trash2, Eye, Download } from 'lucide-react'
+import { Plus, Pencil, Trash2, Eye, Download, ChevronDown, ChevronUp } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
-import { mapDevice, mapOrganization, mapGateway, mapDeviceTemplate, mapUser } from '../../utils/mappers'
+import { mapDevice, mapOrganization, mapGateway, mapDeviceTemplate } from '../../utils/mappers'
 import {
   DEVICE_STATUS_OPTIONS,
   deviceStatusBadgeClass,
@@ -21,19 +21,17 @@ export default function AdminDevices() {
   const { showToast } = useToast()
 
   const { data, loading, error, reload } = useFetch(async () => {
-    const [devicesRes, orgsRes, gatewaysRes, templatesRes, usersRes] = await Promise.all([
+    const [devicesRes, orgsRes, gatewaysRes, templatesRes] = await Promise.all([
       emsApi.getDevices({ limit: 100 }),
       emsApi.getOrganizations({ limit: 100 }),
       emsApi.getGateways({ limit: 100 }),
       emsApi.getDeviceTemplates({ limit: 100 }),
-      emsApi.getUsers({ limit: 100 }),
     ])
     return {
       rows: list(devicesRes).map(mapDevice),
       orgs: list(orgsRes).map(mapOrganization),
       gateways: list(gatewaysRes).map(mapGateway),
       templates: list(templatesRes).map(mapDeviceTemplate),
-      users: list(usersRes).map(mapUser),
     }
   }, [])
 
@@ -46,15 +44,16 @@ export default function AdminDevices() {
   const [removedIds, setRemovedIds] = useState(() => new Set())
 
   const [orgFilter, setOrgFilter] = useState('')
-  const [userFilter, setUserFilter] = useState('')
+  const [gatewayFilter, setGatewayFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [createdFrom, setCreatedFrom] = useState('')
   const [createdTo, setCreatedTo] = useState('')
   const [modifiedFrom, setModifiedFrom] = useState('')
   const [modifiedTo, setModifiedTo] = useState('')
   const [nameQuery, setNameQuery] = useState('')
+  const [showMoreFilters, setShowMoreFilters] = useState(false)
   const [applied, setApplied] = useState({
-    org: '', user: '', status: '', name: '',
+    org: '', gateway: '', status: '', name: '',
     createdFrom: '', createdTo: '', modifiedFrom: '', modifiedTo: '',
   })
 
@@ -62,18 +61,21 @@ export default function AdminDevices() {
   const orgs = data?.orgs ?? []
   const gateways = data?.gateways ?? []
   const templates = data?.templates ?? []
-  const users = data?.users ?? []
 
   const filteredGateways = form.organizationId
     ? gateways.filter((g) => g.organizationId === form.organizationId)
     : gateways
 
+  const filterBarGateways = orgFilter
+    ? gateways.filter((g) => g.organizationId === orgFilter)
+    : gateways
+
   const filtered = rows.filter((r) =>
     (!applied.org || r.organizationId === applied.org || r.org === applied.org) &&
+    (!applied.gateway || r.gatewayId === applied.gateway || r.gateway === applied.gateway) &&
     matchesDeviceStatus(r, applied.status) &&
     matchesDeviceDates(r, applied.createdFrom, applied.createdTo, applied.modifiedFrom, applied.modifiedTo) &&
-    (!applied.name || r.name.toLowerCase().includes(applied.name.toLowerCase())) &&
-    (!applied.user || r.org === users.find((u) => u.id === applied.user)?.org)
+    (!applied.name || r.name.toLowerCase().includes(applied.name.toLowerCase()))
   )
 
   const openAdd = () => { setForm(blank); setModal('add') }
@@ -93,7 +95,7 @@ export default function AdminDevices() {
 
   const handleQuery = () => setApplied({
     org: orgFilter,
-    user: userFilter,
+    gateway: gatewayFilter,
     status: statusFilter,
     name: nameQuery,
     createdFrom,
@@ -208,6 +210,8 @@ export default function AdminDevices() {
     { key: 'switchOn', label: 'Switch', render: (v) => <span className={`badge ${v ? 'badge-success' : 'badge-neutral'}`}>{v ? 'ON' : 'OFF'}</span> },
   ]
 
+  const hasActiveDateFilters = !!(applied.createdFrom || applied.createdTo || applied.modifiedFrom || applied.modifiedTo)
+
   return (
     <PageState loading={loading} error={error} onRetry={reload}>
       <div>
@@ -225,43 +229,63 @@ export default function AdminDevices() {
 
         <div className="card p-4 mb-5">
           <div className="flex flex-wrap items-end gap-3">
+            <div className="flex-1 min-w-48">
+              <TextInput label="Device Name" placeholder="Search by name…"
+                value={nameQuery} onChange={(e) => setNameQuery(e.target.value)} />
+            </div>
             <div className="w-44">
               <SelectInput label="Organization" placeholder="All" value={orgFilter}
-                onChange={(e) => setOrgFilter(e.target.value)}
+                onChange={(e) => {
+                  setOrgFilter(e.target.value)
+                  setGatewayFilter('')
+                }}
                 options={orgs.map((o) => ({ value: o.id, label: o.name }))} />
             </div>
             <div className="w-44">
-              <SelectInput label="User" placeholder="All Users" value={userFilter}
-                onChange={(e) => setUserFilter(e.target.value)}
-                options={users.map((u) => ({ value: u.id, label: u.name }))} />
+              <SelectInput label="Gateway" placeholder="All" value={gatewayFilter}
+                onChange={(e) => setGatewayFilter(e.target.value)}
+                options={filterBarGateways.map((g) => ({ value: g.id, label: g.name }))} />
             </div>
             <div className="w-40">
               <SelectInput label="Status" placeholder="All status" value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
                 options={DEVICE_STATUS_OPTIONS} />
             </div>
-            <div className="w-56">
-              <label className="label">Create Time</label>
-              <div className="flex items-center gap-1.5">
-                <input type="date" className="input text-xs" value={createdFrom} onChange={(e) => setCreatedFrom(e.target.value)} />
-                <span className="text-surface-400 text-xs">-</span>
-                <input type="date" className="input text-xs" value={createdTo} onChange={(e) => setCreatedTo(e.target.value)} />
-              </div>
-            </div>
-            <div className="w-56">
-              <label className="label">Modify Time</label>
-              <div className="flex items-center gap-1.5">
-                <input type="date" className="input text-xs" value={modifiedFrom} onChange={(e) => setModifiedFrom(e.target.value)} />
-                <span className="text-surface-400 text-xs">-</span>
-                <input type="date" className="input text-xs" value={modifiedTo} onChange={(e) => setModifiedTo(e.target.value)} />
-              </div>
-            </div>
-            <div className="flex-1 min-w-48">
-              <TextInput label="Device Name" placeholder="Please input device name"
-                value={nameQuery} onChange={(e) => setNameQuery(e.target.value)} />
-            </div>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => setShowMoreFilters((v) => !v)}
+              aria-expanded={showMoreFilters}
+            >
+              {showMoreFilters ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              More filters
+              {hasActiveDateFilters && !showMoreFilters && (
+                <span className="ml-1 w-1.5 h-1.5 rounded-full bg-primary-500 inline-block" />
+              )}
+            </button>
             <button type="button" className="btn-primary" onClick={handleQuery}>Query</button>
           </div>
+
+          {showMoreFilters && (
+            <div className="flex flex-wrap items-end gap-3 mt-3 pt-3 border-t border-surface-200 dark:border-surface-700">
+              <div className="w-56">
+                <label className="label">Create Time</label>
+                <div className="flex items-center gap-1.5">
+                  <input type="date" className="input text-xs" value={createdFrom} onChange={(e) => setCreatedFrom(e.target.value)} />
+                  <span className="text-surface-400 text-xs">-</span>
+                  <input type="date" className="input text-xs" value={createdTo} onChange={(e) => setCreatedTo(e.target.value)} />
+                </div>
+              </div>
+              <div className="w-56">
+                <label className="label">Modify Time</label>
+                <div className="flex items-center gap-1.5">
+                  <input type="date" className="input text-xs" value={modifiedFrom} onChange={(e) => setModifiedFrom(e.target.value)} />
+                  <span className="text-surface-400 text-xs">-</span>
+                  <input type="date" className="input text-xs" value={modifiedTo} onChange={(e) => setModifiedTo(e.target.value)} />
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         <DataTable
