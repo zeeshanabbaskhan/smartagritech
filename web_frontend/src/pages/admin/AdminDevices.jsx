@@ -7,6 +7,12 @@ import { TextInput, SelectInput, ToggleInput } from '../../components/ui/FormFie
 import { Plus, Pencil, Trash2, Eye, Download } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
 import { mapDevice, mapOrganization, mapGateway, mapDeviceTemplate, mapUser } from '../../utils/mappers'
+import {
+  DEVICE_STATUS_OPTIONS,
+  deviceStatusBadgeClass,
+  matchesDeviceStatus,
+  matchesDeviceDates,
+} from '../../utils/deviceFilters'
 import { useToast } from '../../context/ToastContext'
 
 const blank = { name: '', organizationId: '', gatewayId: '', templateId: '', switchOn: false }
@@ -42,8 +48,15 @@ export default function AdminDevices() {
   const [orgFilter, setOrgFilter] = useState('')
   const [userFilter, setUserFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [createdFrom, setCreatedFrom] = useState('')
+  const [createdTo, setCreatedTo] = useState('')
+  const [modifiedFrom, setModifiedFrom] = useState('')
+  const [modifiedTo, setModifiedTo] = useState('')
   const [nameQuery, setNameQuery] = useState('')
-  const [applied, setApplied] = useState({ org: '', user: '', status: '', name: '' })
+  const [applied, setApplied] = useState({
+    org: '', user: '', status: '', name: '',
+    createdFrom: '', createdTo: '', modifiedFrom: '', modifiedTo: '',
+  })
 
   const rows = (data?.rows ?? []).filter((r) => !removedIds.has(r.id))
   const orgs = data?.orgs ?? []
@@ -57,7 +70,8 @@ export default function AdminDevices() {
 
   const filtered = rows.filter((r) =>
     (!applied.org || r.organizationId === applied.org || r.org === applied.org) &&
-    (!applied.status || r.status === applied.status) &&
+    matchesDeviceStatus(r, applied.status) &&
+    matchesDeviceDates(r, applied.createdFrom, applied.createdTo, applied.modifiedFrom, applied.modifiedTo) &&
     (!applied.name || r.name.toLowerCase().includes(applied.name.toLowerCase())) &&
     (!applied.user || r.org === users.find((u) => u.id === applied.user)?.org)
   )
@@ -77,7 +91,16 @@ export default function AdminDevices() {
   const openView = (row) => { setSelected(row); setModal('view') }
   const close = () => { setModal(null); setSelected(null) }
 
-  const handleQuery = () => setApplied({ org: orgFilter, user: userFilter, status: statusFilter, name: nameQuery })
+  const handleQuery = () => setApplied({
+    org: orgFilter,
+    user: userFilter,
+    status: statusFilter,
+    name: nameQuery,
+    createdFrom,
+    createdTo,
+    modifiedFrom,
+    modifiedTo,
+  })
 
   const handleSave = async () => {
     setSaving(true)
@@ -177,7 +200,7 @@ export default function AdminDevices() {
   }
 
   const columns = [
-    { key: 'status', label: 'Device Status', render: (v) => <span className={`badge ${v === 'Online' ? 'badge-success' : 'badge-neutral'}`}>{v}</span> },
+    { key: 'status', label: 'Device Status', render: (v) => <span className={`badge ${deviceStatusBadgeClass(v)}`}>{v}</span> },
     { key: 'name', label: 'Device Name' },
     { key: 'org', label: 'Organization' },
     { key: 'gateway', label: 'Gateway' },
@@ -212,10 +235,26 @@ export default function AdminDevices() {
                 onChange={(e) => setUserFilter(e.target.value)}
                 options={users.map((u) => ({ value: u.id, label: u.name }))} />
             </div>
-            <div className="w-36">
+            <div className="w-40">
               <SelectInput label="Status" placeholder="All status" value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
-                options={['Online', 'Offline']} />
+                options={DEVICE_STATUS_OPTIONS} />
+            </div>
+            <div className="w-56">
+              <label className="label">Create Time</label>
+              <div className="flex items-center gap-1.5">
+                <input type="date" className="input text-xs" value={createdFrom} onChange={(e) => setCreatedFrom(e.target.value)} />
+                <span className="text-surface-400 text-xs">-</span>
+                <input type="date" className="input text-xs" value={createdTo} onChange={(e) => setCreatedTo(e.target.value)} />
+              </div>
+            </div>
+            <div className="w-56">
+              <label className="label">Modify Time</label>
+              <div className="flex items-center gap-1.5">
+                <input type="date" className="input text-xs" value={modifiedFrom} onChange={(e) => setModifiedFrom(e.target.value)} />
+                <span className="text-surface-400 text-xs">-</span>
+                <input type="date" className="input text-xs" value={modifiedTo} onChange={(e) => setModifiedTo(e.target.value)} />
+              </div>
             </div>
             <div className="flex-1 min-w-48">
               <TextInput label="Device Name" placeholder="Please input device name"

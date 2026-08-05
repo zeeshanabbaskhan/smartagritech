@@ -6,6 +6,12 @@ import { TextInput, SelectInput } from '../../components/ui/FormFields'
 import { Eye, BarChart2 } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
 import { mapDevice, mapGateway } from '../../utils/mappers'
+import {
+  DEVICE_STATUS_OPTIONS,
+  deviceStatusBadgeClass,
+  matchesDeviceStatus,
+  matchesDeviceDates,
+} from '../../utils/deviceFilters'
 
 export default function OrgDevices() {
   const navigate = useNavigate()
@@ -23,12 +29,20 @@ export default function OrgDevices() {
   const rows = data?.rows ?? []
   const [statusFilter, setStatusFilter] = useState('')
   const [gatewayFilter, setGatewayFilter] = useState('')
+  const [createdFrom, setCreatedFrom] = useState('')
+  const [createdTo, setCreatedTo] = useState('')
+  const [modifiedFrom, setModifiedFrom] = useState('')
+  const [modifiedTo, setModifiedTo] = useState('')
   const [nameQuery, setNameQuery] = useState('')
-  const [applied, setApplied] = useState({ status: '', gateway: '', name: '' })
+  const [applied, setApplied] = useState({
+    status: '', gateway: '', name: '',
+    createdFrom: '', createdTo: '', modifiedFrom: '', modifiedTo: '',
+  })
 
   const filtered = rows.filter((r) =>
-    (!applied.status || r.status === applied.status) &&
+    matchesDeviceStatus(r, applied.status) &&
     (!applied.gateway || r.gateway === applied.gateway || r.gatewayId === applied.gateway) &&
+    matchesDeviceDates(r, applied.createdFrom, applied.createdTo, applied.modifiedFrom, applied.modifiedTo) &&
     (!applied.name || String(r.name ?? '').toLowerCase().includes(applied.name.toLowerCase()))
   )
 
@@ -38,8 +52,18 @@ export default function OrgDevices() {
 
   const gatewayOptions = [...new Set(rows.map((r) => r.gateway).filter(Boolean))]
 
+  const handleQuery = () => setApplied({
+    status: statusFilter,
+    gateway: gatewayFilter,
+    name: nameQuery,
+    createdFrom,
+    createdTo,
+    modifiedFrom,
+    modifiedTo,
+  })
+
   const columns = [
-    { key: 'status', label: 'Device Status', render: (v) => <span className={`badge ${v === 'Online' ? 'badge-success' : 'badge-danger'}`}>{v}</span> },
+    { key: 'status', label: 'Device Status', render: (v) => <span className={`badge ${deviceStatusBadgeClass(v)}`}>{v}</span> },
     { key: 'name', label: 'Device Name' },
     { key: 'gateway', label: 'Gateway' },
     { key: 'template', label: 'Template', render: (v) => <span className="text-xs text-surface-400 truncate max-w-xs block">{v}</span> },
@@ -70,11 +94,11 @@ export default function OrgDevices() {
           <div className="flex flex-wrap items-end gap-3">
             <SelectInput
               label="Status"
-              className="w-36"
+              className="w-40"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              options={['Online', 'Offline']}
-              placeholder="All"
+              options={DEVICE_STATUS_OPTIONS}
+              placeholder="All status"
             />
             <SelectInput
               label="Gateway"
@@ -84,6 +108,22 @@ export default function OrgDevices() {
               options={gatewayOptions}
               placeholder="All"
             />
+            <div className="w-56">
+              <label className="label">Create Time</label>
+              <div className="flex items-center gap-1.5">
+                <input type="date" className="input text-xs" value={createdFrom} onChange={(e) => setCreatedFrom(e.target.value)} />
+                <span className="text-surface-400 text-xs">-</span>
+                <input type="date" className="input text-xs" value={createdTo} onChange={(e) => setCreatedTo(e.target.value)} />
+              </div>
+            </div>
+            <div className="w-56">
+              <label className="label">Modify Time</label>
+              <div className="flex items-center gap-1.5">
+                <input type="date" className="input text-xs" value={modifiedFrom} onChange={(e) => setModifiedFrom(e.target.value)} />
+                <span className="text-surface-400 text-xs">-</span>
+                <input type="date" className="input text-xs" value={modifiedTo} onChange={(e) => setModifiedTo(e.target.value)} />
+              </div>
+            </div>
             <TextInput
               label="Device Name"
               className="w-44"
@@ -91,11 +131,7 @@ export default function OrgDevices() {
               onChange={(e) => setNameQuery(e.target.value)}
               placeholder="Search…"
             />
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={() => setApplied({ status: statusFilter, gateway: gatewayFilter, name: nameQuery })}
-            >
+            <button type="button" className="btn-primary" onClick={handleQuery}>
               Query
             </button>
           </div>
