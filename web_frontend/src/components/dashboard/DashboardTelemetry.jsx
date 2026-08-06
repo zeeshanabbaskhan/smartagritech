@@ -333,7 +333,7 @@ export default function DashboardTelemetry({
                     <Icon size={13} style={{ color }} className="flex-shrink-0 mt-0.5" />
                   </div>
                   <div className="flex items-baseline gap-1">
-                    <span className="text-2xl font-black text-surface-900 dark:text-surface-100 leading-none">
+                    <span className="device-metric-value text-2xl font-black leading-none">
                       {Number.isFinite(value) ? formatTileValue(value, key) : '—'}
                     </span>
                     {unit ? <span className="text-xs font-bold text-surface-400">{unit}</span> : null}
@@ -431,7 +431,7 @@ export default function DashboardTelemetry({
                               <Zap size={13} className={offline ? 'text-surface-400' : 'text-primary-500'} />
                             </div>
                             <div className="mt-1">
-                              <span className="text-base font-black text-surface-900 dark:text-surface-100 leading-none">
+                              <span className="device-metric-value text-base font-black leading-none">
                                 {formatTileValue(value, name)}
                               </span>
                               {unit ? <span className="text-[10px] text-surface-400 font-semibold ml-1">{unit}</span> : null}

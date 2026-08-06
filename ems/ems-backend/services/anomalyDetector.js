@@ -63,6 +63,7 @@ async function runAnomalyCheck({ deviceId, organizationId, readings, io: hasIo }
           variableName:        triggerVar.name,
           triggerName:         trigger.name,
           triggerType:         trigger.anomalyType,
+          slaveName:           reading.slaveName || null,
           currentValue:        val,
           triggeringCondition: condition,
           alarmState:          'ACTIVE',

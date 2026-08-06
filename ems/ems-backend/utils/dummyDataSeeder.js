@@ -396,6 +396,47 @@ const seedDummyData = async () => {
     console.log('Seeded 20 DeviceVariableAlarmHistory records')
   }
 
+  // ── 18b. DeviceVariableLinkageHistory records ─────────────────────────────────
+  const linkageHistCount = await prisma.deviceVariableLinkageHistory.count({ where: { deviceId: device.id } })
+  if (linkageHistCount < 10) {
+    const linkageDefs = [
+      {
+        triggerId: triggerVoltage.id,
+        triggerName: triggerVoltage.name,
+        watched: 'VoltageA',
+        value: 258,
+        linked: 'ActivePower',
+        action: 'OFF',
+      },
+      {
+        triggerId: triggerPF.id,
+        triggerName: triggerPF.name,
+        watched: 'PowerFactor',
+        value: 0.78,
+        linked: 'ActivePower',
+        action: 'ON',
+      },
+    ]
+    const nowMs = Date.now()
+    await prisma.deviceVariableLinkageHistory.createMany({
+      data: Array.from({ length: 12 }, (_, i) => {
+        const def = linkageDefs[i % linkageDefs.length]
+        return {
+          deviceId:             device.id,
+          organizationId:       org.id,
+          templateTriggerId:    def.triggerId,
+          triggerName:          def.triggerName,
+          watchedVariableName:  def.watched,
+          watchedVariableValue: def.value,
+          linkedVariableName:   def.linked,
+          actionTaken:          def.action,
+          firedAt:              new Date(nowMs - (12 - i) * 8 * 3600_000),
+        }
+      }),
+    })
+    console.log('Seeded 12 DeviceVariableLinkageHistory records')
+  }
+
   // ── 19. AIForecastReading records (4 variables × 50 predicted points) ──────────
   const AI_VARS = [
     { name: 'VoltageImbalance', base: 1.5,  amp: 0.225 },

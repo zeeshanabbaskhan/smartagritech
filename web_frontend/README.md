@@ -10,9 +10,6 @@ An advanced, multi-role React + Vite + Tailwind CSS web application designed for
     *   **Super Admin (`/admin/*`)**: Complete system monitoring across all registered organizations, user management, gateway control, product catalog management, global alarms, and system settings.
     *   **Organization (`/org/*`)**: Fine-grained device and gateway provisioning, historical data chart views, task schedules, alarms, and organization-specific configurations.
     *   **End User (`/user/*`)**: Personalized dashboards showing active consumption alerts, voltage/current phase imbalance analysis, real-time power factor, anomalies, and active billing/tariffs.
-*   **Impersonation & Session Switching**:
-    *   **Login as User**: Super Admins can log in directly as any End User from the *Users* tab.
-    *   **Login as Organization**: Super Admins can log in directly as any Organization from the *Organizations* tab.
 *   **Animated Mascot Login Experience**:
     *   Features a floating theme switcher on the login page to toggle between a **Classic SaaS layout** and an **Interactive Mascot layout**.
     *   The interactive mascot layout features a CSS-only animated Panda that reacts to input focus—shifting its gaze when typing the username and covering its eyes with smooth animations when typing the password.

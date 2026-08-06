@@ -193,7 +193,7 @@ export default function AdminDashboard() {
             <div key={i} className="flex items-center gap-2 mt-0.5">
               <span className="w-2 h-2 rounded-full" style={{ backgroundColor: item.color || item.fill }} />
               <span>{item.name}:</span>
-              <span className="text-surface-900 font-bold">{item.value} {item.unit || ''}</span>
+              <span className="device-metric-value font-bold">{item.value} {item.unit || ''}</span>
             </div>
           ))}
         </div>
@@ -376,7 +376,7 @@ export default function AdminDashboard() {
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="absolute flex flex-col items-center justify-center text-center">
-                  <span className="text-2xl font-black text-surface-900 leading-none">
+                  <span className="device-metric-value text-2xl font-black leading-none">
                     {Math.round((onlineCount / pieTotal) * 100)}%
                   </span>
                   <span className="text-[10px] font-bold text-surface-400 uppercase tracking-widest mt-1">Online</span>

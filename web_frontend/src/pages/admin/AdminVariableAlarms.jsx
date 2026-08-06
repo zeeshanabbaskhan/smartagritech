@@ -1,39 +1,77 @@
 import { useMemo, useState } from 'react'
 import DataTable from '../../components/ui/DataTable'
 import Modal from '../../components/ui/Modal'
-import DataCenterFilterBar from '../../components/ui/DataCenterFilterBar'
+import DataCenterFilterBar, { resolvePresetRange } from '../../components/ui/DataCenterFilterBar'
 import PageState, { useFetch } from '../../components/ui/PageState'
 import { Eye, CheckCircle, Download } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
-import { mapVariableAlarm, mapDevice } from '../../utils/mappers'
+import { mapVariableAlarm, mapDevice, mapOrganization } from '../../utils/mappers'
 import { useToast } from '../../context/ToastContext'
+import { useAuth, ROLES } from '../../context/AuthContext'
 
 const EMPTY = []
+const defaultRange = resolvePresetRange('last30') || { from: '', to: '' }
 
 export default function AdminVariableAlarms() {
   const { showToast } = useToast()
+  const { user } = useAuth()
+  const isAdmin = user?.role === ROLES.ADMIN
 
-  const [device, setDevice] = useState('')
-  const [trigger, setTrigger] = useState('')
+  const [organization, setOrganization] = useState('')
+  const [deviceId, setDeviceId] = useState('')
   const [variableFilter, setVariableFilter] = useState('')
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
-  const [applied, setApplied] = useState({ deviceId: '', trigger: '', variable: '', dateFrom: '', dateTo: '' })
+  const [alarmState, setAlarmState] = useState('')
+  const [processState, setProcessState] = useState('')
+  const [dateFrom, setDateFrom] = useState(defaultRange.from)
+  const [dateTo, setDateTo] = useState(defaultRange.to)
+  const [applied, setApplied] = useState({
+    organizationId: '',
+    deviceId: '',
+    variable: '',
+    alarmState: '',
+    processState: '',
+    dateFrom: defaultRange.from,
+    dateTo: defaultRange.to,
+  })
 
-  const { data: devicesData, loading: devicesLoading } = useFetch(async () => {
-    return list(await emsApi.getDevices({ limit: 200 })).map(mapDevice)
-  }, [])
-  const devices = devicesData ?? EMPTY
+  const { data: meta, loading: metaLoading } = useFetch(async () => {
+    const reqs = [emsApi.getDevices({ limit: 200 })]
+    if (isAdmin) reqs.push(emsApi.getOrganizations({ limit: 100 }))
+    const [devicesRes, orgsRes] = await Promise.all(reqs)
+    return {
+      devices: list(devicesRes).map(mapDevice),
+      organizations: orgsRes ? list(orgsRes).map(mapOrganization) : [],
+    }
+  }, [isAdmin])
+
+  const devices = meta?.devices ?? EMPTY
+  const organizations = meta?.organizations ?? EMPTY
+
+  const filteredDevices = useMemo(() => {
+    if (!organization) return devices
+    return devices.filter((d) => d.organizationId === organization)
+  }, [devices, organization])
 
   const { data, loading, error, reload, setData } = useFetch(async () => {
-    const params = { limit: 200 }
+    const params = { limit: 100 }
+    if (applied.organizationId) params.organizationId = applied.organizationId
     if (applied.deviceId) params.deviceId = applied.deviceId
+    if (applied.alarmState) params.alarmState = applied.alarmState
+    if (applied.processState) params.processState = applied.processState
     if (applied.dateFrom) params.from = applied.dateFrom
-    if (applied.dateTo) params.to = applied.dateTo
+    if (applied.dateTo) params.to = `${applied.dateTo}T23:59:59.999`
     const alarmsRes = await emsApi.getVariableAlarmHistory(params)
     const deviceMap = Object.fromEntries(devices.map((d) => [d.id, d.name]))
-    return list(alarmsRes).map((a) => mapVariableAlarm(a, deviceMap[a.deviceId]))
-  }, [applied.deviceId, applied.dateFrom, applied.dateTo, devicesData])
+    return list(alarmsRes).map((a) => mapVariableAlarm(a, deviceMap[a.deviceId] ?? a.device?.name))
+  }, [
+    applied.organizationId,
+    applied.deviceId,
+    applied.alarmState,
+    applied.processState,
+    applied.dateFrom,
+    applied.dateTo,
+    meta?.devices,
+  ])
 
   const rows = data ?? []
 
@@ -43,8 +81,10 @@ export default function AdminVariableAlarms() {
   const [deleting, setDeleting] = useState(false)
   const [downloading, setDownloading] = useState(false)
 
-  const triggerOptions = useMemo(() => [...new Set(rows.map((r) => r.triggerName).filter(Boolean))], [rows])
-  const variableOptions = useMemo(() => [...new Set(rows.map((r) => r.variable).filter(Boolean))], [rows])
+  const variableOptions = useMemo(
+    () => [...new Set(rows.map((r) => r.variable).filter(Boolean))].sort(),
+    [rows],
+  )
 
   const openView = (row) => { setSelected(row); setModal('view') }
   const close = () => { setModal(null); setSelected(null) }
@@ -52,31 +92,51 @@ export default function AdminVariableAlarms() {
   const markResolved = async (row) => {
     try {
       await emsApi.processVariableAlarm(row.id)
-      setData((prev) => (prev ?? []).map((r) => (r.id === row.id ? { ...r, status: 'Resolved', processState: 'PROCESSED' } : r)))
+      setData((prev) => (prev ?? []).map((r) => (
+        r.id === row.id
+          ? { ...r, status: 'Resolved', alarmState: 'RESOLVED', processState: 'PROCESSED' }
+          : r
+      )))
       showToast('Alarm marked as resolved', 'success')
     } catch (e) {
       showToast(e.message || 'Failed to resolve alarm', 'error')
     }
   }
 
+  const handleOrgChange = (orgId) => {
+    setOrganization(orgId)
+    setDeviceId('')
+  }
+
   const handleQuery = () => {
-    const match = devices.find((d) => d.name === device)
     setApplied({
-      deviceId: match?.id ?? '',
-      trigger,
+      organizationId: organization,
+      deviceId,
       variable: variableFilter,
+      alarmState,
+      processState,
       dateFrom,
       dateTo,
     })
     setSelectedIds([])
   }
 
-  // Trigger / variable are not server-side params — refine client-side on the API result set
+  // Variable name is refined client-side (API has no variableName filter)
   const filtered = rows.filter((r) => {
-    if (applied.trigger && r.triggerName !== applied.trigger) return false
     if (applied.variable && r.variable !== applied.variable) return false
     return true
   })
+
+  const buildDownloadParams = () => {
+    const params = {}
+    if (applied.organizationId) params.organizationId = applied.organizationId
+    if (applied.deviceId) params.deviceId = applied.deviceId
+    if (applied.alarmState) params.alarmState = applied.alarmState
+    if (applied.processState) params.processState = applied.processState
+    if (applied.dateFrom) params.from = applied.dateFrom
+    if (applied.dateTo) params.to = `${applied.dateTo}T23:59:59.999`
+    return params
+  }
 
   const handleBatchDelete = async () => {
     if (!selectedIds.length) return
@@ -97,11 +157,7 @@ export default function AdminVariableAlarms() {
   const handleDownload = async () => {
     setDownloading(true)
     try {
-      const params = {}
-      if (applied.deviceId) params.deviceId = applied.deviceId
-      if (applied.dateFrom) params.from = applied.dateFrom
-      if (applied.dateTo) params.to = applied.dateTo
-      await emsApi.downloadVariableAlarmCsv(params)
+      await emsApi.downloadVariableAlarmCsv(buildDownloadParams())
       showToast('Download started', 'success')
     } catch (e) {
       showToast(e.message || 'Download failed', 'error')
@@ -119,12 +175,27 @@ export default function AdminVariableAlarms() {
     { key: 'actual', label: 'Current Value', render: (v) => <span className="font-mono text-xs text-primary-600">{v}</span> },
     { key: 'threshold', label: 'Triggering Condition', render: (v) => <span className="font-mono text-xs">{v}</span> },
     { key: 'time', label: 'Alarm Time', render: (v) => <span className="text-xs text-surface-400">{v}</span> },
-    { key: 'status', label: 'Alarm State', render: (v) => <span className={`badge ${v === 'Active' ? 'badge-danger' : 'badge-success'}`}>{v}</span> },
-    { key: 'processState', label: 'Process State', render: (v) => <span className={`badge ${v === 'PROCESSED' ? 'badge-success' : 'badge-neutral'}`}>{v === 'PROCESSED' ? 'Processed' : 'Unprocessed'}</span> },
+    {
+      key: 'alarmState',
+      label: 'Alarm State',
+      render: (v) => {
+        const active = v === 'ACTIVE' || v === 'Active'
+        return <span className={`badge ${active ? 'badge-danger' : 'badge-success'}`}>{active ? 'Active' : 'Resolved'}</span>
+      },
+    },
+    {
+      key: 'processState',
+      label: 'Process State',
+      render: (v) => (
+        <span className={`badge ${v === 'PROCESSED' ? 'badge-success' : 'badge-neutral'}`}>
+          {v === 'PROCESSED' ? 'Processed' : 'Unprocessed'}
+        </span>
+      ),
+    },
   ]
 
   return (
-    <PageState loading={(loading || devicesLoading) && !data} error={error} onRetry={reload}>
+    <PageState loading={(loading || metaLoading) && !data} error={error} onRetry={reload}>
       <div>
         <div className="page-header">
           <div>
@@ -142,14 +213,24 @@ export default function AdminVariableAlarms() {
         </div>
 
         <DataCenterFilterBar
-          devices={devices.map((d) => d.name)}
-          device={device} onDeviceChange={setDevice}
-          triggerOptions={triggerOptions}
-          trigger={trigger} onTriggerChange={setTrigger}
+          showOrganization={isAdmin}
+          organizations={organizations}
+          organization={organization}
+          onOrganizationChange={handleOrgChange}
+          devices={filteredDevices}
+          device={deviceId}
+          onDeviceChange={setDeviceId}
           variableOptions={variableOptions}
-          variable={variableFilter} onVariableChange={setVariableFilter}
-          dateFrom={dateFrom} dateTo={dateTo}
-          onDateFromChange={setDateFrom} onDateToChange={setDateTo}
+          variable={variableFilter}
+          onVariableChange={setVariableFilter}
+          showStateFilters
+          alarmState={alarmState}
+          onAlarmStateChange={setAlarmState}
+          processState={processState}
+          onProcessStateChange={setProcessState}
+          dateFrom={dateFrom}
+          dateTo={dateTo}
+          onDateRangeChange={(from, to) => { setDateFrom(from); setDateTo(to) }}
           onQuery={handleQuery}
         />
 
@@ -164,7 +245,7 @@ export default function AdminVariableAlarms() {
           actions={(row) => (
             <>
               <button type="button" className="btn-ghost p-1.5" onClick={() => openView(row)} title="View"><Eye size={14} /></button>
-              {row.status === 'Active' && (
+              {(row.alarmState === 'ACTIVE' || row.processState !== 'PROCESSED') && (
                 <button type="button" className="btn-ghost p-1.5 text-success-600" onClick={() => markResolved(row)} title="Mark Resolved">
                   <CheckCircle size={14} />
                 </button>
@@ -185,7 +266,7 @@ export default function AdminVariableAlarms() {
                 ['Current Value', selected.actual],
                 ['Condition', selected.threshold],
                 ['Alarm Time', selected.time],
-                ['State', selected.status],
+                ['State', selected.alarmState === 'ACTIVE' ? 'Active' : 'Resolved'],
                 ['Process', selected.processState === 'PROCESSED' ? 'Processed' : 'Unprocessed'],
               ].map(([label, value]) => (
                 <div key={label} className="flex gap-4">

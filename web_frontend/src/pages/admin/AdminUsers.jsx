@@ -1,24 +1,20 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import DataTable from '../../components/ui/DataTable'
 import Modal from '../../components/ui/Modal'
 import CredentialsModal from '../../components/ui/CredentialsModal'
 import PageState, { useFetch } from '../../components/ui/PageState'
 import { TextInput, SelectInput } from '../../components/ui/FormFields'
-import { Plus, Pencil, Trash2, Eye, LogIn } from 'lucide-react'
+import { Plus, Pencil, Trash2, Eye } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
 import { mapUser, mapOrganization } from '../../utils/mappers'
 import { uiStatusToApi, uiRoleToApi } from '../../utils/apiForm'
+import { ROLE_UI_LABELS, ROLE_UI_OPTIONS } from '../../utils/roles'
 import { useToast } from '../../context/ToastContext'
-import { useAuth } from '../../context/AuthContext'
 
-const blank = { name: '', email: '', password: '', phone: '', organizationId: '', role: 'Customer', status: 'Active' }
+const blank = { name: '', email: '', password: '', phone: '', organizationId: '', role: ROLE_UI_LABELS.USER, status: 'Active' }
 
 export default function AdminUsers() {
   const { showToast } = useToast()
-  const { impersonate } = useAuth()
-  const navigate = useNavigate()
-  const [impersonatingId, setImpersonatingId] = useState(null)
   const { data, loading, error, reload } = useFetch(async () => {
     const [usersRes, orgsRes] = await Promise.all([
       emsApi.getUsers({ limit: 100 }),
@@ -55,22 +51,6 @@ export default function AdminUsers() {
   }
   const openView = (row) => { setSelected(row); setModal('view') }
   const close = () => { setModal(null); setSelected(null) }
-
-  const handleLoginAsUser = async (row) => {
-    if (row.status === 'Inactive' || row.status === 'INACTIVE') {
-      showToast('Cannot log in as an inactive user', 'error')
-      return
-    }
-    setImpersonatingId(row.id)
-    try {
-      const session = await impersonate({ userId: row.id, label: row.name })
-      navigate(session?.role === 'org' ? '/org' : '/user')
-    } catch (e) {
-      showToast(e.message || 'Could not log in as user', 'error')
-    } finally {
-      setImpersonatingId(null)
-    }
-  }
 
   const handleSave = async () => {
     setSaving(true)
@@ -154,26 +134,10 @@ export default function AdminUsers() {
             <>
               <button type="button" className="btn-ghost p-1.5" onClick={() => openView(row)} title="View"><Eye size={14} /></button>
               <button type="button" className="btn-ghost p-1.5" onClick={() => openEdit(row)} title="Edit"><Pencil size={14} /></button>
-              {row.role !== 'Super Admin' && row.status !== 'Inactive' && row.status !== 'INACTIVE' && (
-                <button
-                  type="button"
-                  className="btn-ghost p-1.5 text-primary-600 hover:text-primary-700 disabled:opacity-50"
-                  onClick={() => handleLoginAsUser(row)}
-                  disabled={impersonatingId === row.id}
-                  title="Login as User"
-                >
-                  <LogIn size={14} />
-                </button>
-              )}
               <button type="button" className="btn-danger p-1.5" onClick={() => handleDelete(row)} title="Delete"><Trash2 size={14} /></button>
             </>
           )}
         />
-
-        <p className="text-xs text-surface-500 mt-3 flex items-center gap-1.5">
-          <LogIn size={12} className="text-primary-600" />
-          <span className="text-primary-600 font-semibold">Login as User</span> switches your session into that user's portal. A banner lets you exit back to Super Admin.
-        </p>
 
         <Modal
           open={modal === 'add' || modal === 'edit'}
@@ -209,7 +173,7 @@ export default function AdminUsers() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <SelectInput label="Role" value={form.role}
                 onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
-                options={['Super Admin', 'Org Admin', 'Customer']} />
+                options={ROLE_UI_OPTIONS} />
               <SelectInput label="Status" value={form.status}
                 onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
                 options={['Active', 'Inactive']} />

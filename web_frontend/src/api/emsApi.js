@@ -12,7 +12,6 @@ const emsApi = {
   logout: () => api.post('/auth/logout', { refreshToken: tokenStore.getRefresh() }),
   refresh: (refreshToken) => api.post('/auth/refresh', { refreshToken }),
   me: () => api.get('/auth/me'),
-  impersonate: (body) => api.post('/auth/impersonate', body),
   forgotPassword: (email) => api.post('/auth/forgot-password', { email }),
   resetPassword: (body) => api.post('/auth/reset-password', body),
   changePassword: (currentPassword, newPassword) =>

@@ -79,6 +79,16 @@ import OrgPowerFactor         from './pages/org/analytics/OrgPowerFactor'
 import OrgEnergyConsumption   from './pages/org/analytics/OrgEnergyConsumption'
 import OrgAnomalies           from './pages/org/analytics/OrgAnomalies'
 
+// Org EV Chargers
+import EvLiveSession          from './pages/org/ev-chargers/EvLiveSession'
+import EvAnalytics            from './pages/org/ev-chargers/EvAnalytics'
+import EvEnergyHub            from './pages/org/ev-chargers/EvEnergyHub'
+import EvV2G                  from './pages/org/ev-chargers/EvV2G'
+import EvAiLog                from './pages/org/ev-chargers/EvAiLog'
+import EvFleet                from './pages/org/ev-chargers/EvFleet'
+import EvProfile              from './pages/org/ev-chargers/EvProfile'
+import EvControl              from './pages/org/ev-chargers/EvControl'
+
 function ProtectedRoute({ children, requiredRole }) {
   const { user } = useAuth()
   if (!user) return <Navigate to="/login" replace />
@@ -118,6 +128,7 @@ function AppRoutes() {
         <Route path="organizations"     element={<AdminOrganizations />} />
         <Route path="users"             element={<AdminUsers />} />
         <Route path="gateways"          element={<AdminGateways />} />
+        <Route path="mqtt-bridges"      element={<AdminMqttBridges basePath="/admin" />} />
         <Route path="devices"           element={<AdminDevices />} />
         <Route path="device-templates"  element={<AdminDeviceTemplates />} />
         <Route path="device-templates/:templateId/slaves" element={<AdminDeviceTemplateSlaves />} />
@@ -159,6 +170,14 @@ function AppRoutes() {
         <Route path="device-templates"  element={<OrgDeviceTemplates />} />
         <Route path="device-templates/:templateId/slaves" element={<OrgDeviceTemplateSlaves />} />
         <Route path="device-templates/:templateId" element={<RedirectTemplateToSlaves basePath="/org" />} />
+        <Route path="ev-chargers/live-session" element={<EvLiveSession />} />
+        <Route path="ev-chargers/analytics"    element={<EvAnalytics />} />
+        <Route path="ev-chargers/energy-hub"   element={<EvEnergyHub />} />
+        <Route path="ev-chargers/v2g"          element={<EvV2G />} />
+        <Route path="ev-chargers/ai-log"       element={<EvAiLog />} />
+        <Route path="ev-chargers/fleet"        element={<EvFleet />} />
+        <Route path="ev-chargers/profile"      element={<EvProfile />} />
+        <Route path="ev-chargers/control"      element={<EvControl />} />
         <Route path="ai-analytics"      element={<Navigate to="/org/ai-analytics/voltage-imbalance" replace />} />
         <Route path="ai-analytics/voltage-imbalance"  element={<OrgVoltageImbalance />} />
         <Route path="ai-analytics/current-imbalance"  element={<OrgCurrentImbalance />} />

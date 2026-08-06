@@ -452,7 +452,7 @@ export default function OrgDashboard() {
             <div key={i} className="flex items-center gap-2 mt-0.5">
               <span className="w-2 h-2 rounded-full" style={{ backgroundColor: item.color || item.fill }} />
               <span>{item.name}:</span>
-              <span className="text-surface-900 font-bold">{item.value} {item.unit || ''}</span>
+              <span className="device-metric-value font-bold">{item.value} {item.unit || ''}</span>
             </div>
           ))}
         </div>
@@ -684,7 +684,7 @@ export default function OrgDashboard() {
                         {[{ key: 'power', label: 'Power', unit: 'kW' }, { key: 'current', label: 'Current', unit: 'A' }, { key: 'voltage', label: 'Voltage', unit: 'V' }, { key: 'pf', label: 'PF', unit: '' }].map(({ key, label, unit }) => (
                           <div key={key} className="p-2 bg-white dark:bg-surface-900 rounded-lg border border-surface-100 dark:border-surface-800">
                             <p className="text-[9px] text-surface-400 font-bold uppercase">{label}</p>
-                            <p className="text-xs font-black text-surface-900 dark:text-surface-100">
+                            <p className="device-metric-value text-xs font-black">
                               {liveTile(d, key)} <span className="text-[9px] text-surface-400 font-semibold">{unit}</span>
                             </p>
                           </div>

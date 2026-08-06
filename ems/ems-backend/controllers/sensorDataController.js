@@ -4,7 +4,7 @@
 const prisma      = require('../config/database')
 const redis       = require('../config/redis')
 const { AppError } = require('../middleware/errorHandler')
-const { TIME_RANGE_MS, BUCKET_MS, paginate } = require('../utils/helpers')
+const { TIME_RANGE_MS, BUCKET_MS, paginate, parseDateBound } = require('../utils/helpers')
 const { bucketVariable, sumVariable } = require('../utils/sensorAggregation')
 const { cached } = require('../utils/responseCache')
 const { assertDeviceAccess } = require('../utils/deviceAccess')
@@ -149,8 +149,8 @@ const getHistory = async (req, res, next) => {
     if (slaveId) where.deviceConfigSlaveId = slaveId
     if (startDate || endDate) {
       where.timestamp = {}
-      if (startDate) where.timestamp.gte = new Date(startDate)
-      if (endDate)   where.timestamp.lte = new Date(endDate)
+      if (startDate) where.timestamp.gte = parseDateBound(startDate, 'start')
+      if (endDate)   where.timestamp.lte = parseDateBound(endDate, 'end')
     }
 
     const rows = await prisma.sensorReading.findMany({
@@ -384,8 +384,8 @@ const downloadCSV = async (req, res, next) => {
     if (slaveId) where.deviceConfigSlaveId = slaveId
     if (startDate || endDate) {
       where.timestamp = {}
-      if (startDate) where.timestamp.gte = new Date(startDate)
-      if (endDate)   where.timestamp.lte = new Date(endDate)
+      if (startDate) where.timestamp.gte = parseDateBound(startDate, 'start')
+      if (endDate)   where.timestamp.lte = parseDateBound(endDate, 'end')
     }
 
     res.setHeader('Content-Type', 'text/csv')
@@ -426,8 +426,8 @@ const deleteReadings = async (req, res, next) => {
     if (slaveId) where.deviceConfigSlaveId = slaveId
     if (startDate || endDate) {
       where.timestamp = {}
-      if (startDate) where.timestamp.gte = new Date(startDate)
-      if (endDate)   where.timestamp.lte = new Date(endDate)
+      if (startDate) where.timestamp.gte = parseDateBound(startDate, 'start')
+      if (endDate)   where.timestamp.lte = parseDateBound(endDate, 'end')
     }
 
     const result = await prisma.sensorReading.deleteMany({ where })

@@ -30,6 +30,26 @@ const paginate = (query) => {
 }
 
 /**
+ * Parse a query date bound. Date-only values (`YYYY-MM-DD`) become local
+ * start-of-day (from) or end-of-day (to) so UI date pickers include the
+ * full selected day instead of truncating at midnight UTC.
+ *
+ * @param {string|Date} value
+ * @param {'start'|'end'} [bound='start']
+ * @returns {Date}
+ */
+const parseDateBound = (value, bound = 'start') => {
+  if (value instanceof Date) return value
+  const s = String(value).trim()
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    return bound === 'end'
+      ? new Date(`${s}T23:59:59.999`)
+      : new Date(`${s}T00:00:00.000`)
+  }
+  return new Date(s)
+}
+
+/**
  * Build a Prisma date-range filter object from optional ISO strings.
  * Returns undefined when neither bound is provided so callers can spread
  * it directly into a where clause without adding a no-op key.
@@ -41,8 +61,8 @@ const paginate = (query) => {
 const buildDateRange = (from, to) => {
   if (!from && !to) return undefined
   const range = {}
-  if (from) range.gte = new Date(from)
-  if (to)   range.lte = new Date(to)
+  if (from) range.gte = parseDateBound(from, 'start')
+  if (to)   range.lte = parseDateBound(to, 'end')
   return range
 }
 
@@ -86,4 +106,4 @@ const startOfRange = (timeRange, AppError) => {
   return new Date(Date.now() - ms)
 }
 
-module.exports = { orgScope, paginate, buildDateRange, TIME_RANGE_MS, BUCKET_MS, startOfRange }
+module.exports = { orgScope, paginate, parseDateBound, buildDateRange, TIME_RANGE_MS, BUCKET_MS, startOfRange }
