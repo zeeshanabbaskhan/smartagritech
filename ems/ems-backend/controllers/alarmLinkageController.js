@@ -421,8 +421,8 @@ const batchDeleteVariableAlarms = async (req, res, next) => {
 // @access SUPER_ADMIN | ORG_ADMIN
 const downloadVariableAlarmCSV = async (req, res, next) => {
   try {
-    const { deviceId, alarmState, processState, from, to } = req.query
-    const where = { ...orgScope(req.user) }
+    const { organizationId, deviceId, alarmState, processState, from, to } = req.query
+    const where = { ...orgScope(req.user, organizationId) }
     if (deviceId)     where.deviceId     = deviceId
     if (alarmState)   where.alarmState   = alarmState
     if (processState) where.processState = processState
@@ -498,8 +498,8 @@ const batchDeleteLinkageHistory = async (req, res, next) => {
 // @access SUPER_ADMIN | ORG_ADMIN
 const downloadLinkageHistoryCSV = async (req, res, next) => {
   try {
-    const { deviceId, from, to } = req.query
-    const where = { ...orgScope(req.user) }
+    const { organizationId, deviceId, from, to } = req.query
+    const where = { ...orgScope(req.user, organizationId) }
     if (deviceId) where.deviceId = deviceId
     const dateRange = buildDateRange(from, to)
     if (dateRange) where.firedAt = dateRange

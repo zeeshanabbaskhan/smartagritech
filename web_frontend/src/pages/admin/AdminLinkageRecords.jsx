@@ -1,39 +1,71 @@
 import { useMemo, useState } from 'react'
 import DataTable from '../../components/ui/DataTable'
 import Modal from '../../components/ui/Modal'
-import DataCenterFilterBar from '../../components/ui/DataCenterFilterBar'
+import DataCenterFilterBar, { resolvePresetRange } from '../../components/ui/DataCenterFilterBar'
 import PageState, { useFetch } from '../../components/ui/PageState'
 import { Eye, Download } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
-import { mapLinkageRecord, mapDevice } from '../../utils/mappers'
+import { mapLinkageRecord, mapDevice, mapOrganization } from '../../utils/mappers'
 import { useToast } from '../../context/ToastContext'
+import { useAuth, ROLES } from '../../context/AuthContext'
 
 const EMPTY = []
+const defaultRange = resolvePresetRange('last30') || { from: '', to: '' }
 
 export default function AdminLinkageRecords() {
   const { showToast } = useToast()
+  const { user } = useAuth()
+  const isAdmin = user?.role === ROLES.ADMIN
 
-  const [device, setDevice] = useState('')
+  const [organization, setOrganization] = useState('')
+  const [deviceId, setDeviceId] = useState('')
   const [trigger, setTrigger] = useState('')
   const [variableFilter, setVariableFilter] = useState('')
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
-  const [applied, setApplied] = useState({ deviceId: '', trigger: '', variable: '', dateFrom: '', dateTo: '' })
+  const [dateFrom, setDateFrom] = useState(defaultRange.from)
+  const [dateTo, setDateTo] = useState(defaultRange.to)
+  const [applied, setApplied] = useState({
+    organizationId: '',
+    deviceId: '',
+    trigger: '',
+    variable: '',
+    dateFrom: defaultRange.from,
+    dateTo: defaultRange.to,
+  })
 
-  const { data: devicesData, loading: devicesLoading } = useFetch(async () => {
-    return list(await emsApi.getDevices({ limit: 200 })).map(mapDevice)
-  }, [])
-  const devices = devicesData ?? EMPTY
+  const { data: meta, loading: metaLoading } = useFetch(async () => {
+    const reqs = [emsApi.getDevices({ limit: 200 })]
+    if (isAdmin) reqs.push(emsApi.getOrganizations({ limit: 100 }))
+    const [devicesRes, orgsRes] = await Promise.all(reqs)
+    return {
+      devices: list(devicesRes).map(mapDevice),
+      organizations: orgsRes ? list(orgsRes).map(mapOrganization) : [],
+    }
+  }, [isAdmin])
+
+  const devices = meta?.devices ?? EMPTY
+  const organizations = meta?.organizations ?? EMPTY
+
+  const filteredDevices = useMemo(() => {
+    if (!organization) return devices
+    return devices.filter((d) => d.organizationId === organization)
+  }, [devices, organization])
 
   const { data, loading, error, reload } = useFetch(async () => {
-    const params = { limit: 200 }
+    const params = { limit: 100 }
+    if (applied.organizationId) params.organizationId = applied.organizationId
     if (applied.deviceId) params.deviceId = applied.deviceId
     if (applied.dateFrom) params.from = applied.dateFrom
-    if (applied.dateTo) params.to = applied.dateTo
+    if (applied.dateTo) params.to = `${applied.dateTo}T23:59:59.999`
     const recordsRes = await emsApi.getLinkageHistory(params)
     const deviceMap = Object.fromEntries(devices.map((d) => [d.id, d.name]))
     return list(recordsRes).map((r) => mapLinkageRecord(r, deviceMap[r.deviceId]))
-  }, [applied.deviceId, applied.dateFrom, applied.dateTo, devicesData])
+  }, [
+    applied.organizationId,
+    applied.deviceId,
+    applied.dateFrom,
+    applied.dateTo,
+    meta?.devices,
+  ])
 
   const rows = data ?? []
 
@@ -43,16 +75,21 @@ export default function AdminLinkageRecords() {
   const [deleting, setDeleting] = useState(false)
   const [downloading, setDownloading] = useState(false)
 
-  const triggerOptions = useMemo(() => [...new Set(rows.map((r) => r.triggerName).filter(Boolean))], [rows])
-  const variableOptions = useMemo(() => [...new Set(rows.map((r) => r.watchedVariableName).filter(Boolean))], [rows])
+  const triggerOptions = useMemo(() => [...new Set(rows.map((r) => r.triggerName).filter(Boolean))].sort(), [rows])
+  const variableOptions = useMemo(() => [...new Set(rows.map((r) => r.watchedVariableName || r.variable).filter(Boolean))].sort(), [rows])
 
   const openView = (row) => { setSelected(row); setModal('view') }
   const close = () => { setModal(null); setSelected(null) }
 
+  const handleOrgChange = (orgId) => {
+    setOrganization(orgId)
+    setDeviceId('')
+  }
+
   const handleQuery = () => {
-    const match = devices.find((d) => d.name === device)
     setApplied({
-      deviceId: match?.id ?? '',
+      organizationId: organization,
+      deviceId,
       trigger,
       variable: variableFilter,
       dateFrom,
@@ -63,7 +100,7 @@ export default function AdminLinkageRecords() {
 
   const filtered = rows.filter((r) => {
     if (applied.trigger && r.triggerName !== applied.trigger) return false
-    if (applied.variable && r.watchedVariableName !== applied.variable) return false
+    if (applied.variable && (r.watchedVariableName || r.variable) !== applied.variable) return false
     return true
   })
 
@@ -87,9 +124,10 @@ export default function AdminLinkageRecords() {
     setDownloading(true)
     try {
       const params = {}
+      if (applied.organizationId) params.organizationId = applied.organizationId
       if (applied.deviceId) params.deviceId = applied.deviceId
       if (applied.dateFrom) params.from = applied.dateFrom
-      if (applied.dateTo) params.to = applied.dateTo
+      if (applied.dateTo) params.to = `${applied.dateTo}T23:59:59.999`
       await emsApi.downloadLinkageCsv(params)
       showToast('Download started', 'success')
     } catch (e) {
@@ -113,7 +151,7 @@ export default function AdminLinkageRecords() {
   ]
 
   return (
-    <PageState loading={(loading || devicesLoading) && !data} error={error} onRetry={reload}>
+    <PageState loading={(loading || metaLoading) && !data} error={error} onRetry={reload}>
       <div>
         <div className="page-header">
           <div>
@@ -131,14 +169,22 @@ export default function AdminLinkageRecords() {
         </div>
 
         <DataCenterFilterBar
-          devices={devices.map((d) => d.name)}
-          device={device} onDeviceChange={setDevice}
+          showOrganization={isAdmin}
+          organizations={organizations}
+          organization={organization}
+          onOrganizationChange={handleOrgChange}
+          devices={filteredDevices}
+          device={deviceId}
+          onDeviceChange={setDeviceId}
           triggerOptions={triggerOptions}
-          trigger={trigger} onTriggerChange={setTrigger}
+          trigger={trigger}
+          onTriggerChange={setTrigger}
           variableOptions={variableOptions}
-          variable={variableFilter} onVariableChange={setVariableFilter}
-          dateFrom={dateFrom} dateTo={dateTo}
-          onDateFromChange={setDateFrom} onDateToChange={setDateTo}
+          variable={variableFilter}
+          onVariableChange={setVariableFilter}
+          dateFrom={dateFrom}
+          dateTo={dateTo}
+          onDateRangeChange={(from, to) => { setDateFrom(from); setDateTo(to) }}
           onQuery={handleQuery}
         />
 

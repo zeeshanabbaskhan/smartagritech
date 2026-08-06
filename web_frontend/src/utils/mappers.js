@@ -299,7 +299,7 @@ export const mapVariableAlarm = (a, deviceName) => ({
   threshold: a.triggeringCondition ?? '—',
   actual: a.currentValue != null ? String(a.currentValue) : '—',
   time: fmtDate(a.alarmTime),
-  status: a.processState === 'PROCESSED' ? 'Resolved' : 'Active',
+  status: a.alarmState === 'RESOLVED' ? 'Resolved' : 'Active',
   triggerName: a.triggerName,
   currentValue: a.currentValue,
   operator: a.triggeringCondition?.split(' ')[1] ?? '',
