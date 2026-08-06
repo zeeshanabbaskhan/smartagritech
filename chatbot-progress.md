@@ -1,5 +1,63 @@
 # Chatbot Progress Log
 
+## Session 2 — 2026-08-06
+
+### What was built
+
+**Phase A — Data Loader (no Postgres required)**
+- Created `chatbot/server/` — standalone Express microserver (port 5175), zero Prisma/Redis dependency
+- `dataLoader.js` reads all 13 CSVs from `data/chatbot/` into memory on startup
+- Row count report verified against `manifest.json` — all 13 files 100% match ✅
+
+**Phase B — Backend with Groq Tool-Calling**
+- `chatbotTools.js` — 8 org-scoped query functions: `getOrgSummary`, `listDevicesForOrg`, `getDeviceStatus`, `getVariableValue`, `getActiveAlarms`, `getEnergyConsumption`, `getGatewayStatus`, `getUserDevices`
+- `aiEngine.js` — Groq tool-calling loop (llama-3.3-70b-versatile) + Gemini fallback
+- `index.js` — Express server exposing `POST /api/chatbot/query` and `GET /health`
+- All 4 example README queries tested and verified against CSV data ✅
+
+**Phase C — Frontend pointed at backend**
+- `chatbot/src/services/aiService.js` simplified to thin HTTP client hitting `http://localhost:5175`
+- API keys removed from frontend entirely — live only in `chatbot/server/.env`
+- Frontend build passes cleanly ✅
+
+### Test Results (all 4 README example queries verified)
+| Query | Expected | Got |
+|---|---|---|
+| Devices online — Greenfield | 4 | 4 ✅ |
+| VoltageA on Energy Meter 001 | 228.78 V | 228.78 V ✅ |
+| Active alarms | 5 ACTIVE | 5 listed correctly ✅ |
+| Riverdale energy last 3 days | 6 devices with kWh+PKR | All correct ✅ |
+
+### Status
+- Backend server: ✅ Running on port 5175
+- Data grounding: ✅ Real CSV data, Groq tool-calling
+- API key security: ✅ Keys server-side only, not in browser
+- Frontend → backend: ✅ End-to-end wired
+- Auth bridge: ❌ Not yet (separate task)
+- Embed in main dashboard: ❌ Not yet (separate task)
+
+### Branch / Commits
+- `fc1a3f6` — feat: add chatbot backend server with CSV data loader and Groq tool-calling; move AI key server-side
+
+### How to run
+```bash
+# Terminal 1 — backend
+cd chatbot/server
+node index.js        # runs on :5175
+
+# Terminal 2 — frontend
+cd chatbot
+npm run dev          # runs on :5174
+```
+
+### Next steps
+- [ ] Auth bridge — pass EMS JWT from frontend to backend for multi-org scoping
+- [ ] Embed `ChatbotWidget.jsx` into `web_frontend/` dashboard layout
+- [ ] Replace CSV data with real Prisma queries when DB is available
+
+---
+
+
 ## Session 1 — 2026-08-05
 
 ### What was built
