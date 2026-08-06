@@ -6,6 +6,7 @@ import {
   CreditCard, ShoppingBag, Calendar, Layers, Clock,
   BellRing, BrainCircuit, Gauge, TrendingUp, AlertOctagon,
   ListTree, UserCog, LayoutGrid, Radio, LayoutTemplate, ShieldCheck, Boxes,
+  PlugZap, BarChart3, BatteryCharging, Recycle, Bot, Car, UserCircle, SlidersHorizontal,
 } from 'lucide-react'
 
 // ─── Active navigation (aligned with improved CF dashboard) ──────────────────
@@ -52,6 +53,20 @@ export const orgNav = [
   { to: '/org/gateways',           label: 'Gateways',        icon: Wifi },
   { to: '/org/mqtt-bridges',       label: 'MQTT Bridges',    icon: Radio },
   { to: '/org/device-templates',   label: 'Device Templates',icon: FileCode2 },
+  {
+    label: 'EV Chargers',
+    icon: PlugZap,
+    children: [
+      { to: '/org/ev-chargers/live-session', label: 'Live Session',    icon: Zap },
+      { to: '/org/ev-chargers/analytics',    label: 'Analytics',       icon: BarChart3 },
+      { to: '/org/ev-chargers/energy-hub',   label: 'Energy Hub',      icon: BatteryCharging },
+      { to: '/org/ev-chargers/v2g',          label: 'V2G / Exports',   icon: Recycle },
+      { to: '/org/ev-chargers/ai-log',       label: 'AI Decision Log', icon: Bot },
+      { to: '/org/ev-chargers/fleet',        label: 'Fleet',           icon: Car },
+      { to: '/org/ev-chargers/profile',      label: 'Profile',         icon: UserCircle },
+      { to: '/org/ev-chargers/control',      label: 'Control System',  icon: SlidersHorizontal },
+    ],
+  },
   { divider: true, label: 'Data' },
   {
     label: 'AI Analytics',
