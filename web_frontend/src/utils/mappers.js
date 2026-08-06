@@ -1,4 +1,5 @@
 /** Map API entities to UI table/card shapes used across pages */
+import { apiRoleToLabel } from './roles'
 
 const fmtDate = (d) => {
   if (!d) return '—'
@@ -32,7 +33,7 @@ export const mapUser = (u, orgName) => ({
   phone: u.phone ?? '—',
   org: orgName ?? u.organization?.name ?? '—',
   organizationId: u.organizationId,
-  role: u.role === 'ORG_ADMIN' ? 'Org Admin' : u.role === 'SUPER_ADMIN' ? 'Super Admin' : 'User',
+  role: apiRoleToLabel(u.role),
   roleRaw: u.role,
   status: statusLabel(u.status),
   statusRaw: u.status,

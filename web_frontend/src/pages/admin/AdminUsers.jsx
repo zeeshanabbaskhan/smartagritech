@@ -8,9 +8,10 @@ import { Plus, Pencil, Trash2, Eye } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
 import { mapUser, mapOrganization } from '../../utils/mappers'
 import { uiStatusToApi, uiRoleToApi } from '../../utils/apiForm'
+import { ROLE_UI_LABELS, ROLE_UI_OPTIONS } from '../../utils/roles'
 import { useToast } from '../../context/ToastContext'
 
-const blank = { name: '', email: '', password: '', phone: '', organizationId: '', role: 'Customer', status: 'Active' }
+const blank = { name: '', email: '', password: '', phone: '', organizationId: '', role: ROLE_UI_LABELS.USER, status: 'Active' }
 
 export default function AdminUsers() {
   const { showToast } = useToast()
@@ -172,7 +173,7 @@ export default function AdminUsers() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <SelectInput label="Role" value={form.role}
                 onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
-                options={['Super Admin', 'Org Admin', 'Customer']} />
+                options={ROLE_UI_OPTIONS} />
               <SelectInput label="Status" value={form.status}
                 onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
                 options={['Active', 'Inactive']} />

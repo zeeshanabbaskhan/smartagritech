@@ -31,7 +31,10 @@ class ApiMappers {
     switch (role) {
       case 'ORG_ADMIN':
         return 'Org Admin';
+      case 'SUPER_ADMIN':
+        return 'Super Admin';
       case 'USER':
+      case 'CUSTOMER':
         return 'User';
       default:
         return role?.toString() ?? '—';

@@ -34,7 +34,10 @@ class AppUser {
       case 'ORG_ADMIN':
         return 'Org Admin';
       case 'USER':
+      case 'CUSTOMER':
         return 'User';
+      case 'SUPER_ADMIN':
+        return 'Super Admin';
       default:
         return role;
     }
