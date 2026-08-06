@@ -1,0 +1,5 @@
+id,fullName,email,phone,role,organizationId,organizationName,status
+d9ea07a8-3277-cb07-9633-0021d2d03d23,Ayesha Khan,ayesha.khan@greenfield-energy.example,+92-300-1110001,ORG_ADMIN,260d819a-2473-7045-7f10-1a415c5df668,Greenfield Energy Co,ACTIVE
+55df90fd-cd2f-e49e-7311-35090c0de0c4,Bilal Ahmed,bilal.ahmed@greenfield-energy.example,+92-300-1110002,USER,260d819a-2473-7045-7f10-1a415c5df668,Greenfield Energy Co,ACTIVE
+a18365ed-5d22-8d21-844e-1a3b590aaae5,Sara Malik,sara.malik@riverdale-mfg.example,+92-321-2220001,ORG_ADMIN,31a45db8-ceab-bc59-3d5b-7ca528c2c637,Riverdale Manufacturing,ACTIVE
+ec7c6518-1061-2bf8-ed65-920650f9c384,Omar Sheikh,omar.sheikh@riverdale-mfg.example,+92-321-2220002,USER,31a45db8-ceab-bc59-3d5b-7ca528c2c637,Riverdale Manufacturing,ACTIVE

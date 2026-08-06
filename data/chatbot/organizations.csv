@@ -1,0 +1,4 @@
+id,name,description,status,createdAt,updatedAt
+260d819a-2473-7045-7f10-1a415c5df668,Greenfield Energy Co,Commercial campus EMS — Lahore,ACTIVE,2026-04-08T10:00:00.000Z,2026-08-06T08:00:00.000Z
+31a45db8-ceab-bc59-3d5b-7ca528c2c637,Riverdale Manufacturing,Industrial plant energy monitoring — Karachi,ACTIVE,2026-05-08T10:00:00.000Z,2026-08-06T05:00:00.000Z
+2226183b-8244-1ce0-f70d-347b6032a06c,Demo Inactive Org,Inactive sandbox for chatbot edge cases,INACTIVE,2026-01-18T10:00:00.000Z,2026-07-07T10:00:00.000Z

@@ -1,0 +1,22 @@
+{
+  "generatedAt": "2026-08-06T10:20:11.896Z",
+  "dataAsOf": "2026-08-06T10:00:00.000Z",
+  "source": "synthetic",
+  "note": "No live DATABASE_URL was available; IDs and values are synthetic but match Prisma field names and EMS reading profiles.",
+  "files": {
+    "organizations.csv": 3,
+    "users.csv": 4,
+    "gateways.csv": 6,
+    "devices.csv": 12,
+    "device_users.csv": 8,
+    "device_config_slaves.csv": 12,
+    "device_config_variables.csv": 216,
+    "alarm_settings.csv": 4,
+    "alarm_histories.csv": 10,
+    "alarm_history_notifications.csv": 6,
+    "sensor_readings_sample.csv": 80,
+    "sensor_reading_values_sample.csv": 640,
+    "interval_histories.csv": 84,
+    "chatbot_facts.csv": 500
+  }
+}
