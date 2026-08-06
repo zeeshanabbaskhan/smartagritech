@@ -16,7 +16,7 @@
     "alarm_history_notifications.csv": 6,
     "sensor_readings_sample.csv": 80,
     "sensor_reading_values_sample.csv": 640,
-    "interval_histories.csv": 84,
+    "interval_histories.csv": 720,
     "chatbot_facts.csv": 500
   }
 }
