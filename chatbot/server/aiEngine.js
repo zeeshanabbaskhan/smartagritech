@@ -1,23 +1,33 @@
 /**
- * aiEngine.js  — Phase B
+ * aiEngine.js  — Phase B + D2
  *
  * Handles AI calls with tool-calling (function-calling).
  * Primary: Groq (llama-3.3-70b-versatile) — proven tool-calling support.
  * Fallback: Gemini 1.5 Flash function-calling.
  *
- * Tool schemas are defined here and wired to chatbotTools.js dispatch.
+ * Tool schemas are defined here and wired to chatbotTools.js + billingTools.js dispatch.
  */
 
 const Groq = require('groq-sdk')
 const { GoogleGenerativeAI } = require('@google/generative-ai')
 const { callTool } = require('./chatbotTools')
+const billingTools = require('./billingTools')
+
+// ── Unified tool dispatcher (EMS tools + billing tools) ───────────────────────
+function dispatchTool(name, args) {
+  if (billingTools[name]) {
+    try { return billingTools[name](args) }
+    catch (err) { return { error: err.message } }
+  }
+  return callTool(name, args)
+}
 
 const PROVIDER = process.env.AI_PROVIDER || 'groq'
 
 // ── System prompt ─────────────────────────────────────────────────────────────
 const SYSTEM_PROMPT = `You are the SmartAgriTech AI Assistant — a knowledgeable, friendly support agent for the SmartAgriTech EMS (Energy Management System) platform.
 
-You have access to REAL live data tools that query the EMS database. Always use these tools to answer data questions instead of guessing.
+You have access to REAL live data tools that query the EMS database. ALWAYS use these tools to answer data or billing questions — NEVER guess or estimate any PKR, kWh, or percentage figure on your own.
 
 ABOUT THE PLATFORM:
 - IoT-based Energy Management System for smart agriculture and industrial facilities
@@ -26,12 +36,23 @@ ABOUT THE PLATFORM:
 - Organizations: Greenfield Energy Co (commercial, Lahore) and Riverdale Manufacturing (industrial, Karachi)
 
 TOOL USAGE RULES:
-- Always call a tool when asked about devices, alarms, energy data, or gateways
+- Always call a tool when asked about devices, alarms, energy data, gateways, or billing
 - Use getVariableValue for specific sensor readings (VoltageA, PowerFactor, etc.)
 - Use getActiveAlarms for alarm queries — filter by ACTIVE or RESOLVED
-- Use getEnergyConsumption for kWh/tariff questions — specify lastDays when mentioned
+- Use getEnergyConsumption for recent kWh questions (last N days)
 - Use getOrgSummary for org-level overview questions
 - Use getGatewayStatus when asked about offline/online gateways
+- BILLING TOOLS (use these for cost/budget questions):
+  • compareMonthlyBills — "this month vs last month"
+  • getMonthlyBill(monthOffset=0) — current month bill; (monthOffset=1) — last month
+  • getTopConsumingDevices — "which device uses most / costs most"
+  • getDailyConsumptionBreakdown — "highest usage day" / "daily breakdown"
+  • forecastMonthlyBill — "am I on track" / "what will my bill be"
+  • getPowerFactorImpact — "is low power factor costing me"
+  • simulateConsumptionReduction — "what if I cut [device] by X%"
+  • getBudgetPlan — "how to keep bill under Rs. X" / "save 15% next month"
+
+ACCURACY RULE: Every PKR, kWh, or percentage figure you state MUST come from a tool result. Never invent or round-estimate billing numbers.
 
 RESPONSE STYLE:
 - Be concise, warm, and professional
@@ -162,6 +183,125 @@ const TOOL_SCHEMAS_OPENAI = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'getMonthlyBill',
+      description: 'Get monthly energy bill (total kWh, total PKR cost, and per-device breakdown) for an organization. monthOffset=0 for current month-to-date, 1 for last month.',
+      parameters: {
+        type: 'object',
+        properties: {
+          orgName:     { type: 'string', description: 'Organization name' },
+          monthOffset: { type: 'string', description: '0 for current month-to-date, 1 for last month (default 0)' },
+        },
+        required: ['orgName'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'compareMonthlyBills',
+      description: 'Compare current month-to-date bill vs same period last month and full last month bill for an organization.',
+      parameters: {
+        type: 'object',
+        properties: {
+          orgName: { type: 'string', description: 'Organization name' },
+        },
+        required: ['orgName'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'getTopConsumingDevices',
+      description: 'Get top energy consuming devices ranked by total cost (PKR) and kWh over a period (e.g. 30 days).',
+      parameters: {
+        type: 'object',
+        properties: {
+          orgName:    { type: 'string', description: 'Organization name' },
+          periodDays: { type: 'string', description: 'Number of days (default 30)' },
+        },
+        required: ['orgName'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'getDailyConsumptionBreakdown',
+      description: 'Get daily energy cost/kWh breakdown and identify highest usage days for an organization.',
+      parameters: {
+        type: 'object',
+        properties: {
+          orgName:    { type: 'string', description: 'Organization name' },
+          periodDays: { type: 'string', description: 'Number of days to analyze (default 30)' },
+        },
+        required: ['orgName'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'forecastMonthlyBill',
+      description: 'Forecast full monthly bill based on current month average daily cost, and compare with last month actual bill.',
+      parameters: {
+        type: 'object',
+        properties: {
+          orgName: { type: 'string', description: 'Organization name' },
+        },
+        required: ['orgName'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'getPowerFactorImpact',
+      description: 'Analyze power factor alarms and low power factor readings for devices in an organization.',
+      parameters: {
+        type: 'object',
+        properties: {
+          orgName: { type: 'string', description: 'Organization name' },
+        },
+        required: ['orgName'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'simulateConsumptionReduction',
+      description: 'Simulate bill savings if energy consumption on a specific device is reduced by X% (e.g. 20%).',
+      parameters: {
+        type: 'object',
+        properties: {
+          orgName:          { type: 'string', description: 'Organization name' },
+          deviceName:       { type: 'string', description: 'Device name' },
+          percentReduction: { type: 'string', description: 'Percentage reduction e.g. 20' },
+          periodDays:       { type: 'string', description: 'Period in days (default 30)' },
+        },
+        required: ['orgName', 'deviceName', 'percentReduction'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'getBudgetPlan',
+      description: 'Check if forecasted bill exceeds a target budget (e.g. Rs 30000 or 15% reduction) and generate a device-by-device cut plan to stay under budget.',
+      parameters: {
+        type: 'object',
+        properties: {
+          orgName:         { type: 'string', description: 'Organization name' },
+          targetAmountPKR: { type: 'string', description: 'Target monthly budget in PKR' },
+        },
+        required: ['orgName', 'targetAmountPKR'],
+      },
+    },
+  },
 ]
 
 // ── Groq tool-calling loop ────────────────────────────────────────────────────
@@ -173,14 +313,33 @@ async function callGroq(messages) {
 
   // Tool-calling loop (max 5 iterations)
   for (let i = 0; i < 5; i++) {
-    const response = await client.chat.completions.create({
-      model,
-      messages: allMessages,
-      tools: TOOL_SCHEMAS_OPENAI,
-      tool_choice: 'auto',
-      max_tokens: 1024,
-      temperature: 0.4,
-    })
+    let response
+    let attempts = 0
+    while (attempts < 5) {
+      try {
+        response = await client.chat.completions.create({
+          model,
+          messages: allMessages,
+          tools: TOOL_SCHEMAS_OPENAI,
+          tool_choice: 'auto',
+          max_tokens: 1024,
+          temperature: 0.4,
+        })
+        break
+      } catch (err) {
+        if (err.status === 429 || err.message?.includes('rate_limit') || err.message?.includes('Rate limit')) {
+          console.log(`[groq 429 rate limit] attempt ${attempts + 1}/5 waiting 10s before retry...`)
+          await new Promise(r => setTimeout(r, 10000))
+          attempts++
+        } else {
+          throw err
+        }
+      }
+    }
+
+    if (!response || !response.choices || response.choices.length === 0) {
+      throw new Error('Groq API returned an empty response after retries.')
+    }
 
     const choice = response.choices[0]
 
@@ -190,7 +349,7 @@ async function callGroq(messages) {
 
       for (const tc of choice.message.tool_calls) {
         const args   = JSON.parse(tc.function.arguments)
-        const result = callTool(tc.function.name, args)
+        const result = dispatchTool(tc.function.name, args)
         console.log(`[tool] ${tc.function.name}(${JSON.stringify(args)}) →`, JSON.stringify(result).slice(0, 120))
 
         allMessages.push({
@@ -259,7 +418,7 @@ async function callGemini(messages) {
       const toolResults = funcCalls.map(p => ({
         functionResponse: {
           name:     p.functionCall.name,
-          response: callTool(p.functionCall.name, p.functionCall.args),
+          response: dispatchTool(p.functionCall.name, p.functionCall.args),
         },
       }))
       console.log('[gemini tools]', funcCalls.map(p => p.functionCall.name))
