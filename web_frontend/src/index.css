@@ -202,6 +202,14 @@
 .dark .text-surface-500 { color: #B4B8AE !important; }
 .dark .text-surface-400 { color: #9AA09A !important; }
 
+/* Device / KPI metric values — always dark on light tiles, white on dark tiles */
+.device-metric-value {
+  color: #141828; /* surface-900 */
+}
+.dark .device-metric-value {
+  color: #FFFFFF !important;
+}
+
 /*
  * Light fills that lack a paired dark:bg-* stay light under dark mode while the
  * text overrides above force light ink — unreadable. Darken unpaired bg-surface-50.

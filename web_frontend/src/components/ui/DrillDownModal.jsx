@@ -23,14 +23,14 @@ function RadialGauge({ pct, color, value, unit, isOffline }) {
   const displayVal = !hasVal ? '—' : unit === '' ? value.toFixed(2) : value.toFixed(1)
 
   return (
-    <svg viewBox="0 0 80 80" className="w-16 h-16 mx-auto">
-      <path d={bg} fill="none" stroke="#E2E8F0" strokeWidth={sw} strokeLinecap="round" />
-      {fg && <path d={fg} fill="none" stroke={isOffline ? '#CBD5E1' : color} strokeWidth={sw} strokeLinecap="round" />}
-      <text x={cx} y={cy - 1} textAnchor="middle" fontSize="11" fontWeight="900" fill={isOffline ? '#94A3B8' : '#1E293B'}>
+    <svg viewBox="0 0 80 80" className={`w-16 h-16 mx-auto ${isOffline ? 'text-surface-400' : 'device-metric-value'}`}>
+      <path d={bg} fill="none" stroke="currentColor" strokeOpacity="0.2" strokeWidth={sw} strokeLinecap="round" />
+      {fg && <path d={fg} fill="none" stroke={isOffline ? 'currentColor' : color} strokeWidth={sw} strokeLinecap="round" />}
+      <text x={cx} y={cy - 1} textAnchor="middle" fontSize="11" fontWeight="900" fill="currentColor">
         {displayVal}
       </text>
       {unit && (
-        <text x={cx} y={cy + 10} textAnchor="middle" fontSize="8" fontWeight="700" fill="#94A3B8">
+        <text x={cx} y={cy + 10} textAnchor="middle" fontSize="8" fontWeight="700" fill="currentColor" fillOpacity="0.55">
           {unit}
         </text>
       )}
@@ -76,7 +76,7 @@ export default function DrillDownModal({
       }
     >
       <div className="flex items-baseline gap-3 mb-5 pb-4 border-b border-surface-100 dark:border-surface-800">
-        <span className="text-4xl font-black text-surface-900 dark:text-surface-100">{aggDisplay}</span>
+        <span className="device-metric-value text-4xl font-black">{aggDisplay}</span>
         {unit && <span className="text-xl font-bold text-surface-400">{unit}</span>}
         <span className="text-xs font-bold text-surface-400 uppercase tracking-wider ml-auto">
           {aggregateLabel} of {onlineCount} online device{onlineCount !== 1 ? 's' : ''}
