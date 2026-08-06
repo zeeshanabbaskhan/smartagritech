@@ -118,6 +118,7 @@ function AppRoutes() {
         <Route path="organizations"     element={<AdminOrganizations />} />
         <Route path="users"             element={<AdminUsers />} />
         <Route path="gateways"          element={<AdminGateways />} />
+        <Route path="mqtt-bridges"      element={<AdminMqttBridges basePath="/admin" />} />
         <Route path="devices"           element={<AdminDevices />} />
         <Route path="device-templates"  element={<AdminDeviceTemplates />} />
         <Route path="device-templates/:templateId/slaves" element={<AdminDeviceTemplateSlaves />} />

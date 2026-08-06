@@ -11,6 +11,7 @@ const pageTitles = {
   '/admin/organizations':      'Manage Organizations',
   '/admin/users':              'Manage Users',
   '/admin/gateways':           'Manage Gateways',
+  '/admin/mqtt-bridges':       'MQTT Bridges',
   '/admin/devices':            'Manage Devices',
   '/admin/device-templates':   'Device Templates',
   '/admin/icons':              'Manage Icons',

@@ -152,6 +152,13 @@ export default function AdminMqttBridges({ basePath = '/admin' }) {
 
   const columns = [
     { key: 'name', label: 'Name' },
+    ...(isAdmin
+      ? [{
+          key: 'organization',
+          label: 'Organization',
+          render: (_v, r) => r.organization?.name || '—',
+        }]
+      : []),
     {
       key: 'brokerHost',
       label: 'Broker',
