@@ -288,8 +288,8 @@ export const mapAlarmContact = (c, orgName) => ({
 
 export const mapVariableAlarm = (a, deviceName) => ({
   id: a.id,
-  device: deviceName ?? a.deviceId,
-  deviceName: deviceName ?? a.deviceId,
+  device: deviceName ?? a.device?.name ?? a.deviceName ?? a.deviceId,
+  deviceName: deviceName ?? a.device?.name ?? a.deviceName ?? a.deviceId,
   deviceId: a.deviceId,
   variable: a.variableName,
   variableName: a.variableName,
@@ -309,31 +309,38 @@ export const mapVariableAlarm = (a, deviceName) => ({
   _raw: a,
 })
 
-export const mapLinkageRecord = (r, deviceName) => ({
-  id: r.id,
-  name: r.triggerName ?? '—',
-  srcDevice: deviceName ?? r.deviceId,
-  deviceName: deviceName ?? r.deviceId,
-  deviceId: r.deviceId,
-  srcVar: r.watchedVariableName ?? '—',
-  triggerType: r.triggerType ?? r.trigger?.anomalyType ?? r.actionTaken ?? '—',
-  slave: r.slaveName ?? '—',
-  slaveName: r.slaveName ?? '—',
-  variable: r.watchedVariableName ?? '—',
-  condition: r.triggeringCondition
-    ?? (r.watchedVariableValue != null ? String(r.watchedVariableValue) : '—'),
-  threshold: r.watchedVariableValue != null ? String(r.watchedVariableValue) : '—',
-  tgtDevice: r.triggerDeviceName ?? r.linkedDeviceName ?? r.linkedVariableName ?? '—',
-  triggerDevice: r.triggerDeviceName ?? r.linkedDeviceName ?? r.linkedVariableName ?? '—',
-  triggerName: r.triggerName,
-  watchedVariableName: r.watchedVariableName,
-  currentValue: r.watchedVariableValue,
-  linkedVariableName: r.linkedVariableName,
-  action: r.actionTaken === 'ON' ? 'Turn On' : r.actionTaken === 'OFF' ? 'Turn Off' : (r.actionTaken ?? '—'),
-  status: 'Active',
-  createdAt: fmtDate(r.firedAt),
-  _raw: r,
-})
+export const mapLinkageRecord = (r, deviceName) => {
+  const watchedName = r.watchedVariableName ?? r.trigger?.watchedVariable?.name
+  const conditionFromTrigger = r.trigger
+    ? `${watchedName || ''} ${r.trigger.operator || ''} ${r.trigger.threshold ?? ''}`.trim()
+    : ''
+  return {
+    id: r.id,
+    name: r.triggerName ?? r.trigger?.name ?? '—',
+    srcDevice: deviceName ?? r.device?.name ?? r.deviceName ?? r.deviceId,
+    deviceName: deviceName ?? r.device?.name ?? r.deviceName ?? r.deviceId,
+    deviceId: r.deviceId,
+    srcVar: watchedName ?? '—',
+    triggerType: r.triggerType ?? r.trigger?.anomalyType ?? r.actionTaken ?? '—',
+    slave: r.slaveName ?? '—',
+    slaveName: r.slaveName ?? '—',
+    variable: watchedName ?? '—',
+    condition: r.triggeringCondition
+      || conditionFromTrigger
+      || (r.watchedVariableValue != null ? String(r.watchedVariableValue) : '—'),
+    threshold: r.watchedVariableValue != null ? String(r.watchedVariableValue) : '—',
+    tgtDevice: r.triggerDeviceName ?? r.linkedDeviceName ?? r.device?.name ?? r.linkedVariableName ?? '—',
+    triggerDevice: r.triggerDeviceName ?? r.linkedDeviceName ?? r.device?.name ?? r.linkedVariableName ?? '—',
+    triggerName: r.triggerName ?? r.trigger?.name,
+    watchedVariableName: watchedName,
+    currentValue: r.watchedVariableValue,
+    linkedVariableName: r.linkedVariableName ?? r.trigger?.linkageVariable?.name,
+    action: r.actionTaken === 'ON' ? 'Turn On' : r.actionTaken === 'OFF' ? 'Turn Off' : (r.actionTaken ?? '—'),
+    status: 'Active',
+    createdAt: fmtDate(r.firedAt),
+    _raw: r,
+  }
+}
 
 export const mapAlarmHistoryNotification = (n) => ({
   id: n.id,

@@ -58,7 +58,7 @@ export default function AdminLinkageRecords() {
     if (applied.dateTo) params.to = `${applied.dateTo}T23:59:59.999`
     const recordsRes = await emsApi.getLinkageHistory(params)
     const deviceMap = Object.fromEntries(devices.map((d) => [d.id, d.name]))
-    return list(recordsRes).map((r) => mapLinkageRecord(r, deviceMap[r.deviceId]))
+    return list(recordsRes).map((r) => mapLinkageRecord(r, deviceMap[r.deviceId] ?? r.device?.name))
   }, [
     applied.organizationId,
     applied.deviceId,

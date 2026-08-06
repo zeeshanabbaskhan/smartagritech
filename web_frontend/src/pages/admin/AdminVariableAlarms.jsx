@@ -62,7 +62,7 @@ export default function AdminVariableAlarms() {
     if (applied.dateTo) params.to = `${applied.dateTo}T23:59:59.999`
     const alarmsRes = await emsApi.getVariableAlarmHistory(params)
     const deviceMap = Object.fromEntries(devices.map((d) => [d.id, d.name]))
-    return list(alarmsRes).map((a) => mapVariableAlarm(a, deviceMap[a.deviceId]))
+    return list(alarmsRes).map((a) => mapVariableAlarm(a, deviceMap[a.deviceId] ?? a.device?.name))
   }, [
     applied.organizationId,
     applied.deviceId,

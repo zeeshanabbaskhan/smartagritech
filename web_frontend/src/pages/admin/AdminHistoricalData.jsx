@@ -86,7 +86,7 @@ export default function AdminHistoricalData() {
         deviceId: deviceFilter,
         variableName: variableKey,
         startDate: dateFrom,
-        endDate: dateTo,
+        endDate: dateTo ? `${dateTo}T23:59:59.999` : dateTo,
         limit: 100,
       })
       const points = Array.isArray(res?.data) ? res.data : list(res)
@@ -119,7 +119,7 @@ export default function AdminHistoricalData() {
         deviceId: deviceFilter,
         variableName: variableKey || undefined,
         startDate: dateFrom,
-        endDate: dateTo,
+        endDate: dateTo ? `${dateTo}T23:59:59.999` : dateTo,
       })
       showToast('Download started', 'success')
     } catch (e) {
@@ -144,7 +144,7 @@ export default function AdminHistoricalData() {
       const res = await emsApi.deleteSensorData({
         deviceId: deviceFilter,
         startDate: dateFrom,
-        endDate: dateTo,
+        endDate: dateTo ? `${dateTo}T23:59:59.999` : dateTo,
       })
       setChartData([])
       setTableData([])

@@ -371,7 +371,12 @@ const getVariableAlarmHistory = async (req, res, next) => {
     if (dateRange) where.alarmTime = dateRange
 
     const [data, total] = await Promise.all([
-      prisma.deviceVariableAlarmHistory.findMany({ where, skip, take: limit, orderBy: { alarmTime: 'desc' } }),
+      prisma.deviceVariableAlarmHistory.findMany({
+        where, skip, take: limit, orderBy: { alarmTime: 'desc' },
+        include: {
+          device: { select: { id: true, name: true } },
+        },
+      }),
       prisma.deviceVariableAlarmHistory.count({ where }),
     ])
     res.json({ success: true, data, total, page, pages: Math.ceil(total / limit) })
@@ -388,7 +393,7 @@ const processVariableAlarm = async (req, res, next) => {
 
     const data = await prisma.deviceVariableAlarmHistory.update({
       where: { id: existing.id },
-      data:  { processState: 'PROCESSED' },
+      data:  { processState: 'PROCESSED', alarmState: 'RESOLVED' },
     })
     res.json({ success: true, data })
   } catch (err) {
@@ -431,18 +436,30 @@ const downloadVariableAlarmCSV = async (req, res, next) => {
 
     res.setHeader('Content-Type', 'text/csv')
     res.setHeader('Content-Disposition', 'attachment; filename=variable-alarms.csv')
-    res.write('variableName,triggerName,triggerType,currentValue,triggeringCondition,alarmState,processState,alarmTime\n')
+    res.write('deviceName,variableName,triggerName,triggerType,slaveName,currentValue,triggeringCondition,alarmState,processState,alarmTime\n')
 
     let skip = 0
     const BATCH = 500
     while (true) {
-      const rows = await prisma.deviceVariableAlarmHistory.findMany({ where, orderBy: { alarmTime: 'desc' }, skip, take: BATCH })
+      const rows = await prisma.deviceVariableAlarmHistory.findMany({
+        where,
+        orderBy: { alarmTime: 'desc' },
+        skip,
+        take: BATCH,
+        include: { device: { select: { name: true } } },
+      })
       if (!rows.length) break
       for (const r of rows) {
+        const esc = (v) => {
+          const s = v == null ? '' : String(v)
+          return s.includes(',') || s.includes('"') || s.includes('\n')
+            ? `"${s.replace(/"/g, '""')}"`
+            : s
+        }
         res.write(
-          `${r.variableName},${r.triggerName || ''},${r.triggerType || ''},` +
-          `${r.currentValue ?? ''},${r.triggeringCondition || ''},` +
-          `${r.alarmState},${r.processState},${new Date(r.alarmTime).toISOString()}\n`
+          `${esc(r.device?.name)},${esc(r.variableName)},${esc(r.triggerName)},${esc(r.triggerType)},` +
+          `${esc(r.slaveName)},${esc(r.currentValue)},${esc(r.triggeringCondition)},` +
+          `${esc(r.alarmState)},${esc(r.processState)},${new Date(r.alarmTime).toISOString()}\n`
         )
       }
       if (rows.length < BATCH) break
@@ -467,7 +484,23 @@ const getLinkageHistory = async (req, res, next) => {
     if (dateRange) where.firedAt = dateRange
 
     const [data, total] = await Promise.all([
-      prisma.deviceVariableLinkageHistory.findMany({ where, skip, take: limit, orderBy: { firedAt: 'desc' } }),
+      prisma.deviceVariableLinkageHistory.findMany({
+        where, skip, take: limit, orderBy: { firedAt: 'desc' },
+        include: {
+          device:  { select: { id: true, name: true } },
+          trigger: {
+            select: {
+              name: true,
+              anomalyType: true,
+              operator: true,
+              threshold: true,
+              linkageAction: true,
+              watchedVariable: { select: { name: true } },
+              linkageVariable: { select: { name: true } },
+            },
+          },
+        },
+      }),
       prisma.deviceVariableLinkageHistory.count({ where }),
     ])
     res.json({ success: true, data, total, page, pages: Math.ceil(total / limit) })
@@ -505,18 +538,44 @@ const downloadLinkageHistoryCSV = async (req, res, next) => {
     if (dateRange) where.firedAt = dateRange
 
     res.setHeader('Content-Type', 'text/csv')
-    res.setHeader('Content-Disposition', 'attachment; filename=linkage-history.csv')
-    res.write('triggerName,watchedVariableName,watchedVariableValue,linkedVariableName,actionTaken,firedAt\n')
+    res.setHeader('Content-Disposition', 'attachment; filename=linkage-records.csv')
+    res.write('deviceName,triggerName,triggerType,watchedVariableName,watchedVariableValue,linkedVariableName,actionTaken,condition,firedAt\n')
 
     let skip = 0
     const BATCH = 500
     while (true) {
-      const rows = await prisma.deviceVariableLinkageHistory.findMany({ where, orderBy: { firedAt: 'desc' }, skip, take: BATCH })
+      const rows = await prisma.deviceVariableLinkageHistory.findMany({
+        where,
+        orderBy: { firedAt: 'desc' },
+        skip,
+        take: BATCH,
+        include: {
+          device:  { select: { name: true } },
+          trigger: {
+            select: {
+              anomalyType: true,
+              operator: true,
+              threshold: true,
+              watchedVariable: { select: { name: true } },
+            },
+          },
+        },
+      })
       if (!rows.length) break
       for (const r of rows) {
+        const esc = (v) => {
+          const s = v == null ? '' : String(v)
+          return s.includes(',') || s.includes('"') || s.includes('\n')
+            ? `"${s.replace(/"/g, '""')}"`
+            : s
+        }
+        const condition = r.trigger
+          ? `${r.trigger.watchedVariable?.name || r.watchedVariableName || ''} ${r.trigger.operator || ''} ${r.trigger.threshold ?? ''}`.trim()
+          : ''
         res.write(
-          `${r.triggerName || ''},${r.watchedVariableName || ''},${r.watchedVariableValue ?? ''},` +
-          `${r.linkedVariableName || ''},${r.actionTaken || ''},${new Date(r.firedAt).toISOString()}\n`
+          `${esc(r.device?.name)},${esc(r.triggerName)},${esc(r.trigger?.anomalyType)},` +
+          `${esc(r.watchedVariableName)},${esc(r.watchedVariableValue)},${esc(r.linkedVariableName)},` +
+          `${esc(r.actionTaken)},${esc(condition)},${new Date(r.firedAt).toISOString()}\n`
         )
       }
       if (rows.length < BATCH) break

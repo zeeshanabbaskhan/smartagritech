@@ -25,8 +25,8 @@ export default function AlarmHistoryPage({ title = 'Alarm History', breadcrumb =
     ])
     const deviceMap = Object.fromEntries(list(devicesRes).map((d) => [d.id, d.name]))
     return {
-      variable: list(varRes).map((a) => mapVariableAlarm(a, deviceMap[a.deviceId])),
-      linkage: list(linkRes).map((r) => mapLinkageRecord(r, deviceMap[r.deviceId])),
+      variable: list(varRes).map((a) => mapVariableAlarm(a, deviceMap[a.deviceId] ?? a.device?.name)),
+      linkage: list(linkRes).map((r) => mapLinkageRecord(r, deviceMap[r.deviceId] ?? r.device?.name)),
     }
   }, [selectedDeviceId])
 
