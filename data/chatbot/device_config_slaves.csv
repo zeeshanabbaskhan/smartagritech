@@ -1,0 +1,13 @@
+id,deviceId,deviceName,templateSlaveId,organizationId,name,isDefault,isActive
+abc01f7a-b4a4-4f0e-2e5f-4e77d29e1839,a0a447f8-db0a-2d48-0e7b-e8b8f43c52e9,Energy Meter 001,76e0624f-225b-9864-5e11-dd5317e4d5a0,260d819a-2473-7045-7f10-1a415c5df668,Main Meter,true,true
+76a4280b-3245-06b3-a5b2-4aa080748037,ad0e1a81-3899-cf0d-3834-b15139c91c27,Energy Meter 002,76e0624f-225b-9864-5e11-dd5317e4d5a0,260d819a-2473-7045-7f10-1a415c5df668,Main Meter,true,true
+ffcba61c-41dc-0ad6-dfa0-e51a19826942,50721269-e628-a519-53b1-711cf83e4517,Energy Meter 003,76e0624f-225b-9864-5e11-dd5317e4d5a0,260d819a-2473-7045-7f10-1a415c5df668,Main Meter,true,true
+23d5b838-2441-3986-6af2-b0e2d9da9bbc,0d2db7e0-e983-f028-eb93-08da6e8c362c,Energy Meter 004,76e0624f-225b-9864-5e11-dd5317e4d5a0,260d819a-2473-7045-7f10-1a415c5df668,Main Meter,true,true
+e4a7071b-d8bd-3dd5-fbe2-08be375eb766,e2d4bff1-5241-8f08-bb25-702cef45696c,Energy Meter 005,76e0624f-225b-9864-5e11-dd5317e4d5a0,260d819a-2473-7045-7f10-1a415c5df668,Main Meter,true,true
+04124948-69e8-6454-6e26-34f9475d9666,1f760f66-0ee2-5f4c-2f8f-7c6c3da709c3,HVAC Meter North,76e0624f-225b-9864-5e11-dd5317e4d5a0,260d819a-2473-7045-7f10-1a415c5df668,Main Meter,true,true
+34f8b660-eb91-a585-124f-772b134bc402,5740cbe5-bac2-1d22-7f9c-e298a8ffc9b8,Press Line Meter A,123c70b9-a325-af28-9611-d796ec58501f,31a45db8-ceab-bc59-3d5b-7ca528c2c637,Main Meter,true,true
+6fabf6fd-97f5-e95d-65b1-a07757b94bf5,91311ab0-8211-0ab2-8073-871b4d42ee7e,Press Line Meter B,123c70b9-a325-af28-9611-d796ec58501f,31a45db8-ceab-bc59-3d5b-7ca528c2c637,Main Meter,true,true
+379eccc0-22a9-c322-1c82-24b86e2f32da,440e66a4-0438-0f8d-e300-f686285fe89e,Compressor Bank Meter,123c70b9-a325-af28-9611-d796ec58501f,31a45db8-ceab-bc59-3d5b-7ca528c2c637,Main Meter,true,true
+67af1486-eaac-58ca-7343-9e2bb4c028b3,7bb68f35-07b1-9833-0a95-312b35acaec6,Paint Shop Meter,123c70b9-a325-af28-9611-d796ec58501f,31a45db8-ceab-bc59-3d5b-7ca528c2c637,Main Meter,true,true
+d1c88213-1463-f457-ecc6-d5954de61322,77d1f9a2-f1c3-5104-6e19-f489ad2a9353,Warehouse Main Meter,123c70b9-a325-af28-9611-d796ec58501f,31a45db8-ceab-bc59-3d5b-7ca528c2c637,Main Meter,true,true
+ac5d1e0c-5b6f-ed37-bd98-5cfafb8e3379,e1d0b3f2-d71e-18f3-fd40-218b43949ab9,Cold Storage Meter,123c70b9-a325-af28-9611-d796ec58501f,31a45db8-ceab-bc59-3d5b-7ca528c2c637,Main Meter,true,true

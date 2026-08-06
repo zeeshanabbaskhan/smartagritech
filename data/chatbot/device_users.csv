@@ -1,0 +1,9 @@
+id,deviceId,deviceName,userId,userEmail,organizationId,assignedAt
+43468ec3-bf1b-3e4b-520a-c06787ff1a4c,a0a447f8-db0a-2d48-0e7b-e8b8f43c52e9,Energy Meter 001,55df90fd-cd2f-e49e-7311-35090c0de0c4,bilal.ahmed@greenfield-energy.example,260d819a-2473-7045-7f10-1a415c5df668,2026-07-17T10:00:00.000Z
+54820ca5-6f73-fcfa-ffb8-8b31226d4ee2,ad0e1a81-3899-cf0d-3834-b15139c91c27,Energy Meter 002,55df90fd-cd2f-e49e-7311-35090c0de0c4,bilal.ahmed@greenfield-energy.example,260d819a-2473-7045-7f10-1a415c5df668,2026-07-17T10:00:00.000Z
+883d609e-ad8c-c35b-0e76-dd39e8fd4ea0,50721269-e628-a519-53b1-711cf83e4517,Energy Meter 003,55df90fd-cd2f-e49e-7311-35090c0de0c4,bilal.ahmed@greenfield-energy.example,260d819a-2473-7045-7f10-1a415c5df668,2026-07-17T10:00:00.000Z
+5a4cf7fa-982c-e296-16b1-c1bf52a145d2,0d2db7e0-e983-f028-eb93-08da6e8c362c,Energy Meter 004,55df90fd-cd2f-e49e-7311-35090c0de0c4,bilal.ahmed@greenfield-energy.example,260d819a-2473-7045-7f10-1a415c5df668,2026-07-17T10:00:00.000Z
+e19654cc-0821-f474-4311-13f6f18e12a4,5740cbe5-bac2-1d22-7f9c-e298a8ffc9b8,Press Line Meter A,ec7c6518-1061-2bf8-ed65-920650f9c384,omar.sheikh@riverdale-mfg.example,31a45db8-ceab-bc59-3d5b-7ca528c2c637,2026-07-22T10:00:00.000Z
+d9755fed-f082-7bfc-b108-ce0e17d55435,91311ab0-8211-0ab2-8073-871b4d42ee7e,Press Line Meter B,ec7c6518-1061-2bf8-ed65-920650f9c384,omar.sheikh@riverdale-mfg.example,31a45db8-ceab-bc59-3d5b-7ca528c2c637,2026-07-22T10:00:00.000Z
+563b92ae-494a-2995-dcc1-7a2552e5b261,440e66a4-0438-0f8d-e300-f686285fe89e,Compressor Bank Meter,ec7c6518-1061-2bf8-ed65-920650f9c384,omar.sheikh@riverdale-mfg.example,31a45db8-ceab-bc59-3d5b-7ca528c2c637,2026-07-22T10:00:00.000Z
+c54444d3-9645-0f2f-55f9-f062323ff973,7bb68f35-07b1-9833-0a95-312b35acaec6,Paint Shop Meter,ec7c6518-1061-2bf8-ed65-920650f9c384,omar.sheikh@riverdale-mfg.example,31a45db8-ceab-bc59-3d5b-7ca528c2c637,2026-07-22T10:00:00.000Z

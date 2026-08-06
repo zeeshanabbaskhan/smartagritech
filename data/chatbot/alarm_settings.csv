@@ -1,0 +1,5 @@
+id,name,organizationId,organizationName,status,pushType,pushBody
+49988fd7-0f1c-6d07-e955-ba219e878f36,Overvoltage Phase A,260d819a-2473-7045-7f10-1a415c5df668,Greenfield Energy Co,ACTIVE,EMAIL,VoltageA exceeded threshold
+c68c88a0-20b2-8df3-5110-6d12855f5105,Low Power Factor,260d819a-2473-7045-7f10-1a415c5df668,Greenfield Energy Co,ACTIVE,PUSH,PowerFactor below 0.80
+b9fdc93a-b031-5ac3-da70-2eee5606b6ce,Current Imbalance High,31a45db8-ceab-bc59-3d5b-7ca528c2c637,Riverdale Manufacturing,ACTIVE,EMAIL,CurrentImbalance exceeded 6%
+09343c31-e4b5-1355-2121-45339353fc77,Overcurrent Phase A,31a45db8-ceab-bc59-3d5b-7ca528c2c637,Riverdale Manufacturing,ACTIVE,SMS,CurrentA exceeded 40A
