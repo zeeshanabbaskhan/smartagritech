@@ -1,5 +1,41 @@
 # Chatbot Progress Log
 
+## Session 4 — 2026-08-06
+
+### What was built
+
+**Phase E1 — Live Dashboard Inspection & Design Tokens**
+- Extracted exact branding tokens from live client portal (http://51.38.88.130:8080):
+  • Page / Product Name: `Elsa Energy`
+  • Assistant Name: `Elsa`
+  • Primary Color: `#F59E0B` (Amber 500), Hover: `#D97706` (Amber 600)
+  • Dark Surface: `#0B0F19` (Dark Slate/Navy)
+  • Card / Panel Background: `#FFFFFF` (Pure White), App BG: `#F8FAFC`
+  • Border Radius: `12px` cards/panels, `8px` buttons/inputs
+  • Font Family: `'Inter', sans-serif`
+  • Favicon / Logo Image: `/elsa_logo.jpeg`
+
+**Phase E2 — Rebrand Chatbot Widget as Elsa**
+- Updated assistant name to **Elsa** across all header titles, greeting/welcome messages, aria labels, system prompts, and landing copy
+- Integrated `elsa_logo.jpeg` avatar image with inline fallback cyan badge `E`
+- Completely scrubbed all user-facing AI provider & model strings (Groq, Gemini, LLaMA, Google, model names, "Powered by X")
+- Updated header subtitle state to show generic persona ("Your energy assistant") when idle, or live state ("🔊 Speaking…", "🎙️ Listening…", "⚡ Thinking…")
+- Standalone widget strictly preserved inside `/chatbot` (no web_frontend changes)
+
+**Phase E3 — Client-Safe Error Handling**
+- Implemented backend error classification and mapping in `chatbot/server/index.js`
+- Technical details (API keys, 429 quota, network timeouts, stack traces, 5xx errors) are logged server-side ONLY
+- Frontend receives clean, friendly error messages in Elsa's voice (e.g. "I'm a little busy right now — please try again in a moment.")
+- Frontend error handling in `useChatbot.js` & `aiService.js` verified — no raw error objects or technical strings ever shown to users
+
+### Status
+- Phase D (Billing & Cost Analysis Tools): ✅ Fully tested, verified, and confirmed
+- Phase E1 (Design Token Extraction): ✅ Verified against live dashboard
+- Phase E2 (Rebranding to Elsa): ✅ Completed & verified clean
+- Phase E3 (Client-Safe Error Handling): ✅ Tested with 6 error types, 0 technical leaks
+
+---
+
 ## Session 3 — 2026-08-06
 
 ### What was built
@@ -33,8 +69,6 @@
 - Git history: ✅ Commits `36b368e` and `cbc6f98` pushed to `feature/voice-chatbot`
 
 ---
-
-
 
 ### What was built
 
@@ -91,7 +125,6 @@ npm run dev          # runs on :5174
 
 ---
 
-
 ## Session 1 — 2026-08-05
 
 ### What was built
@@ -120,8 +153,3 @@ npm run dev          # runs on :5174
 
 ### Commit
 `28ef2e4` — feat: add standalone chatbot widget with voice (UI + demo AI, not yet grounded in EMS data)
-
-### Next steps
-- [ ] Add Groq or Gemini API key to `chatbot/.env.local` to enable live AI responses
-- [ ] Ground bot in real EMS data (fetch live device/alarm context from backend API)
-- [ ] Optionally embed widget into `web_frontend/` dashboard layout

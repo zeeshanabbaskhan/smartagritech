@@ -2,9 +2,9 @@ import { Leaf, Cpu, Zap, Shield, TrendingUp, Bell } from 'lucide-react'
 
 const features = [
   { icon: Cpu, label: 'IoT Device Monitoring', desc: 'Real-time sensor data from all connected devices' },
-  { icon: Zap, label: 'Energy Analytics', desc: 'AI-powered insights on power factor & consumption' },
+  { icon: Zap, label: 'Energy Analytics', desc: 'Instant insights on power factor & consumption' },
   { icon: Bell, label: 'Smart Alarms', desc: 'Instant alerts when thresholds are breached' },
-  { icon: TrendingUp, label: 'AI Predictions', desc: 'Anomaly detection & voltage imbalance analysis' },
+  { icon: TrendingUp, label: 'Energy Forecasting', desc: 'Bill projections & consumption reduction models' },
   { icon: Shield, label: 'Secure Access', desc: 'Role-based access for admin, org & users' },
   { icon: Leaf, label: 'Smart Agriculture', desc: 'Optimized energy for sustainable farming' },
 ]
@@ -21,27 +21,26 @@ export default function HeroSection() {
         {/* Logo / brand */}
         <div className="hero-brand">
           <div className="hero-logo">
-            <Leaf size={28} strokeWidth={2} />
+            <img src="/elsa_logo.jpeg" alt="Elsa Energy" style={{ width: '100%', height: '100%', borderRadius: '6px', objectFit: 'cover' }} onError={(e) => { e.target.style.display='none' }} />
           </div>
-          <span className="hero-brand-name">SmartAgriTech</span>
+          <span className="hero-brand-name">Elsa Energy</span>
           <span className="hero-brand-badge">EMS Platform</span>
         </div>
 
         <h1 className="hero-title">
-          Your AI-Powered<br />
-          <span className="hero-title-accent">Energy Management</span><br />
+          Meet <span className="hero-title-accent">Elsa</span><br />
+          Your Smart Energy<br />
           Assistant
         </h1>
 
         <p className="hero-subtitle">
-          Ask questions about your devices, alarms, sensor data, and energy analytics
-          — by typing or using your voice. Available 24/7.
+          Ask Elsa questions about your devices, alarms, sensor data, billing breakdown, and cost-saving plans — by typing or using voice. Available 24/7.
         </p>
 
         <div className="hero-cta">
           <div className="hero-cta-hint">
             <span className="hero-cta-arrow">→</span>
-            Click the chat bubble in the <strong>bottom-right corner</strong> to start
+            Click the chat bubble in the <strong>bottom-right corner</strong> to speak with Elsa
           </div>
         </div>
 
@@ -61,8 +60,7 @@ export default function HeroSection() {
         </div>
 
         <p className="hero-footer-note">
-          This chatbot runs on <strong>Groq (LLaMA 3.3)</strong> or <strong>Gemini 1.5 Flash</strong> — free-tier AI APIs.
-          Configure your key in <code>chatbot/.env.local</code>.
+          Elsa Energy Assistant — Voice & text-enabled intelligence for energy optimization.
         </p>
       </div>
     </main>

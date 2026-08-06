@@ -2,10 +2,9 @@ import { useState, useRef, useEffect } from 'react'
 import {
   MessageCircle, X, Send, Mic, MicOff, Volume2, VolumeX,
   RotateCcw, Bot, User, ChevronDown, Sparkles, Loader2,
-  AlertCircle, Zap
+  Zap
 } from 'lucide-react'
 import { useChatbot } from '../hooks/useChatbot'
-import { providerName, modelName } from '../services/aiService'
 import { formatTime, renderMarkdown } from '../utils/formatters'
 
 export default function ChatbotWidget() {
@@ -26,7 +25,6 @@ export default function ChatbotWidget() {
     ttsSupported,
     messagesEndRef,
     suggestedQuestions,
-    isConfigured,
     handleSend,
     handleKeyDown,
     clearChat,
@@ -57,7 +55,7 @@ export default function ChatbotWidget() {
       {/* ── Floating Action Button ─────────────────────────────────────────── */}
       <button
         id="chatbot-fab"
-        aria-label="Open AI Assistant"
+        aria-label="Open Elsa Energy Assistant"
         onClick={() => setIsOpen(o => !o)}
         className={`chatbot-fab ${isOpen ? 'chatbot-fab-open' : ''}`}
       >
@@ -83,11 +81,21 @@ export default function ChatbotWidget() {
         <div className="chatbot-header">
           <div className="chatbot-header-left">
             <div className="chatbot-avatar">
-              <Bot size={16} />
-              <span className={`chatbot-status-dot ${isConfigured ? 'dot-online' : 'dot-offline'}`} />
+              <img
+                src="/elsa_logo.jpeg"
+                alt="Elsa"
+                className="chatbot-avatar-img"
+                onError={(e) => {
+                  e.target.style.display = 'none'
+                  const fallback = e.target.nextSibling
+                  if (fallback) fallback.style.display = 'flex'
+                }}
+              />
+              <span className="chatbot-avatar-fallback" style={{ display: 'none' }}>E</span>
+              <span className="chatbot-status-dot dot-online" />
             </div>
             <div>
-              <div className="chatbot-header-title">SmartAgriTech AI</div>
+              <div className="chatbot-header-title">Elsa</div>
               <div className="chatbot-header-sub">
                 {isSpeaking
                   ? '🔊 Speaking…'
@@ -95,9 +103,7 @@ export default function ChatbotWidget() {
                   ? '🎙️ Listening…'
                   : isLoading
                   ? '⚡ Thinking…'
-                  : isConfigured
-                  ? `${providerName} · ${modelName}`
-                  : '⚠️ API key not set'}
+                  : 'Your energy assistant'}
               </div>
             </div>
           </div>
@@ -126,16 +132,6 @@ export default function ChatbotWidget() {
             </button>
           </div>
         </div>
-
-        {/* API not configured warning */}
-        {!isConfigured && (
-          <div className="chatbot-warning">
-            <AlertCircle size={14} />
-            <span>
-              Set your API key in <code>chatbot/.env.local</code> to enable AI responses.
-            </span>
-          </div>
-        )}
 
         {/* Messages */}
         <div ref={chatBodyRef} className="chatbot-body">
@@ -282,7 +278,7 @@ export default function ChatbotWidget() {
             </button>
           </div>
           <div className="chatbot-footer-note">
-            <Zap size={10} /> Powered by SmartAgriTech AI · Press Enter to send
+            <Zap size={10} /> Elsa Energy Assistant · Press Enter to send
           </div>
         </div>
       </div>

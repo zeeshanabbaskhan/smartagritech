@@ -20,7 +20,7 @@ export function useChatbot() {
     {
       id: 'welcome',
       role: 'assistant',
-      content: "Hello! 👋 I'm your **SmartAgriTech AI Assistant**. I can help you with devices, alarms, energy analytics, and more. How can I assist you today?",
+      content: "Hello! 👋 I'm **Elsa**, your energy assistant. I can help you with devices, alarms, energy analytics, billing, and cost savings. How can I assist you today?",
       timestamp: new Date(),
     },
   ])
@@ -96,7 +96,7 @@ export function useChatbot() {
       const botErr = {
         id: `err-${Date.now()}`,
         role: 'assistant',
-        content: `⚠️ ${errText}`,
+        content: errText,
         timestamp: new Date(),
         isError: true,
       }
@@ -121,7 +121,7 @@ export function useChatbot() {
     setMessages([{
       id: 'welcome',
       role: 'assistant',
-      content: "Hello! 👋 I'm your **SmartAgriTech AI Assistant**. I can help you with devices, alarms, energy analytics, and more. How can I assist you today?",
+      content: "Hello! 👋 I'm **Elsa**, your energy assistant. I can help you with devices, alarms, energy analytics, billing, and cost savings. How can I assist you today?",
       timestamp: new Date(),
     }])
     setError(null)
