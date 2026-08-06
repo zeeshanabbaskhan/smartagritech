@@ -126,83 +126,6 @@ const getMe = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
-// ─── SUPER_ADMIN impersonation ("Login as Organization / User") ─────────────
-// Issues fresh access + refresh tokens for a target user so the SUPER_ADMIN can
-// operate the Org/User portals with a genuine, backend-authorized session.
-const impersonate = async (req, res, next) => {
-  try {
-    if (req.user?.role !== 'SUPER_ADMIN') {
-      return next(new AppError('Only super admins can impersonate', 403))
-    }
-    const { userId, organizationId } = req.body || {}
-    if (!userId && !organizationId) {
-      return next(new AppError('userId or organizationId is required', 400))
-    }
-
-    let target = null
-    const userSelect = {
-      id: true, fullName: true, email: true, role: true, organizationId: true, status: true,
-      organization: { select: { id: true, name: true, description: true, status: true, logoUrl: true, themeId: true } },
-    }
-    if (userId) {
-      target = await prisma.user.findUnique({
-        where: { id: userId },
-        select: userSelect,
-      })
-    } else {
-      // Prefer ORG_ADMIN for org-level impersonation; if none exists, fall back to
-      // any active non-super-admin user so the org portal remains reachable.
-      target = await prisma.user.findFirst({
-        where: { organizationId, role: 'ORG_ADMIN', status: 'ACTIVE' },
-        select: userSelect,
-      })
-      if (!target) {
-        target = await prisma.user.findFirst({
-          where: {
-            organizationId,
-            status: 'ACTIVE',
-            role: { not: 'SUPER_ADMIN' },
-          },
-          orderBy: { createdAt: 'asc' },
-          select: userSelect,
-        })
-      }
-      if (!target) {
-        return next(new AppError('No active user found for this organization', 404))
-      }
-    }
-
-    if (!target || target.status === 'DELETED') return next(new AppError('Target account not found', 404))
-    if (target.status === 'INACTIVE') return next(new AppError('Target account is inactive', 403))
-    if (target.role === 'SUPER_ADMIN') return next(new AppError('Cannot impersonate another super admin', 400))
-
-    const userCache = require('../utils/userCache')
-    await userCache.invalidate(target.id)
-
-    const token = signAccessToken(target.id)
-    // Impersonation refresh tokens are short-lived and revoked on exit.
-    const refreshToken = await issueRefreshToken(target.id, { days: 1 })
-    res.cookie('token', token, { ...cookieOptions, maxAge: 24 * 60 * 60 * 1000 })
-    await userCache.set(target.id, {
-      id: target.id,
-      fullName: target.fullName,
-      email: target.email,
-      role: target.role,
-      organizationId: target.organizationId,
-      status: target.status,
-    })
-
-    res.json({
-      success: true,
-      data: target,
-      token,
-      refreshToken,
-      impersonated: true,
-      impersonatedBy: req.user.id,
-    })
-  } catch (err) { next(err) }
-}
-
 const forgotPassword = async (req, res, next) => {
   try {
     const { email } = req.body
@@ -282,4 +205,4 @@ const changePassword = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
-module.exports = { login, logout, refresh, getMe, impersonate, forgotPassword, resetPassword, changePassword }
+module.exports = { login, logout, refresh, getMe, forgotPassword, resetPassword, changePassword }
