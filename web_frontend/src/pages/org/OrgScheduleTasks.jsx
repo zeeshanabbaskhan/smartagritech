@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import DataTable from '../../components/ui/DataTable'
 import Modal from '../../components/ui/Modal'
 import PageState, { useFetch } from '../../components/ui/PageState'
@@ -7,6 +7,7 @@ import { Plus, Pencil, Trash2, Eye, Play } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
 import { mapScheduledTask, mapDevice } from '../../utils/mappers'
 import { uiStatusToApi } from '../../utils/apiForm'
+import { fetchDeviceVariables } from '../../utils/sensorReadings'
 import { useToast } from '../../context/ToastContext'
 
 const SCHEDULE_OPTIONS = [
@@ -24,7 +25,7 @@ const SCHEDULE_OPTIONS = [
 const emptyForm = (deviceId) => ({
   name: '',
   deviceId: deviceId ?? '',
-  variableName: 'Switch',
+  variableName: '',
   action: 'ON',
   schedule: 'Daily 08:00',
   status: 'Active',
@@ -48,6 +49,19 @@ export default function OrgScheduleTasks() {
   const [form, setForm] = useState(emptyForm())
   const [saving, setSaving] = useState(false)
   const [running, setRunning] = useState(null)
+  const [deviceVariables, setDeviceVariables] = useState([])
+
+  useEffect(() => {
+    if (!form.deviceId) {
+      setDeviceVariables([])
+      return undefined
+    }
+    let cancelled = false
+    fetchDeviceVariables(form.deviceId)
+      .then((vars) => { if (!cancelled) setDeviceVariables(vars) })
+      .catch(() => { if (!cancelled) setDeviceVariables([]) })
+    return () => { cancelled = true }
+  }, [form.deviceId])
 
   const rows = data?.rows ?? []
   const devices = data?.devices ?? []
@@ -71,11 +85,12 @@ export default function OrgScheduleTasks() {
   const scheduleMeta = SCHEDULE_OPTIONS.find((s) => s.label === form.schedule) ?? SCHEDULE_OPTIONS[1]
 
   const handleSave = async () => {
+    if (!form.deviceId || !form.variableName.trim()) return
     setSaving(true)
     try {
       const body = {
         deviceId: form.deviceId,
-        variableName: form.variableName || form.name || 'Switch',
+        variableName: form.variableName.trim(),
         action: form.action,
         scheduledTime: scheduleMeta.time,
         repeatType: scheduleMeta.repeat,
@@ -113,6 +128,10 @@ export default function OrgScheduleTasks() {
       reload()
     } catch (_) {}
     setRunning(null)
+  }
+
+  const handleDeviceChange = (e) => {
+    setForm((p) => ({ ...p, deviceId: e.target.value, variableName: '' }))
   }
 
   const f = (k) => (e) => setForm((p) => ({ ...p, [k]: e.target.value }))
@@ -154,8 +173,20 @@ export default function OrgScheduleTasks() {
           footer={<><button type="button" className="btn-secondary" onClick={close}>Cancel</button><button type="button" className="btn-primary" onClick={handleSave} disabled={saving}>{saving ? 'Saving...' : modal === 'add' ? 'Create' : 'Save Changes'}</button></>}>
           <div className="space-y-4">
             <TextInput label="Task Name" placeholder="e.g. Weekly Energy Report" value={form.name} onChange={f('name')} />
-            <SelectInput label="Device" required value={form.deviceId} onChange={f('deviceId')}
+            <SelectInput label="Device" required value={form.deviceId} onChange={handleDeviceChange}
               options={devices.map((d) => ({ value: d.id, label: d.name }))} />
+            <SelectInput
+              label="Variable"
+              required
+              disabled={!form.deviceId}
+              placeholder={form.deviceId ? 'Select variable' : 'Select device first'}
+              value={form.variableName}
+              onChange={f('variableName')}
+              options={deviceVariables.map((v) => ({
+                value: v.name,
+                label: `${v.name}${v.unit ? ` (${v.unit})` : ''}${v.slaveName ? ` · ${v.slaveName}` : ''}`,
+              }))}
+            />
             <SelectInput label="Schedule" value={form.schedule} onChange={f('schedule')}
               options={SCHEDULE_OPTIONS.map((s) => s.label)} />
             <SelectInput label="Status" value={form.status} onChange={f('status')} options={['Active', 'Inactive']} />

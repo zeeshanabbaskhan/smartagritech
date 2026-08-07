@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import DataTable from '../../components/ui/DataTable'
 import Modal from '../../components/ui/Modal'
 import PageState, { useFetch } from '../../components/ui/PageState'
@@ -7,6 +7,7 @@ import { Plus, Pencil, Trash2, Eye } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
 import { mapScheduledTask, mapOrganization, mapDevice } from '../../utils/mappers'
 import { uiStatusToApi, uiRepeatToApi } from '../../utils/apiForm'
+import { fetchDeviceVariables } from '../../utils/sensorReadings'
 import { useToast } from '../../context/ToastContext'
 
 const blankForm = {
@@ -54,6 +55,19 @@ export default function AdminScheduleTasks() {
   const [selected, setSelected] = useState(null)
   const [form, setForm] = useState(blankForm)
   const [saving, setSaving] = useState(false)
+  const [deviceVariables, setDeviceVariables] = useState([])
+
+  useEffect(() => {
+    if (!form.deviceId) {
+      setDeviceVariables([])
+      return undefined
+    }
+    let cancelled = false
+    fetchDeviceVariables(form.deviceId)
+      .then((vars) => { if (!cancelled) setDeviceVariables(vars) })
+      .catch(() => { if (!cancelled) setDeviceVariables([]) })
+    return () => { cancelled = true }
+  }, [form.deviceId])
 
   const devicesForOrg = (meta?.devices ?? []).filter((d) =>
     !form.organizationId || d.organizationId === form.organizationId
@@ -195,6 +209,7 @@ export default function AdminScheduleTasks() {
                 organizationId: e.target.value,
                 deviceId: '',
                 device: '',
+                variable: '',
               }))}
               options={(meta?.organizations ?? []).map((o) => ({ value: o.id, label: o.name }))}
             />
@@ -211,16 +226,22 @@ export default function AdminScheduleTasks() {
                   deviceId: e.target.value,
                   device: d?.name ?? '',
                   organizationId: f.organizationId || d?.organizationId || '',
+                  variable: '',
                 }))
               }}
               options={devicesForOrg.map((d) => ({ value: d.id, label: d.name }))}
             />
-            <TextInput
+            <SelectInput
               label="Variable"
               required
-              placeholder="e.g. Furnace"
+              disabled={!form.deviceId}
+              placeholder={form.deviceId ? 'Select variable' : 'Select device first'}
               value={form.variable}
               onChange={(e) => setForm((f) => ({ ...f, variable: e.target.value }))}
+              options={deviceVariables.map((v) => ({
+                value: v.name,
+                label: `${v.name}${v.unit ? ` (${v.unit})` : ''}${v.slaveName ? ` · ${v.slaveName}` : ''}`,
+              }))}
             />
             <SelectInput
               label="Action"
