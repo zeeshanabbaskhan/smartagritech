@@ -13,7 +13,7 @@ router.route('/')
 
 router.route('/:id')
   .get(getGateway)
-  .put(authorize('SUPER_ADMIN', 'ORG_ADMIN'), updateGateway)
+  .put(authorize('SUPER_ADMIN'), updateGateway)
   .delete(authorize('SUPER_ADMIN'), deleteGateway);
 
 module.exports = router;

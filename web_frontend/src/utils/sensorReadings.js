@@ -78,7 +78,9 @@ export async function fetchDeviceVariables(deviceId, slaveId = null) {
     for (const v of rows) {
       vars.push({
         name: v.name ?? v.variableName,
+        displayName: v.displayName ?? v.name ?? v.variableName,
         unit: v.unit ?? '',
+        registerAddress: v.registerAddress ?? '',
         slaveId: slave.id,
         slaveName: slave.name ?? slave.slaveName ?? slave.id,
       })

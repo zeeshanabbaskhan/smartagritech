@@ -3,11 +3,11 @@ import DataTable from '../../components/ui/DataTable'
 import Modal from '../../components/ui/Modal'
 import PageState, { useFetch } from '../../components/ui/PageState'
 import { TextInput, SelectInput } from '../../components/ui/FormFields'
-import { Plus, Pencil, Trash2, Play, Square, Radio, RefreshCw } from 'lucide-react'
+import { Plus, Pencil, Trash2, Play, Square, Radio, RefreshCw, Eye } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
 import { mapOrganization } from '../../utils/mappers'
 import { useToast } from '../../context/ToastContext'
-import { useAuth } from '../../context/AuthContext'
+import { useAuth, ROLES } from '../../context/AuthContext'
 
 const blank = {
   name: 'MQTT Bridge',
@@ -27,10 +27,16 @@ const statusTone = (status) => {
   return 'bg-surface-100 text-surface-600'
 }
 
-export default function AdminMqttBridges({ basePath = '/admin' }) {
+/**
+ * Shared MQTT Bridges page (admin + org).
+ * Pass readOnly for ORG_ADMIN view-only (no create/edit/delete/start/stop).
+ * @param {{ basePath?: string, readOnly?: boolean }} props
+ */
+export default function AdminMqttBridges({ basePath = '/admin', readOnly = false }) {
   const { showToast } = useToast()
   const { user } = useAuth()
-  const isAdmin = user?.role === 'admin' || user?.role === 'SUPER_ADMIN'
+  const isAdmin = user?.role === ROLES.ADMIN
+  const canMutate = !readOnly && isAdmin
 
   const { data, loading, error, reload } = useFetch(async () => {
     const reqs = [emsApi.getMqttBridges({ limit: 100 })]
@@ -52,6 +58,7 @@ export default function AdminMqttBridges({ basePath = '/admin' }) {
   const [busyId, setBusyId] = useState(null)
 
   const openAdd = () => {
+    if (!canMutate) return
     setForm({
       ...blank,
       organizationId: isAdmin ? '' : (user?.organizationId || ''),
@@ -61,6 +68,7 @@ export default function AdminMqttBridges({ basePath = '/admin' }) {
   }
 
   const openEdit = (row) => {
+    if (!canMutate) return
     setSelected(row)
     setForm({
       name: row.name || 'MQTT Bridge',
@@ -75,7 +83,13 @@ export default function AdminMqttBridges({ basePath = '/admin' }) {
     setModal('edit')
   }
 
+  const openView = (row) => {
+    setSelected(row)
+    setModal('view')
+  }
+
   const save = async () => {
+    if (!canMutate) return
     if (!form.brokerHost.trim()) {
       showToast('Broker host is required', 'error')
       return
@@ -114,6 +128,7 @@ export default function AdminMqttBridges({ basePath = '/admin' }) {
   }
 
   const remove = async (row) => {
+    if (!canMutate) return
     if (!window.confirm(`Delete bridge "${row.name}"?`)) return
     try {
       await emsApi.deleteMqttBridge(row.id)
@@ -125,6 +140,7 @@ export default function AdminMqttBridges({ basePath = '/admin' }) {
   }
 
   const start = async (row) => {
+    if (!canMutate) return
     setBusyId(row.id)
     try {
       await emsApi.startMqttBridge(row.id)
@@ -138,6 +154,7 @@ export default function AdminMqttBridges({ basePath = '/admin' }) {
   }
 
   const stop = async (row) => {
+    if (!canMutate) return
     setBusyId(row.id)
     try {
       await emsApi.stopMqttBridge(row.id)
@@ -185,33 +202,41 @@ export default function AdminMqttBridges({ basePath = '/admin' }) {
       label: 'Actions',
       render: (_v, r) => (
         <div className="flex flex-wrap items-center gap-1">
-          {r.status === 'CONNECTED' || r.enabled ? (
-            <button
-              type="button"
-              className="btn-secondary !px-2 !py-1 text-xs"
-              disabled={busyId === r.id}
-              onClick={() => stop(r)}
-              title="Stop"
-            >
-              <Square size={12} /> Stop
-            </button>
+          {canMutate ? (
+            <>
+              {r.status === 'CONNECTED' || r.enabled ? (
+                <button
+                  type="button"
+                  className="btn-secondary !px-2 !py-1 text-xs"
+                  disabled={busyId === r.id}
+                  onClick={() => stop(r)}
+                  title="Stop"
+                >
+                  <Square size={12} /> Stop
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn-primary !px-2 !py-1 text-xs"
+                  disabled={busyId === r.id}
+                  onClick={() => start(r)}
+                  title="Start"
+                >
+                  <Play size={12} /> Start
+                </button>
+              )}
+              <button type="button" className="btn-secondary !px-2 !py-1 text-xs" onClick={() => openEdit(r)}>
+                <Pencil size={12} />
+              </button>
+              <button type="button" className="btn-secondary !px-2 !py-1 text-xs" onClick={() => remove(r)}>
+                <Trash2 size={12} />
+              </button>
+            </>
           ) : (
-            <button
-              type="button"
-              className="btn-primary !px-2 !py-1 text-xs"
-              disabled={busyId === r.id}
-              onClick={() => start(r)}
-              title="Start"
-            >
-              <Play size={12} /> Start
+            <button type="button" className="btn-secondary !px-2 !py-1 text-xs" onClick={() => openView(r)} title="View">
+              <Eye size={12} /> View
             </button>
           )}
-          <button type="button" className="btn-secondary !px-2 !py-1 text-xs" onClick={() => openEdit(r)}>
-            <Pencil size={12} />
-          </button>
-          <button type="button" className="btn-secondary !px-2 !py-1 text-xs" onClick={() => remove(r)}>
-            <Trash2 size={12} />
-          </button>
         </div>
       ),
     },
@@ -226,28 +251,32 @@ export default function AdminMqttBridges({ basePath = '/admin' }) {
               <Radio size={20} /> MQTT Bridges
             </h2>
             <p className="mt-1 text-sm text-surface-500 max-w-2xl">
-              Manage the Node MQTT listener from the UI. Create a bridge, click Start, and device
-              readings on the topic are mapped into EMS using gateway serial + template register addresses.
-              Device ON/OFF in the dashboard also publishes to the command topic.
+              {readOnly
+                ? 'View MQTT bridges for your organization. Configuration and start/stop are managed by the platform admin.'
+                : 'Manage the Node MQTT listener from the UI. Create a bridge, click Start, and device readings on the topic are mapped into EMS using gateway serial + template register addresses. Device ON/OFF in the dashboard also publishes to the command topic.'}
             </p>
           </div>
           <div className="flex gap-2">
             <button type="button" className="btn-secondary" onClick={reload}>
               <RefreshCw size={14} /> Refresh
             </button>
-            <button type="button" className="btn-primary" onClick={openAdd}>
-              <Plus size={14} /> Add bridge
-            </button>
+            {canMutate && (
+              <button type="button" className="btn-primary" onClick={openAdd}>
+                <Plus size={14} /> Add bridge
+              </button>
+            )}
           </div>
         </div>
 
-        <div className="rounded-lg border border-surface-200 bg-surface-50 px-4 py-3 text-xs text-surface-600 space-y-1">
-          <p><strong>Setup checklist</strong></p>
-          <p>1. Gateway serial number = MQTT <code>serial_number</code></p>
-          <p>2. Device name ≈ MQTT <code>device</code> field</p>
-          <p>3. Slave names match MQTT blocks (e.g. Main, EMS PANEL)</p>
-          <p>4. Template variable <code>registerAddress</code> = MQTT keys (e.g. 40097)</p>
-        </div>
+        {!readOnly && (
+          <div className="rounded-lg border border-surface-200 bg-surface-50 px-4 py-3 text-xs text-surface-600 space-y-1">
+            <p><strong>Setup checklist</strong></p>
+            <p>1. Gateway serial number = MQTT <code>serial_number</code></p>
+            <p>2. Device name ≈ MQTT <code>device</code> field</p>
+            <p>3. Slave names match MQTT blocks (e.g. Main, EMS PANEL)</p>
+            <p>4. Template variable <code>registerAddress</code> = MQTT keys (e.g. 40097)</p>
+          </div>
+        )}
 
         {rows.some((r) => r.lastError) && (
           <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-xs text-red-700">
@@ -261,7 +290,7 @@ export default function AdminMqttBridges({ basePath = '/admin' }) {
       </div>
 
       <Modal
-        open={!!modal}
+        open={modal === 'add' || modal === 'edit'}
         onClose={() => setModal(null)}
         title={modal === 'add' ? 'Add MQTT bridge' : 'Edit MQTT bridge'}
         footer={
@@ -303,6 +332,28 @@ export default function AdminMqttBridges({ basePath = '/admin' }) {
             onChange={(e) => setForm((f) => ({ ...f, commandTopic: e.target.value }))}
           />
         </div>
+      </Modal>
+
+      <Modal open={modal === 'view'} onClose={() => setModal(null)} title="MQTT Bridge Details">
+        {selected && (
+          <div className="space-y-3">
+            {[
+              ['Name', selected.name],
+              ['Broker', `${selected.brokerHost}:${selected.brokerPort}`],
+              ['Username', selected.username || '—'],
+              ['Subscribe topic', selected.subscribeTopic],
+              ['Command topic', selected.commandTopic || '—'],
+              ['Status', selected.status],
+              ['Messages received', selected.messagesReceived ?? 0],
+              ...(selected.lastError ? [['Last error', selected.lastError]] : []),
+            ].map(([label, value]) => (
+              <div key={label} className="flex gap-4">
+                <span className="text-xs text-surface-500 w-36 flex-shrink-0">{label}</span>
+                <span className="text-xs text-surface-800 dark:text-surface-100 break-all">{value}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </Modal>
     </PageState>
   )

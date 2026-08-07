@@ -168,7 +168,7 @@ function AppRoutes() {
         <Route path="access-groups"     element={<OrgAccessGroups />} />
         <Route path="device-groups"     element={<OrgDeviceGroups />} />
         <Route path="gateways"          element={<OrgGateways />} />
-        <Route path="mqtt-bridges"      element={<AdminMqttBridges basePath="/org" />} />
+        <Route path="mqtt-bridges"      element={<AdminMqttBridges basePath="/org" readOnly />} />
         <Route path="device-templates"  element={<OrgDeviceTemplates />} />
         <Route path="device-templates/:templateId/slaves" element={<OrgDeviceTemplateSlaves />} />
         <Route path="device-templates/:templateId" element={<RedirectTemplateToSlaves basePath="/org" />} />

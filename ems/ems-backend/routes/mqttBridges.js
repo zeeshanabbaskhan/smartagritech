@@ -16,15 +16,15 @@ router.use(protect)
 router
   .route('/')
   .get(authorize('SUPER_ADMIN', 'ORG_ADMIN'), listBridges)
-  .post(authorize('SUPER_ADMIN', 'ORG_ADMIN'), createBridge)
+  .post(authorize('SUPER_ADMIN'), createBridge)
 
 router
   .route('/:id')
   .get(authorize('SUPER_ADMIN', 'ORG_ADMIN'), getBridge)
-  .put(authorize('SUPER_ADMIN', 'ORG_ADMIN'), updateBridge)
-  .delete(authorize('SUPER_ADMIN', 'ORG_ADMIN'), deleteBridge)
+  .put(authorize('SUPER_ADMIN'), updateBridge)
+  .delete(authorize('SUPER_ADMIN'), deleteBridge)
 
-router.post('/:id/start', authorize('SUPER_ADMIN', 'ORG_ADMIN'), start)
-router.post('/:id/stop', authorize('SUPER_ADMIN', 'ORG_ADMIN'), stop)
+router.post('/:id/start', authorize('SUPER_ADMIN'), start)
+router.post('/:id/stop', authorize('SUPER_ADMIN'), stop)
 
 module.exports = router
