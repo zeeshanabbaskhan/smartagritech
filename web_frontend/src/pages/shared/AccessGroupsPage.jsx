@@ -166,17 +166,21 @@ export default function AccessGroupsPage({ scope = 'admin' }) {
       key: 'deviceIds',
       label: 'Devices',
       render: (ids) => (
-        <span className="badge badge-neutral">{ids?.length || 0} device{(ids?.length || 0) !== 1 ? 's' : ''}</span>
+        <span className="badge badge-neutral" title={`${ids?.length || 0} device${(ids?.length || 0) !== 1 ? 's' : ''}`}>
+          {ids?.length || 0}
+        </span>
       ),
     },
     {
       key: 'userIds',
       label: 'Users',
       render: (ids) => (
-        <span className="badge badge-info">{ids?.length || 0} user{(ids?.length || 0) !== 1 ? 's' : ''}</span>
+        <span className="badge badge-info" title={`${ids?.length || 0} user${(ids?.length || 0) !== 1 ? 's' : ''}`}>
+          {ids?.length || 0}
+        </span>
       ),
     },
-    ...(isAdmin ? [{ key: 'createdBy', label: 'Created By', render: (v) => <span className="badge badge-neutral">{v}</span> }] : []),
+    ...(isAdmin ? [{ key: 'createdBy', label: 'Created By', render: (v) => <span className="text-xs text-surface-600 dark:text-surface-300 whitespace-nowrap">{v || '—'}</span> }] : []),
     { key: 'createdAt', label: 'Created At' },
   ]
 

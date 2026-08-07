@@ -92,7 +92,7 @@
 
   /* ── Badges ── */
   .badge {
-    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold tracking-wide border;
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold tracking-wide border whitespace-nowrap;
   }
   .badge-success { @apply badge bg-success-100/40 text-success-700 border-success-600/20 dark:bg-success-700/20 dark:text-success-100 dark:border-success-600/30; }
   .badge-danger  { @apply badge bg-danger-100/40  text-danger-700  border-danger-600/20 dark:bg-danger-700/20 dark:text-danger-100 dark:border-danger-600/30; }
