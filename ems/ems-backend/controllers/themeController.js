@@ -1,6 +1,7 @@
 // ─── Theme controller ─────────────────────────────────────────────────────────
 // Themes define branding + colour palette. SUPER_ADMIN manages themes;
 // any authenticated user can fetch the active theme for their org / platform.
+// Deploy note: keep getActiveTheme registered before SUPER_ADMIN-only routes.
 const prisma      = require('../config/database')
 const { AppError } = require('../middleware/errorHandler')
 const { paginate } = require('../utils/helpers')
