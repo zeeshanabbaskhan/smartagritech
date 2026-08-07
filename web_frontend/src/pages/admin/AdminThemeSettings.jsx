@@ -1,12 +1,14 @@
 import { useState, useEffect, useRef } from 'react'
 import { ToggleInput, SelectInput } from '../../components/ui/FormFields'
 import PageState, { useFetch } from '../../components/ui/PageState'
-import { Save, Palette } from 'lucide-react'
+import { Save, Palette, Trash2 } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
 import { resolveMediaUrl } from '../../api/client'
 import { mapTheme, mapOrganization } from '../../utils/mappers'
 import { useToast } from '../../context/ToastContext'
 import { useTheme } from '../../context/ThemeContext'
+
+const DEFAULT_LOGO = '/elsa_logo.jpeg'
 
 export default function AdminThemeSettings() {
   const { showToast } = useToast()
@@ -25,7 +27,9 @@ export default function AdminThemeSettings() {
   const [selectedThemeId, setSelectedThemeId] = useState('')
   const [assignOrgId, setAssignOrgId] = useState('')
   const [logoFile, setLogoFile] = useState(null)
-  const [logoPreview, setLogoPreview] = useState(null)
+  const [logoPreview, setLogoPreview] = useState(DEFAULT_LOGO)
+  const [logoCleared, setLogoCleared] = useState(false)
+  const [hasCustomLogo, setHasCustomLogo] = useState(false)
   const fileRef = useRef(null)
   const [form, setForm] = useState({
     platformName: 'Elsa Energy',
@@ -49,7 +53,10 @@ export default function AdminThemeSettings() {
       darkModeDefault: theme.darkModeDefault !== false,
       showLogo: theme.showLogoInSidebar !== false,
     })
-    setLogoPreview(theme.logoUrl ? resolveMediaUrl(theme.logoUrl) : null)
+    const custom = Boolean(theme.logoUrl)
+    setHasCustomLogo(custom)
+    setLogoCleared(false)
+    setLogoPreview(custom ? resolveMediaUrl(theme.logoUrl) : DEFAULT_LOGO)
     setLogoFile(null)
     if (fileRef.current) fileRef.current.value = ''
     const assigned = theme.assignedOrgs?.[0]?.id || ''
@@ -68,7 +75,17 @@ export default function AdminThemeSettings() {
       return
     }
     setLogoFile(file)
+    setLogoCleared(false)
+    setHasCustomLogo(true)
     setLogoPreview(URL.createObjectURL(file))
+  }
+
+  const handleRemoveLogo = () => {
+    setLogoFile(null)
+    setLogoCleared(true)
+    setHasCustomLogo(false)
+    setLogoPreview(DEFAULT_LOGO)
+    if (fileRef.current) fileRef.current.value = ''
   }
 
   const buildFormData = () => {
@@ -81,6 +98,7 @@ export default function AdminThemeSettings() {
     fd.append('showLogoInSidebar', String(form.showLogo))
     fd.append('status', 'ACTIVE')
     if (logoFile) fd.append('imageFile', logoFile)
+    else if (logoCleared) fd.append('clearLogo', 'true')
     return fd
   }
 
@@ -104,10 +122,16 @@ export default function AdminThemeSettings() {
       if (logoFile && !logoUrl) {
         showToast('Theme saved but logo upload failed — try again', 'error')
       } else {
-        if (logoUrl) setLogoPreview(resolveMediaUrl(logoUrl))
+        const custom = Boolean(logoUrl)
+        setHasCustomLogo(custom)
+        setLogoCleared(false)
+        setLogoPreview(custom ? resolveMediaUrl(logoUrl) : DEFAULT_LOGO)
         setLogoFile(null)
         if (fileRef.current) fileRef.current.value = ''
-        showToast(logoFile ? 'Theme and logo saved' : 'Theme settings saved', 'success')
+        showToast(
+          logoFile ? 'Theme and logo saved' : logoCleared ? 'Logo removed — using Elsa default' : 'Theme settings saved',
+          'success',
+        )
       }
       await refreshBranding()
       reload()
@@ -117,6 +141,8 @@ export default function AdminThemeSettings() {
       setSaving(false)
     }
   }
+
+  const showRemove = hasCustomLogo || Boolean(logoFile)
 
   return (
     <PageState loading={loading} error={error} onRetry={reload}>
@@ -157,17 +183,27 @@ export default function AdminThemeSettings() {
 
             <div>
               <label className="label">Platform Logo</label>
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-lg bg-surface-100 dark:bg-surface-800 border border-surface-200 dark:border-surface-700 flex items-center justify-center text-surface-500 text-xs overflow-hidden">
-                  {logoPreview
-                    ? <img src={logoPreview} alt="Logo preview" className="w-full h-full object-contain" />
-                    : 'Logo'}
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="w-12 h-12 rounded-lg bg-white border border-surface-200 dark:border-surface-700 flex items-center justify-center overflow-hidden p-0.5 shadow-sm">
+                  <img src={logoPreview || DEFAULT_LOGO} alt="Logo preview" className="w-full h-full object-contain" />
                 </div>
                 <label className="btn-secondary cursor-pointer text-xs">
                   Choose File
                   <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleLogoPick} />
                 </label>
-                <span className="text-xs text-surface-500">PNG, SVG recommended</span>
+                {showRemove && (
+                  <button
+                    type="button"
+                    className="btn-ghost text-xs text-danger-600 hover:bg-danger-500/10 inline-flex items-center gap-1"
+                    onClick={handleRemoveLogo}
+                    title="Remove custom logo"
+                  >
+                    <Trash2 size={14} /> Remove
+                  </button>
+                )}
+                <span className="text-xs text-surface-500">
+                  {showRemove ? 'PNG, SVG recommended' : 'Default Elsa logo — PNG, SVG recommended'}
+                </span>
               </div>
             </div>
 

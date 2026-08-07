@@ -43,7 +43,14 @@ const themeBodyFromReq = (req, existing = {}) => {
     bodyFontColor: b.bodyFontColor ?? existing.bodyFontColor ?? '#1f2937',
     bodyBgColor: b.bodyBgColor ?? b.secondaryColor ?? existing.bodyBgColor ?? '#f5f5f5',
     fontSize: b.fontSize ?? existing.fontSize,
-    logoUrl: logoFromUpload || b.logoUrl || existing.logoUrl || null,
+    logoUrl: (() => {
+      if (logoFromUpload) return logoFromUpload
+      const clear = b.clearLogo === true || b.clearLogo === 'true' || b.clearLogo === '1'
+      if (clear) return null
+      if (b.logoUrl === '') return null
+      if (b.logoUrl) return b.logoUrl
+      return existing.logoUrl ?? null
+    })(),
     sidebarColor: b.sidebarColor ?? existing.sidebarColor ?? 'Dark',
     fontFamily: b.fontFamily ?? existing.fontFamily ?? 'Inter',
     darkModeDefault: parseBool(b.darkModeDefault, existing.darkModeDefault ?? true),
