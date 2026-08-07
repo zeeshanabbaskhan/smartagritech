@@ -1,7 +1,7 @@
 /**
  * Elsa chatbot client — calls authenticated EMS backend.
  */
-import emsApi from '../../../api/emsApi'
+import emsApi from '../../api/emsApi'
 
 export async function sendMessage(messages) {
   try {
