@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import emsApi from '../api/emsApi'
-import { tokenStore } from '../api/client'
+import { tokenStore, resolveMediaUrl } from '../api/client'
 
 const ThemeContext = createContext(null)
 
@@ -28,7 +28,7 @@ function mapApiTheme(t) {
   return {
     id: t.id,
     name: t.name || DEFAULT_BRANDING.name,
-    logoUrl: t.logoUrl || DEFAULT_BRANDING.logoUrl,
+    logoUrl: resolveMediaUrl(t.logoUrl) || DEFAULT_BRANDING.logoUrl,
     primaryColor: t.headerBgColor || t.primaryColor || DEFAULT_BRANDING.primaryColor,
     darkModeDefault: t.darkModeDefault !== false,
     showLogoInSidebar: t.showLogoInSidebar !== false,

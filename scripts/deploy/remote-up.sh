@@ -49,6 +49,17 @@ rm -f "$TARBALL"
 
 cd "$DEPLOY_PATH"
 
+# Persist uploaded logos/icons across image rebuilds (bind mount)
+if [ "$SERVICE" = "backend" ]; then
+  mkdir -p "${DEPLOY_PATH}/data/uploads"
+  cat > "${DEPLOY_PATH}/docker-compose.override.yml" <<EOF
+services:
+  backend:
+    volumes:
+      - ${DEPLOY_PATH}/data/uploads:/app/uploads
+EOF
+fi
+
 # Keep enough free space for docker layer export (CI fails with "no space left on device")
 echo "Disk before prune:"
 df -h / | tail -1 || true

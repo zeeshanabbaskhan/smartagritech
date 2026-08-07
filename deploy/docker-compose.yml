@@ -60,6 +60,8 @@ services:
       REDIS_URL: ${REDIS_URL:?set REDIS_URL in .env}
     ports:
       - '${BACKEND_HOST_PORT:-9001}:9001'
+    volumes:
+      - ems-uploads:/app/uploads
     healthcheck:
       test:
         [
@@ -90,6 +92,7 @@ services:
 volumes:
   ems-postgres-data:
   ems-redis-data:
+  ems-uploads:
 
 networks:
   ems:

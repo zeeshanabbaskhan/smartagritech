@@ -3,6 +3,7 @@ import { ToggleInput, SelectInput } from '../../components/ui/FormFields'
 import PageState, { useFetch } from '../../components/ui/PageState'
 import { Save, Palette } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
+import { resolveMediaUrl } from '../../api/client'
 import { mapTheme, mapOrganization } from '../../utils/mappers'
 import { useToast } from '../../context/ToastContext'
 import { useTheme } from '../../context/ThemeContext'
@@ -48,7 +49,7 @@ export default function AdminThemeSettings() {
       darkModeDefault: theme.darkModeDefault !== false,
       showLogo: theme.showLogoInSidebar !== false,
     })
-    setLogoPreview(theme.logoUrl || null)
+    setLogoPreview(theme.logoUrl ? resolveMediaUrl(theme.logoUrl) : null)
     setLogoFile(null)
     if (fileRef.current) fileRef.current.value = ''
     const assigned = theme.assignedOrgs?.[0]?.id || ''
@@ -58,6 +59,14 @@ export default function AdminThemeSettings() {
   const handleLogoPick = (e) => {
     const file = e.target.files?.[0]
     if (!file) return
+    if (!file.type.startsWith('image/')) {
+      showToast('Please choose an image file (PNG, JPG, SVG, WEBP)', 'error')
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      showToast('Logo must be under 5 MB', 'error')
+      return
+    }
     setLogoFile(file)
     setLogoPreview(URL.createObjectURL(file))
   }
@@ -80,18 +89,27 @@ export default function AdminThemeSettings() {
     try {
       const body = buildFormData()
       let themeId = selectedThemeId
+      let saved
       if (themeId) {
-        await emsApi.updateTheme(themeId, body)
+        saved = await emsApi.updateTheme(themeId, body)
       } else {
-        const res = await emsApi.createTheme(body)
-        themeId = res?.data?.id ?? res?.id
+        saved = await emsApi.createTheme(body)
+        themeId = saved?.data?.id ?? saved?.id
         if (themeId) setSelectedThemeId(themeId)
       }
       if (assignOrgId && themeId) {
         await emsApi.assignTheme(themeId, assignOrgId)
       }
+      const logoUrl = saved?.data?.logoUrl ?? saved?.logoUrl
+      if (logoFile && !logoUrl) {
+        showToast('Theme saved but logo upload failed — try again', 'error')
+      } else {
+        if (logoUrl) setLogoPreview(resolveMediaUrl(logoUrl))
+        setLogoFile(null)
+        if (fileRef.current) fileRef.current.value = ''
+        showToast(logoFile ? 'Theme and logo saved' : 'Theme settings saved', 'success')
+      }
       await refreshBranding()
-      showToast('Theme settings saved — branding applied', 'success')
       reload()
     } catch (e) {
       showToast(e.message || 'Save failed', 'error')

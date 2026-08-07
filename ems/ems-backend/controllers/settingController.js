@@ -3,6 +3,7 @@
 // All operations are SUPER_ADMIN only.
 const prisma      = require('../config/database')
 const { AppError } = require('../middleware/errorHandler')
+const { publicUrlForUpload } = require('../middleware/upload')
 
 // @desc  List all system settings ordered by key
 // @access SUPER_ADMIN
@@ -19,8 +20,8 @@ const upsertSetting = async (req, res, next) => {
   try {
     const { key }  = req.params
     const { type, value, description } = req.body
-    // Multer/Cloudinary puts the public URL on req.file.path when imageFile is uploaded
-    const resolvedValue = req.file?.path || value
+    // Multer puts Cloudinary URL or /uploads/... path on the uploaded file
+    const resolvedValue = publicUrlForUpload(req.file, 'misc') || value
 
     const data = await prisma.systemSetting.upsert({
       where:  { key },

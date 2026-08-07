@@ -13,6 +13,27 @@ function normalizeApiBase(raw) {
 
 const baseUrl = () => normalizeApiBase(import.meta.env.VITE_API_URL || '/api')
 
+/** Turn API-relative media paths (/uploads/...) into absolute URLs for <img src>. */
+export function resolveMediaUrl(url) {
+  if (!url) return url
+  if (
+    /^https?:\/\//i.test(url)
+    || url.startsWith('blob:')
+    || url.startsWith('data:')
+    || url.startsWith('/elsa_')
+    || url.startsWith('/embedded')
+  ) {
+    return url
+  }
+  const api = baseUrl()
+  const path = url.startsWith('/') ? url : `/${url}`
+  if (api.startsWith('http')) {
+    const origin = api.replace(/\/api\/?$/, '')
+    return `${origin}${path}`
+  }
+  return path
+}
+
 function buildUrl(path, query) {
   const base = baseUrl()
   const segment = path.startsWith('/') ? path : `/${path}`

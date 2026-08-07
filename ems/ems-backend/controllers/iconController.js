@@ -4,6 +4,7 @@
 const prisma      = require('../config/database')
 const { AppError } = require('../middleware/errorHandler')
 const { paginate } = require('../utils/helpers')
+const { publicUrlForUpload } = require('../middleware/upload')
 
 // @desc  List icons; filterable by status
 // @access Any authenticated user
@@ -28,7 +29,7 @@ const createIcon = async (req, res, next) => {
     if (!req.file) return next(new AppError('Image file is required', 400))
     const status = req.body.status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE'
     const data = await prisma.icon.create({
-      data: { name: req.body.name, imageUrl: req.file.path, status },
+      data: { name: req.body.name, imageUrl: publicUrlForUpload(req.file, 'icons'), status },
     })
     res.status(201).json({ success: true, data })
   } catch (err) { next(err) }
@@ -42,7 +43,7 @@ const updateIcon = async (req, res, next) => {
     if (!existing) return next(new AppError('Icon not found', 404))
 
     const updateData = { name: req.body.name }
-    if (req.file) updateData.imageUrl = req.file.path
+    if (req.file) updateData.imageUrl = publicUrlForUpload(req.file, 'icons')
     if (req.body.status === 'ACTIVE' || req.body.status === 'INACTIVE') {
       updateData.status = req.body.status
     }

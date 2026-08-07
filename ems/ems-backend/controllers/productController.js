@@ -4,6 +4,7 @@
 const prisma      = require('../config/database')
 const { AppError } = require('../middleware/errorHandler')
 const { paginate } = require('../utils/helpers')
+const { publicUrlForUpload } = require('../middleware/upload')
 
 // @desc  List products; filterable by status (public)
 // @access Public
@@ -26,7 +27,7 @@ const getProducts = async (req, res, next) => {
 const createProduct = async (req, res, next) => {
   try {
     const { name, price, description, status } = req.body
-    const imageUrl = req.file ? req.file.path : null
+    const imageUrl = publicUrlForUpload(req.file, 'misc')
 
     const data = await prisma.product.create({
       data: { name, price: price != null ? parseFloat(price) : null, imageUrl, description, status },
@@ -44,7 +45,7 @@ const updateProduct = async (req, res, next) => {
 
     const { name, price, description, status } = req.body
     const updateData = { name, price: price != null ? parseFloat(price) : undefined, description, status }
-    if (req.file) updateData.imageUrl = req.file.path
+    if (req.file) updateData.imageUrl = publicUrlForUpload(req.file, 'misc')
 
     const data = await prisma.product.update({ where: { id: req.params.id }, data: updateData })
     res.json({ success: true, data })

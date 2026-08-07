@@ -5,6 +5,7 @@
 const prisma      = require('../config/database')
 const { AppError } = require('../middleware/errorHandler')
 const { paginate } = require('../utils/helpers')
+const { publicUrlForUpload } = require('../middleware/upload')
 
 const THEME_SELECT = {
   id: true,
@@ -34,7 +35,7 @@ const parseBool = (v, fallback) => {
 
 const themeBodyFromReq = (req, existing = {}) => {
   const b = req.body || {}
-  const logoFromUpload = req.file?.path || req.file?.secure_url || null
+  const logoFromUpload = publicUrlForUpload(req.file, 'themes')
   return {
     name: b.name ?? existing.name,
     headerFontColor: b.headerFontColor ?? existing.headerFontColor ?? '#ffffff',

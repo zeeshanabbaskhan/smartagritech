@@ -23,7 +23,9 @@ const server = http.createServer(app);
 // req.ip is the proxy and express-rate-limit throws ERR_ERL_UNEXPECTED_X_FORWARDED_FOR.
 app.set('trust proxy', 1);
 
-app.use(helmet());
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+}));
 app.use(compression());
 const corsOrigins = process.env.CLIENT_URL
   ? process.env.CLIENT_URL.split(',').map((o) => o.trim())
@@ -32,6 +34,13 @@ app.use(cors({ origin: corsOrigins, credentials: true }));
 app.use(express.json({ limit: '256kb' }));
 app.use(express.urlencoded({ extended: true, limit: '256kb' }));
 app.use(cookieParser());
+
+const path = require('path');
+const { UPLOAD_ROOT } = require('./middleware/upload');
+app.use('/uploads', express.static(UPLOAD_ROOT, {
+  maxAge: '7d',
+  fallthrough: true,
+}));
 
 app.use((req, res, next) => {
   res.on('finish', () => {
