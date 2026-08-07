@@ -20,10 +20,12 @@ const emptyForm = () => ({
 
 export default function OrgAlarmSettings({ pageTitle = 'Alarm Settings', breadcrumb = 'Organization / Alarm Settings' }) {
   const { showToast } = useToast()
-  const { data: triggers = [] } = useFetch(
+  // useFetch data starts as null; `= []` destructuring defaults do not apply to null
+  const { data: triggersData } = useFetch(
     async () => list(await emsApi.getAlarmTemplates({ limit: 100 })).map(mapAlarmTemplate),
     []
   )
+  const triggers = triggersData ?? []
   const { data: rows, loading, error, reload } = useFetch(
     async () => list(await emsApi.getAlarmSettings({ limit: 100 })).map(mapAlarmSetting),
     []
