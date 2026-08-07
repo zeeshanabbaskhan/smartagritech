@@ -164,18 +164,24 @@ export default function AdminUsers() {
           searchPlaceholder="Search users..."
           actions={(row) => (
             <>
-              {canLoginAs(row) ? (
-                <button
-                  type="button"
-                  className="btn-secondary px-2.5 py-1 text-primary-700 dark:text-primary-400 border-primary-500/40 inline-flex items-center gap-1 text-[11px] font-bold shrink-0"
-                  onClick={() => handleLoginAs(row)}
-                  title="Login as this user"
-                  disabled={loggingInId === row.id}
-                >
-                  <LogIn size={14} className={loggingInId === row.id ? 'animate-pulse' : ''} />
-                  {loggingInId === row.id ? '…' : 'Login'}
-                </button>
-              ) : null}
+              <span className="inline-flex w-[4.75rem] shrink-0 justify-start">
+                {canLoginAs(row) ? (
+                  <button
+                    type="button"
+                    className="btn-secondary px-2.5 py-1 text-primary-700 dark:text-primary-400 border-primary-500/40 inline-flex items-center gap-1 text-[11px] font-bold"
+                    onClick={() => handleLoginAs(row)}
+                    title="Login as this user"
+                    disabled={loggingInId === row.id}
+                  >
+                    <LogIn size={14} className={loggingInId === row.id ? 'animate-pulse' : ''} />
+                    {loggingInId === row.id ? '…' : 'Login'}
+                  </button>
+                ) : (
+                  <span className="invisible select-none px-2.5 py-1 inline-flex items-center gap-1 text-[11px] font-bold" aria-hidden>
+                    <LogIn size={14} /> Login
+                  </span>
+                )}
+              </span>
               <button type="button" className="btn-ghost p-1.5" onClick={() => openView(row)} title="View"><Eye size={14} /></button>
               <button type="button" className="btn-ghost p-1.5" onClick={() => openEdit(row)} title="Edit"><Pencil size={14} /></button>
               <button type="button" className="btn-danger p-1.5" onClick={() => handleDelete(row)} title="Delete"><Trash2 size={14} /></button>

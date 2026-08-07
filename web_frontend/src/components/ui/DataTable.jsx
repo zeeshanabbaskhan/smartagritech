@@ -236,7 +236,7 @@ export default function DataTable({
                   ))}
                   {actions && (
                     <td className="!text-center">
-                      <div className="flex items-center justify-center gap-0.5 flex-nowrap">
+                      <div className="inline-flex items-center justify-end gap-0.5 flex-nowrap min-w-[10.5rem]">
                         {actions(row)}
                       </div>
                     </td>
