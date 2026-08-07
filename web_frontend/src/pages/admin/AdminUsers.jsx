@@ -164,21 +164,20 @@ export default function AdminUsers() {
           searchPlaceholder="Search users..."
           actions={(row) => (
             <>
-              <span className="inline-flex w-[4.75rem] shrink-0 justify-start">
+              <span className="inline-flex w-7 shrink-0 justify-center">
                 {canLoginAs(row) ? (
                   <button
                     type="button"
-                    className="btn-secondary px-2.5 py-1 text-primary-700 dark:text-primary-400 border-primary-500/40 inline-flex items-center gap-1 text-[11px] font-bold"
+                    className="btn-ghost p-1.5 text-primary-600"
                     onClick={() => handleLoginAs(row)}
                     title="Login as this user"
                     disabled={loggingInId === row.id}
                   >
                     <LogIn size={14} className={loggingInId === row.id ? 'animate-pulse' : ''} />
-                    {loggingInId === row.id ? '…' : 'Login'}
                   </button>
                 ) : (
-                  <span className="invisible select-none px-2.5 py-1 inline-flex items-center gap-1 text-[11px] font-bold" aria-hidden>
-                    <LogIn size={14} /> Login
+                  <span className="invisible select-none p-1.5 inline-flex" aria-hidden>
+                    <LogIn size={14} />
                   </span>
                 )}
               </span>
@@ -191,7 +190,7 @@ export default function AdminUsers() {
 
         <p className="text-xs text-surface-500 mt-3">
           <LogIn size={11} className="inline mr-1 text-primary-600" />
-          Use <span className="text-primary-600 font-semibold">Login</span> to open that user&apos;s portal as Super Admin.
+          Use the login icon to open that user&apos;s portal as Super Admin.
         </p>
 
         <Modal
