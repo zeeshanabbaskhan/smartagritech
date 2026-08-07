@@ -1,9 +1,14 @@
-import { createContext, useContext, useState, useCallback, useEffect } from 'react'
+import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react'
 import emsApi, { list } from '../api/emsApi'
 import { mapDevice } from '../utils/mappers'
 import { useAuth } from './AuthContext'
 
 const DeviceContext = createContext(null)
+
+function sameId(a, b) {
+  if (a == null || b == null) return false
+  return String(a) === String(b)
+}
 
 export function DeviceProvider({ children }) {
   const { user } = useAuth()
@@ -12,6 +17,10 @@ export function DeviceProvider({ children }) {
   const [selectedDeviceId, setSelectedDeviceId] = useState(null)
   const [selectedSlaveId, setSelectedSlaveId] = useState(null)
   const [loading, setLoading] = useState(false)
+  const devicesRef = useRef(devices)
+  const slavesRef = useRef(slaves)
+  devicesRef.current = devices
+  slavesRef.current = slaves
 
   const loadSlavesForDevice = useCallback(async (deviceId) => {
     if (!deviceId) {
@@ -24,7 +33,7 @@ export function DeviceProvider({ children }) {
       const slaveList = list(res)
       setSlaves(slaveList)
       setSelectedSlaveId((prev) => {
-        if (prev && slaveList.some((s) => s.id === prev)) return prev
+        if (prev && slaveList.some((s) => sameId(s.id, prev))) return prev
         return slaveList[0]?.id ?? null
       })
     } catch {
@@ -41,7 +50,7 @@ export function DeviceProvider({ children }) {
       const mapped = list(res).map(mapDevice)
       setDevices(mapped)
       setSelectedDeviceId((prev) => {
-        if (prev && mapped.some((d) => d.id === prev)) return prev
+        if (prev && mapped.some((d) => sameId(d.id, prev))) return prev
         return mapped[0]?.id ?? null
       })
       return mapped
@@ -53,10 +62,24 @@ export function DeviceProvider({ children }) {
     }
   }, [user])
 
+  /** Select a device; empty/null falls back to the first available device. */
   const selectDevice = useCallback(async (deviceId) => {
-    setSelectedDeviceId(deviceId)
-    await loadSlavesForDevice(deviceId)
+    const next = deviceId || devicesRef.current[0]?.id || null
+    setSelectedDeviceId(next)
+    await loadSlavesForDevice(next)
   }, [loadSlavesForDevice])
+
+  /** Set slave; empty/null falls back to the first available slave. */
+  const setSelectedSlaveIdSafe = useCallback((slaveIdOrUpdater) => {
+    if (typeof slaveIdOrUpdater === 'function') {
+      setSelectedSlaveId((prev) => {
+        const next = slaveIdOrUpdater(prev)
+        return next || slavesRef.current[0]?.id || null
+      })
+      return
+    }
+    setSelectedSlaveId(slaveIdOrUpdater || slavesRef.current[0]?.id || null)
+  }, [])
 
   useEffect(() => {
     if (!user) {
@@ -77,7 +100,7 @@ export function DeviceProvider({ children }) {
   }, [selectedDeviceId, loadSlavesForDevice])
 
   const deviceSlaves = selectedDeviceId
-    ? slaves.filter((s) => !s.deviceId || s.deviceId === selectedDeviceId)
+    ? slaves.filter((s) => !s.deviceId || sameId(s.deviceId, selectedDeviceId))
     : slaves
 
   return (
@@ -86,11 +109,11 @@ export function DeviceProvider({ children }) {
       slaves: deviceSlaves.length ? deviceSlaves : slaves,
       selectedDeviceId,
       selectedSlaveId,
-      setSelectedSlaveId,
+      setSelectedSlaveId: setSelectedSlaveIdSafe,
       loading,
       loadDevices,
       selectDevice,
-      selectedDevice: devices.find((d) => d.id === selectedDeviceId) ?? null,
+      selectedDevice: devices.find((d) => sameId(d.id, selectedDeviceId)) ?? null,
     }}>
       {children}
     </DeviceContext.Provider>

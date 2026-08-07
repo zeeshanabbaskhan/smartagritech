@@ -175,6 +175,7 @@ export function SearchableSelect({
   options = [],
   placeholder = 'Select…',
   disabled = false,
+  clearable = true,
   className = 'w-48',
   onChange,
 }) {
@@ -214,7 +215,7 @@ export function SearchableSelect({
           {selected?.label || placeholder}
         </span>
         <span className="flex items-center gap-1 flex-shrink-0">
-          {value && (
+          {clearable && value && (
             <span
               role="button"
               tabIndex={0}
