@@ -42,6 +42,21 @@ const resolveDeviceStatus = (d) => {
   return { status: 'Online', statusRaw: 'ONLINE' }
 }
 
+/** Same stale rules as devices, using gateway lastSeenAt; keep manual statuses. */
+const resolveGatewayStatus = (g) => {
+  const raw = String(g?.status || '').toUpperCase()
+  if (raw === 'OFFLINE') return { status: 'Offline', statusRaw: 'OFFLINE' }
+  if (raw && raw !== 'ONLINE') return { status: statusLabel(raw), statusRaw: raw }
+
+  const last = g?.lastSeenAt
+  if (!last) return { status: 'Offline', statusRaw: 'OFFLINE' }
+  const age = Date.now() - new Date(last).getTime()
+  if (!Number.isFinite(age) || age >= DEVICE_OFFLINE_AFTER_MS) {
+    return { status: 'Offline', statusRaw: 'OFFLINE' }
+  }
+  return { status: 'Online', statusRaw: 'ONLINE' }
+}
+
 export const mapOrganization = (o) => ({
   id: o.id,
   name: o.name,
@@ -70,20 +85,24 @@ export const mapUser = (u, orgName) => ({
   _raw: u,
 })
 
-export const mapGateway = (g) => ({
-  id: g.id,
-  name: g.name,
-  serial: g.serialNumber,
-  model: g.model ?? '—',
-  org: g.organization?.name ?? '—',
-  organizationId: g.organizationId,
-  devices: g._count?.devices ?? 0,
-  status: statusLabel(g.status),
-  statusRaw: g.status,
-  lastSeen: fmtDate(g.lastSeenAt),
-  createdAt: fmtDate(g.createdAt),
-  _raw: g,
-})
+export const mapGateway = (g) => {
+  const { status, statusRaw } = resolveGatewayStatus(g)
+  return {
+    id: g.id,
+    name: g.name,
+    serial: g.serialNumber,
+    model: g.model ?? '—',
+    org: g.organization?.name ?? '—',
+    organizationId: g.organizationId,
+    devices: g._count?.devices ?? 0,
+    status,
+    statusRaw,
+    lastSeen: fmtDate(g.lastSeenAt),
+    lastSeenRaw: g.lastSeenAt,
+    createdAt: fmtDate(g.createdAt),
+    _raw: g,
+  }
+}
 
 export const mapDevice = (d) => {
   const { status, statusRaw } = resolveDeviceStatus(d)

@@ -114,7 +114,7 @@ const persistIngest = async ({ deviceId, slaveId, readings, organizationId }) =>
     })
     const existing = await tx.device.findUnique({
       where: { id: deviceId },
-      select: { switchState: true },
+      select: { switchState: true, gatewayId: true },
     })
     const goOnline = existing?.switchState !== 'OFF'
     await tx.device.update({
@@ -131,17 +131,21 @@ const persistIngest = async ({ deviceId, slaveId, readings, organizationId }) =>
     })
     await bulkUpdateVariables(tx, deviceId, varUpdates, ts)
     await insertReadingValues(tx, reading.id, { deviceId, slaveId, readings: computed, organizationId }, ts)
-    return { reading, goOnline }
+    return { reading, goOnline, gatewayId: existing?.gatewayId || null }
   })
 
   await cacheLatestValues(deviceId, computed)
   if (sensorReading.goOnline) {
     try {
-      const { emitDeviceStatus } = require('./devicePresenceService')
+      const { emitDeviceStatus, touchGatewayOnline } = require('./devicePresenceService')
       emitDeviceStatus(organizationId, deviceId, 'ONLINE', {
         reason: 'ingest',
         lastDataReceivedAt: ts,
       })
+      if (sensorReading.gatewayId) {
+        // Outside the device transaction — gateway touch is best-effort presence
+        await touchGatewayOnline(sensorReading.gatewayId, ts)
+      }
     } catch (_) {}
   }
   return {
@@ -217,9 +221,10 @@ const processIngestBatch = async (payloads) => {
 
   const switchRows = await prisma.device.findMany({
     where: { id: { in: deviceIds } },
-    select: { id: true, switchState: true },
+    select: { id: true, switchState: true, gatewayId: true },
   })
   const switchById = Object.fromEntries(switchRows.map((d) => [d.id, d.switchState]))
+  const gatewayByDevice = Object.fromEntries(switchRows.map((d) => [d.id, d.gatewayId]))
 
   await prisma.$transaction([
     ...deviceIds.map((id) =>
@@ -241,16 +246,22 @@ const processIngestBatch = async (payloads) => {
     }),
   ])
 
+  const touchedGateways = new Set()
   for (const p of computedByPayload) {
     await cacheLatestValues(p.deviceId, p.computed)
     emitReading(p.organizationId, p.deviceId, p.computed, now)
     if (switchById[p.deviceId] !== 'OFF') {
       try {
-        const { emitDeviceStatus } = require('./devicePresenceService')
+        const { emitDeviceStatus, touchGatewayOnline } = require('./devicePresenceService')
         emitDeviceStatus(p.organizationId, p.deviceId, 'ONLINE', {
           reason: 'ingest',
           lastDataReceivedAt: now,
         })
+        const gwId = gatewayByDevice[p.deviceId]
+        if (gwId && !touchedGateways.has(gwId)) {
+          touchedGateways.add(gwId)
+          await touchGatewayOnline(gwId, now)
+        }
       } catch (_) {}
     }
     enqueueAnomaly({

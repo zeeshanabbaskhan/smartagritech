@@ -264,8 +264,9 @@ const stopBridge = async (bridgeId, { updateDb = true } = {}) => {
   if (updateDb) {
     await setStatus(bridgeId, 'STOPPED', { enabled: false, lastError: null })
     if (organizationId) {
-      const { markOrgDevicesOffline } = require('./devicePresenceService')
+      const { markOrgDevicesOffline, markOrgGatewaysOffline } = require('./devicePresenceService')
       await markOrgDevicesOffline(organizationId, 'bridge_stopped')
+      await markOrgGatewaysOffline(organizationId, 'bridge_stopped')
     }
   }
 }

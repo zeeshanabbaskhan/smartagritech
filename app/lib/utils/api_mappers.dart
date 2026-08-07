@@ -14,23 +14,25 @@ class ApiMappers {
   static String deviceStatus(dynamic status) =>
       status == 'ONLINE' ? 'Online' : 'Offline';
 
-  static String gatewayStatus(dynamic status) {
-    switch (status) {
-      case 'ONLINE':
-        return 'Online';
-      case 'OFFLINE':
+  static String gatewayStatus(dynamic status, {dynamic lastSeenAt}) {
+    final raw = status?.toString().toUpperCase() ?? '';
+    if (raw == 'UPGRADING') return 'Upgrading';
+    if (raw == 'IN_CONFIGURATION') return 'In the configuration';
+    if (raw == 'GATEWAY_ALARM') return 'Gateway alarm';
+    if (raw == 'DISABLED') return 'Disabled';
+    if (raw == 'OFFLINE') return 'Offline';
+
+    // ONLINE (or unknown): treat as Offline when lastSeen is missing/stale (5 min)
+    if (lastSeenAt == null) return 'Offline';
+    try {
+      final last = DateTime.parse(lastSeenAt.toString()).toLocal();
+      if (DateTime.now().difference(last).inMilliseconds >= 5 * 60 * 1000) {
         return 'Offline';
-      case 'UPGRADING':
-        return 'Upgrading';
-      case 'IN_CONFIGURATION':
-        return 'In the configuration';
-      case 'GATEWAY_ALARM':
-        return 'Gateway alarm';
-      case 'DISABLED':
-        return 'Disabled';
-      default:
-        return status?.toString() ?? 'Offline';
+      }
+    } catch (_) {
+      return 'Offline';
     }
+    return 'Online';
   }
 
   static String gatewayStatusToApi(String status) {
@@ -169,7 +171,7 @@ class ApiMappers {
         'id': g['id'],
         'name': g['name'] ?? '—',
         'ipAddress': g['model'] ?? '—',
-        'status': gatewayStatus(g['status']),
+        'status': gatewayStatus(g['status'], lastSeenAt: g['lastSeenAt']),
         'devices': devices,
         'location': g['organization']?['name'] ?? '—',
         'lastSeen': fmtDate(g['lastSeenAt']),
