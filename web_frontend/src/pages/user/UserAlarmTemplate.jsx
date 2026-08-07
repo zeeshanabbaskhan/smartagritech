@@ -79,6 +79,15 @@ export default function UserAlarmTemplate() {
     return () => { cancelled = true }
   }, [form.deviceTemplateId])
 
+  // Keep required Variable select non-empty once options are available
+  useEffect(() => {
+    if (!variables.length) return
+    setForm((f) => {
+      if (f.templateVariableId && variables.some((v) => v.id === f.templateVariableId)) return f
+      return { ...f, templateVariableId: variables[0].id }
+    })
+  }, [variables])
+
   const openAdd = () => {
     setForm({
       ...blank,
@@ -222,7 +231,11 @@ export default function UserAlarmTemplate() {
               required
               placeholder="Select template"
               value={form.deviceTemplateId}
-              onChange={(e) => setForm((f) => ({ ...f, deviceTemplateId: e.target.value, templateVariableId: '' }))}
+              onChange={(e) => setForm((f) => ({
+                ...f,
+                deviceTemplateId: e.target.value || templateOptions[0]?.value || '',
+                templateVariableId: '',
+              }))}
               options={templateOptions}
             />
             <SelectInput
@@ -230,7 +243,10 @@ export default function UserAlarmTemplate() {
               required
               placeholder={varsLoading ? 'Loading variables…' : 'Select variable'}
               value={form.templateVariableId}
-              onChange={(e) => setForm((f) => ({ ...f, templateVariableId: e.target.value }))}
+              onChange={(e) => setForm((f) => ({
+                ...f,
+                templateVariableId: e.target.value || variableOptions[0]?.value || '',
+              }))}
               options={variableOptions}
             />
             <div className="grid grid-cols-2 gap-4">

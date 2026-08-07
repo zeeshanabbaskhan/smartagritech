@@ -158,7 +158,10 @@ export default function UserSchedule() {
               required
               placeholder="Select device"
               value={form.slaveId}
-              onChange={(e) => setForm((f) => ({ ...f, slaveId: e.target.value }))}
+              onChange={(e) => setForm((f) => ({
+                ...f,
+                slaveId: e.target.value || slaveOptions[0]?.value || '',
+              }))}
               options={slaveOptions}
             />
             <TextInput

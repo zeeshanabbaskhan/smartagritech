@@ -155,7 +155,10 @@ export default function UserIntervalHistory() {
               required
               placeholder="Select device"
               value={form.slaveName}
-              onChange={(e) => setForm((f) => ({ ...f, slaveName: e.target.value }))}
+              onChange={(e) => setForm((f) => ({
+                ...f,
+                slaveName: e.target.value || slaveOptions[0]?.value || '',
+              }))}
               options={slaveOptions}
             />
             <TextInput label="Total Unit" value={form.totalUnit} onChange={(e) => setForm((f) => ({ ...f, totalUnit: e.target.value }))} />

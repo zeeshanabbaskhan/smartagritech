@@ -27,14 +27,26 @@ export function TextInput({ label, required, error, className = '', ...props }) 
   )
 }
 
-export function SelectInput({ label, required, error, options = [], placeholder, className = '', ...props }) {
+export function SelectInput({ label, required, error, options = [], placeholder, className = '', onChange, value, ...props }) {
+  const handleChange = (e) => {
+    // Required fields must keep a real selection — ignore clear-to-empty.
+    if (required && !e.target.value) return
+    onChange?.(e)
+  }
+
   return (
     <FormField label={label} required={required} error={error} className={className}>
       <select
         className={`select ${error ? 'border-danger-600 ring-2 ring-danger-600/20' : ''}`}
+        value={value}
+        onChange={handleChange}
         {...props}
       >
-        {placeholder && <option value="">{placeholder}</option>}
+        {/* Optional: empty clear option. Required: disabled placeholder only while empty. */}
+        {placeholder && !required && <option value="">{placeholder}</option>}
+        {placeholder && required && !value && (
+          <option value="" disabled>{placeholder}</option>
+        )}
         {options.map(opt =>
           typeof opt === 'string'
             ? <option key={opt} value={opt}>{opt}</option>

@@ -153,7 +153,10 @@ export default function UserSlabRates() {
               required
               placeholder="Select device"
               value={form.slaveId}
-              onChange={(e) => setForm((f) => ({ ...f, slaveId: e.target.value }))}
+              onChange={(e) => setForm((f) => ({
+                ...f,
+                slaveId: e.target.value || slaveOptions[0]?.value || '',
+              }))}
               options={slaveOptions}
             />
             <div className="grid grid-cols-2 gap-4">
