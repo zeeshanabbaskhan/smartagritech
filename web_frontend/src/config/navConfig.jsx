@@ -39,7 +39,6 @@ export const adminNav = [
   { to: '/admin/device-timestamps', label: 'Device Timestamps', icon: Timer },
   { to: '/admin/schedule-tasks',    label: 'Schedule Tasks',    icon: CalendarClock },
   { to: '/admin/theme-settings',    label: 'Theme Settings',    icon: Palette },
-  { to: '/admin/settings',          label: 'Settings',          icon: Settings },
 ]
 
 export const orgNav = [
