@@ -19,7 +19,7 @@ function parseThreshold(raw) {
 // ─── TEMPLATE TRIGGERS ───────────────────────────────────────────────────────
 
 // @desc  List alarm template triggers; filterable by template and search
-// @access SUPER_ADMIN | ORG_ADMIN | USER (read)
+// @access SUPER_ADMIN | ORG_ADMIN | USER
 const getAlarmTemplates = async (req, res, next) => {
   try {
     const { page, limit, skip }                  = paginate(req.query)
@@ -34,10 +34,18 @@ const getAlarmTemplates = async (req, res, next) => {
         where, skip, take: limit,
         orderBy: { createdAt: 'desc' },
         include: {
+          organization:    { select: { id: true, name: true } },
           deviceTemplate:  { select: { id: true, name: true } },
-          watchedVariable: { select: { id: true, name: true, unit: true } },
+          watchedVariable: { select: { id: true, name: true, displayName: true, unit: true, templateSlaveId: true, registerAddress: true } },
           linkageVariable: { select: { id: true, name: true, unit: true } },
           creator:         { select: { id: true, fullName: true, email: true } },
+          alarmSettings: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            include: {
+              configContacts: { include: { alarmContact: true } },
+            },
+          },
         },
       }),
       prisma.templateTrigger.count({ where }),
@@ -47,27 +55,49 @@ const getAlarmTemplates = async (req, res, next) => {
 }
 
 // @desc  Create an alarm trigger
-// @access SUPER_ADMIN | ORG_ADMIN
+// @access SUPER_ADMIN | ORG_ADMIN | USER
 const createAlarmTemplate = async (req, res, next) => {
   try {
     const {
       name, organizationId, deviceTemplateId, templateVariableId,
-      operator, threshold, anomalyType, priority,
-      linkageVariableId, linkageAction, linkageValue,
+      operator, threshold, thresholdB, anomalyType, priority,
+      linkageVariableId, linkageAction, linkageValue, isActive,
     } = req.body
     const orgId = req.user.role === 'SUPER_ADMIN' ? organizationId : req.user.organizationId
+    if (!orgId) return next(new AppError('Organization is required', 400))
+    if (!name?.trim()) return next(new AppError('Trigger name is required', 400))
+    if (!deviceTemplateId) return next(new AppError('Device template is required', 400))
+    if (!templateVariableId) return next(new AppError('Template variable is required', 400))
+    if (!operator) return next(new AppError('Operator is required', 400))
 
     const thr = parseThreshold(threshold)
     if (thr == null) return next(new AppError('threshold must be a valid number', 400))
+    const thrB = thresholdB === undefined || thresholdB === null || thresholdB === ''
+      ? null
+      : parseThreshold(thresholdB)
+    if (thresholdB !== undefined && thresholdB !== null && thresholdB !== '' && thrB == null) {
+      return next(new AppError('thresholdB must be a valid number', 400))
+    }
+    if ((operator === 'BETWEEN' || operator === 'OUTSIDE') && thrB == null) {
+      return next(new AppError('thresholdB is required for this operator', 400))
+    }
 
     const data = await prisma.templateTrigger.create({
       data: {
-        name, organizationId: orgId, deviceTemplateId, templateVariableId,
-        operator, threshold: thr, anomalyType, priority,
-        linkageVariableId,
-        linkageAction,
-        linkageValue:  linkageValue != null ? String(linkageValue) : null,
-        createdBy:     req.user.id,
+        name: name.trim(),
+        organizationId: orgId,
+        deviceTemplateId,
+        templateVariableId,
+        operator,
+        threshold: thr,
+        thresholdB: thrB,
+        anomalyType: anomalyType || 'threshold',
+        priority: priority || 'MEDIUM',
+        linkageVariableId: linkageVariableId || null,
+        linkageAction: linkageAction || null,
+        linkageValue: linkageValue != null ? String(linkageValue) : null,
+        isActive: isActive !== undefined ? !!isActive : true,
+        createdBy: req.user.id,
       },
     })
     res.status(201).json({ success: true, data })
@@ -75,7 +105,7 @@ const createAlarmTemplate = async (req, res, next) => {
 }
 
 // @desc  Update an alarm trigger
-// @access SUPER_ADMIN | ORG_ADMIN | USER (limited fields + optional pushMethod sync)
+// @access SUPER_ADMIN | ORG_ADMIN | USER
 const updateAlarmTemplate = async (req, res, next) => {
   try {
     const where    = { id: req.params.id, ...orgScope(req.user) }
@@ -83,30 +113,42 @@ const updateAlarmTemplate = async (req, res, next) => {
     if (!existing) return next(new AppError('Template trigger not found', 404))
 
     const {
-      name, operator, threshold, anomalyType, priority,
+      name, operator, threshold, thresholdB, anomalyType, priority,
       linkageVariableId, linkageAction, linkageValue, isActive,
-      templateVariableId, pushMethod, methods,
+      templateVariableId, deviceTemplateId, pushMethod, methods,
     } = req.body
 
-    const isUser = req.user.role === 'USER'
     const updateData = {}
 
-    if (name !== undefined) updateData.name = name
+    if (name !== undefined) updateData.name = String(name).trim()
     if (operator !== undefined) updateData.operator = operator
-    if (isActive !== undefined) updateData.isActive = isActive
-    if (threshold !== undefined && threshold !== null) {
+    if (isActive !== undefined) updateData.isActive = !!isActive
+    if (anomalyType !== undefined) updateData.anomalyType = anomalyType
+    if (priority !== undefined) updateData.priority = priority
+    if (linkageVariableId !== undefined) updateData.linkageVariableId = linkageVariableId || null
+    if (linkageAction !== undefined) updateData.linkageAction = linkageAction || null
+    if (linkageValue !== undefined) updateData.linkageValue = linkageValue != null ? String(linkageValue) : null
+    if (templateVariableId !== undefined) updateData.templateVariableId = templateVariableId
+    if (deviceTemplateId !== undefined) updateData.deviceTemplateId = deviceTemplateId
+
+    if (threshold !== undefined && threshold !== null && threshold !== '') {
       const thr = parseThreshold(threshold)
       if (thr == null) return next(new AppError('threshold must be a valid number', 400))
       updateData.threshold = thr
     }
+    if (thresholdB !== undefined) {
+      if (thresholdB === null || thresholdB === '') updateData.thresholdB = null
+      else {
+        const thrB = parseThreshold(thresholdB)
+        if (thrB == null) return next(new AppError('thresholdB must be a valid number', 400))
+        updateData.thresholdB = thrB
+      }
+    }
 
-    if (!isUser) {
-      if (anomalyType !== undefined) updateData.anomalyType = anomalyType
-      if (priority !== undefined) updateData.priority = priority
-      if (linkageVariableId !== undefined) updateData.linkageVariableId = linkageVariableId
-      if (linkageAction !== undefined) updateData.linkageAction = linkageAction
-      if (linkageValue !== undefined) updateData.linkageValue = linkageValue != null ? String(linkageValue) : null
-      if (templateVariableId !== undefined) updateData.templateVariableId = templateVariableId
+    const nextOp = updateData.operator ?? existing.operator
+    const nextB = updateData.thresholdB !== undefined ? updateData.thresholdB : existing.thresholdB
+    if ((nextOp === 'BETWEEN' || nextOp === 'OUTSIDE') && nextB == null) {
+      return next(new AppError('thresholdB is required for this operator', 400))
     }
 
     const data = await prisma.templateTrigger.update({
@@ -144,18 +186,26 @@ const updateAlarmTemplate = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
-// @desc  Delete an alarm trigger; blocked if linked to an alarm setting
-// @access SUPER_ADMIN | ORG_ADMIN
+// @desc  Delete an alarm trigger (removes linked alarm settings first)
+// @access SUPER_ADMIN | ORG_ADMIN | USER
 const deleteAlarmTemplate = async (req, res, next) => {
   try {
     const where = { id: req.params.id, ...orgScope(req.user) }
     const existing = await prisma.templateTrigger.findFirst({ where })
     if (!existing) return next(new AppError('Template trigger not found', 404))
 
-    const inUse = await prisma.alarmSetting.count({ where: { templateTriggerId: existing.id } })
-    if (inUse) return next(new AppError('Trigger is in use by an alarm setting.', 400))
-
-    await prisma.templateTrigger.delete({ where: { id: existing.id } })
+    await prisma.$transaction(async (tx) => {
+      await tx.deviceVariableAlarmHistory.updateMany({
+        where: { templateTriggerId: existing.id },
+        data: { templateTriggerId: null },
+      })
+      await tx.deviceVariableLinkageHistory.updateMany({
+        where: { templateTriggerId: existing.id },
+        data: { templateTriggerId: null },
+      })
+      await tx.alarmSetting.deleteMany({ where: { templateTriggerId: existing.id } })
+      await tx.templateTrigger.delete({ where: { id: existing.id } })
+    })
     res.json({ success: true, message: 'Template trigger deleted' })
   } catch (err) {
     if (err.code === 'P2025') return next(new AppError('Template trigger not found', 404))
@@ -192,15 +242,26 @@ const getAlarmSettings = async (req, res, next) => {
 }
 
 // @desc  Create an alarm setting with optional device + contact associations
-// @access SUPER_ADMIN | ORG_ADMIN
+// @access SUPER_ADMIN | ORG_ADMIN | USER
 const createAlarmSetting = async (req, res, next) => {
   try {
-    const { name, organizationId, templateTriggerId, pushType, pushBody, pushMethod, pushingMechanism, deviceIds, contactIds } = req.body
+    const { name, organizationId, templateTriggerId, pushType, pushBody, pushMethod, pushingMechanism, status, deviceIds, contactIds } = req.body
     const orgId = req.user.role === 'SUPER_ADMIN' ? organizationId : req.user.organizationId
+    if (!orgId) return next(new AppError('Organization is required', 400))
 
     const data = await prisma.$transaction(async (tx) => {
       const setting = await tx.alarmSetting.create({
-        data: { name, organizationId: orgId, templateTriggerId, pushType, pushBody, pushMethod, pushingMechanism, status: 'ACTIVE', createdBy: req.user.id },
+        data: {
+          name: name || 'Alarm notify',
+          organizationId: orgId,
+          templateTriggerId,
+          pushType,
+          pushBody,
+          pushMethod,
+          pushingMechanism,
+          status: status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE',
+          createdBy: req.user.id,
+        },
       })
       if (deviceIds?.length) {
         await tx.alarmConfigurationDevice.createMany({
@@ -219,7 +280,7 @@ const createAlarmSetting = async (req, res, next) => {
 }
 
 // @desc  Update alarm setting; replaces device/contact lists when provided
-// @access SUPER_ADMIN | ORG_ADMIN
+// @access SUPER_ADMIN | ORG_ADMIN | USER
 const updateAlarmSetting = async (req, res, next) => {
   try {
     const where    = { id: req.params.id, ...orgScope(req.user) }
@@ -228,10 +289,18 @@ const updateAlarmSetting = async (req, res, next) => {
 
     const { name, pushType, pushBody, pushMethod, pushingMechanism, status, deviceIds, contactIds } = req.body
 
+    const updateData = {}
+    if (name !== undefined) updateData.name = name
+    if (pushType !== undefined) updateData.pushType = pushType
+    if (pushBody !== undefined) updateData.pushBody = pushBody
+    if (pushMethod !== undefined) updateData.pushMethod = pushMethod
+    if (pushingMechanism !== undefined) updateData.pushingMechanism = pushingMechanism
+    if (status !== undefined) updateData.status = status
+
     const data = await prisma.$transaction(async (tx) => {
       const updated = await tx.alarmSetting.update({
         where: { id: req.params.id },
-        data:  { name, pushType, pushBody, pushMethod, pushingMechanism, status },
+        data: updateData,
       })
       if (deviceIds !== undefined) {
         await tx.alarmConfigurationDevice.deleteMany({ where: { alarmSettingId: req.params.id } })
@@ -256,7 +325,7 @@ const updateAlarmSetting = async (req, res, next) => {
 }
 
 // @desc  Delete an alarm setting (cascades contacts/devices via DB)
-// @access SUPER_ADMIN | ORG_ADMIN
+// @access SUPER_ADMIN | ORG_ADMIN | USER
 const deleteAlarmSetting = async (req, res, next) => {
   try {
     const where    = { id: req.params.id, ...orgScope(req.user) }
@@ -270,7 +339,7 @@ const deleteAlarmSetting = async (req, res, next) => {
 // ─── ALARM CONTACTS ──────────────────────────────────────────────────────────
 
 // @desc  List alarm contacts; searchable by name or mobile
-// @access SUPER_ADMIN | ORG_ADMIN
+// @access SUPER_ADMIN | ORG_ADMIN | USER
 const getAlarmContacts = async (req, res, next) => {
   try {
     const { page, limit, skip }   = paginate(req.query)
@@ -291,20 +360,30 @@ const getAlarmContacts = async (req, res, next) => {
 }
 
 // @desc  Create an alarm contact
-// @access SUPER_ADMIN | ORG_ADMIN
+// @access SUPER_ADMIN | ORG_ADMIN | USER
 const createAlarmContact = async (req, res, next) => {
   try {
     const { name, organizationId, mobile, email, whatsapp, remark } = req.body
     const orgId = req.user.role === 'SUPER_ADMIN' ? organizationId : req.user.organizationId
+    if (!orgId) return next(new AppError('Organization is required', 400))
+    if (!name?.trim()) return next(new AppError('Contact name is required', 400))
     const data  = await prisma.alarmContact.create({
-      data: { name, organizationId: orgId, mobile, email, whatsapp, remark, createdBy: req.user.id },
+      data: {
+        name: name.trim(),
+        organizationId: orgId,
+        mobile: mobile || null,
+        email: email || null,
+        whatsapp: whatsapp || null,
+        remark: remark || null,
+        createdBy: req.user.id,
+      },
     })
     res.status(201).json({ success: true, data })
   } catch (err) { next(err) }
 }
 
 // @desc  Update an alarm contact
-// @access SUPER_ADMIN | ORG_ADMIN
+// @access SUPER_ADMIN | ORG_ADMIN | USER
 const updateAlarmContact = async (req, res, next) => {
   try {
     const where    = { id: req.params.id, ...orgScope(req.user) }
@@ -312,19 +391,32 @@ const updateAlarmContact = async (req, res, next) => {
     if (!existing) return next(new AppError('Alarm contact not found', 404))
 
     const { name, mobile, email, whatsapp, remark } = req.body
-    const data = await prisma.alarmContact.update({ where: { id: req.params.id }, data: { name, mobile, email, whatsapp, remark } })
+    const data = await prisma.alarmContact.update({
+      where: { id: req.params.id },
+      data: {
+        ...(name !== undefined ? { name: String(name).trim() } : {}),
+        ...(mobile !== undefined ? { mobile } : {}),
+        ...(email !== undefined ? { email } : {}),
+        ...(whatsapp !== undefined ? { whatsapp } : {}),
+        ...(remark !== undefined ? { remark } : {}),
+      },
+    })
     res.json({ success: true, data })
   } catch (err) { next(err) }
 }
 
 // @desc  Delete an alarm contact; blocked if linked to a setting
-// @access SUPER_ADMIN | ORG_ADMIN
+// @access SUPER_ADMIN | ORG_ADMIN | USER
 const deleteAlarmContact = async (req, res, next) => {
   try {
-    const inUse = await prisma.alarmConfigurationContact.count({ where: { alarmContactId: req.params.id } })
+    const where = { id: req.params.id, ...orgScope(req.user) }
+    const existing = await prisma.alarmContact.findFirst({ where })
+    if (!existing) return next(new AppError('Alarm contact not found', 404))
+
+    const inUse = await prisma.alarmConfigurationContact.count({ where: { alarmContactId: existing.id } })
     if (inUse) return next(new AppError('Contact is linked to an alarm setting.', 400))
 
-    await prisma.alarmContact.delete({ where: { id: req.params.id } })
+    await prisma.alarmContact.delete({ where: { id: existing.id } })
     res.json({ success: true, message: 'Alarm contact deleted' })
   } catch (err) {
     if (err.code === 'P2025') return next(new AppError('Alarm contact not found', 404))

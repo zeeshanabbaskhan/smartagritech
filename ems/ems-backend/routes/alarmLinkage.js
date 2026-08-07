@@ -5,23 +5,23 @@ const ctrl = require('../controllers/alarmLinkageController');
 const templateRouter = express.Router();
 templateRouter.use(protect);
 templateRouter.get('/', authorize('SUPER_ADMIN', 'ORG_ADMIN', 'USER'), ctrl.getAlarmTemplates);
-templateRouter.post('/', authorize('SUPER_ADMIN', 'ORG_ADMIN'), ctrl.createAlarmTemplate);
+templateRouter.post('/', authorize('SUPER_ADMIN', 'ORG_ADMIN', 'USER'), ctrl.createAlarmTemplate);
 templateRouter.put('/:id', authorize('SUPER_ADMIN', 'ORG_ADMIN', 'USER'), ctrl.updateAlarmTemplate);
-templateRouter.delete('/:id', authorize('SUPER_ADMIN', 'ORG_ADMIN'), ctrl.deleteAlarmTemplate);
+templateRouter.delete('/:id', authorize('SUPER_ADMIN', 'ORG_ADMIN', 'USER'), ctrl.deleteAlarmTemplate);
 
 const settingsRouter = express.Router();
 settingsRouter.use(protect);
 settingsRouter.get('/', authorize('SUPER_ADMIN', 'ORG_ADMIN', 'USER'), ctrl.getAlarmSettings);
-settingsRouter.post('/', authorize('SUPER_ADMIN', 'ORG_ADMIN'), ctrl.createAlarmSetting);
-settingsRouter.put('/:id', authorize('SUPER_ADMIN', 'ORG_ADMIN'), ctrl.updateAlarmSetting);
-settingsRouter.delete('/:id', authorize('SUPER_ADMIN', 'ORG_ADMIN'), ctrl.deleteAlarmSetting);
+settingsRouter.post('/', authorize('SUPER_ADMIN', 'ORG_ADMIN', 'USER'), ctrl.createAlarmSetting);
+settingsRouter.put('/:id', authorize('SUPER_ADMIN', 'ORG_ADMIN', 'USER'), ctrl.updateAlarmSetting);
+settingsRouter.delete('/:id', authorize('SUPER_ADMIN', 'ORG_ADMIN', 'USER'), ctrl.deleteAlarmSetting);
 
 const contactsRouter = express.Router();
 contactsRouter.use(protect);
 contactsRouter.get('/', authorize('SUPER_ADMIN', 'ORG_ADMIN', 'USER'), ctrl.getAlarmContacts);
-contactsRouter.post('/', authorize('SUPER_ADMIN', 'ORG_ADMIN'), ctrl.createAlarmContact);
-contactsRouter.put('/:id', authorize('SUPER_ADMIN', 'ORG_ADMIN'), ctrl.updateAlarmContact);
-contactsRouter.delete('/:id', authorize('SUPER_ADMIN', 'ORG_ADMIN'), ctrl.deleteAlarmContact);
+contactsRouter.post('/', authorize('SUPER_ADMIN', 'ORG_ADMIN', 'USER'), ctrl.createAlarmContact);
+contactsRouter.put('/:id', authorize('SUPER_ADMIN', 'ORG_ADMIN', 'USER'), ctrl.updateAlarmContact);
+contactsRouter.delete('/:id', authorize('SUPER_ADMIN', 'ORG_ADMIN', 'USER'), ctrl.deleteAlarmContact);
 
 // Alarm history — variable alarms + linkage records
 const alarmHistoryRouter = express.Router();

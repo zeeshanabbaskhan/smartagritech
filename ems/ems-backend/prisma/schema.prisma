@@ -449,6 +449,7 @@ model TemplateTrigger {
   templateVariableId String
   operator           Operator
   threshold          Float
+  thresholdB         Float?
   anomalyType        String
   priority           Priority @default(MEDIUM)
   linkageVariableId  String?
@@ -477,6 +478,8 @@ enum Operator {
   EQ
   GTE
   LTE
+  BETWEEN
+  OUTSIDE
 }
 
 enum Priority {

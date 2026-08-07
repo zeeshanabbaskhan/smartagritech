@@ -304,35 +304,74 @@ export const mapSubscriptionUi = (s, orgName) => ({
 })
 
 const operatorToUi = (op) => {
-  const m = { GT: 'Greater Than', LT: 'Less Than', EQ: 'Equal To', GTE: 'Greater or Equal', LTE: 'Less or Equal' }
+  const m = {
+    GT: 'Greater Than',
+    LT: 'Less Than',
+    EQ: 'Equal To',
+    GTE: 'Greater or Equal',
+    LTE: 'Less or Equal',
+    BETWEEN: 'Between A and B',
+    OUTSIDE: 'Outside A–B',
+  }
   return m[op] ?? op ?? '—'
 }
 
-export const mapAlarmTemplate = (t) => ({
-  id: t.id,
-  name: t.name,
-  org: t.organization?.name ?? '—',
-  organizationId: t.organizationId,
-  template: t.deviceTemplate?.name ?? '—',
-  templateName: t.deviceTemplate?.name ?? '—',
-  deviceTemplateId: t.deviceTemplateId,
-  variable: t.watchedVariable?.name ?? '—',
-  templateVariableId: t.templateVariableId,
-  operator: t.operator,
-  condition: operatorToUi(t.operator),
-  threshold: t.threshold != null ? String(t.threshold) : '—',
-  type: t.anomalyType,
-  priority: t.priority,
-  methods: [],
-  message: '',
-  founder: t.creator?.fullName ?? '—',
-  triggerCondition: `${operatorToUi(t.operator)} ${t.threshold ?? ''}`.trim(),
-  updatedAt: fmtDate(t.updatedAt),
-  status: t.isActive === false ? 'Inactive' : 'Active',
-  active: t.isActive,
-  method: 'Email',
-  _raw: t,
-})
+const conditionLabelFromTrigger = (t) => {
+  const type = t.anomalyType
+  if (type === 'OFF') return 'OFF'
+  if (type === 'ON') return 'ON'
+  if (type === 'LT_A' || t.operator === 'LT') return 'Value is less than A'
+  if (type === 'GT_B' || t.operator === 'GT') return 'Value is more than B'
+  if (type === 'BETWEEN_AB' || t.operator === 'BETWEEN') return 'Value is more than A and less than B'
+  if (type === 'OUTSIDE_AB' || t.operator === 'OUTSIDE') return 'Value is more than B or less than A'
+  if (type === 'EQ_A' || t.operator === 'EQ') return 'Value is equal to A'
+  return operatorToUi(t.operator)
+}
+
+export const mapAlarmTemplate = (t) => {
+  const setting = Array.isArray(t.alarmSettings) ? t.alarmSettings[0] : null
+  const contact = setting?.configContacts?.[0]?.alarmContact ?? null
+  const pushRaw = setting?.pushingMechanism || ''
+  const silenceMatch = /^SILENCE:(\d+)$/i.exec(pushRaw)
+  return {
+    id: t.id,
+    name: t.name,
+    org: t.organization?.name ?? '—',
+    organizationId: t.organizationId,
+    template: t.deviceTemplate?.name ?? '—',
+    templateName: t.deviceTemplate?.name ?? '—',
+    deviceTemplateId: t.deviceTemplateId,
+    variable: t.watchedVariable?.displayName || t.watchedVariable?.name || '—',
+    templateVariableId: t.templateVariableId,
+    templateSlaveId: t.watchedVariable?.templateSlaveId ?? '',
+    operator: t.operator,
+    condition: conditionLabelFromTrigger(t),
+    threshold: t.threshold != null ? String(t.threshold) : '—',
+    thresholdB: t.thresholdB != null ? String(t.thresholdB) : '',
+    anomalyType: t.anomalyType,
+    type: t.anomalyType,
+    priority: t.priority,
+    linkageAction: t.linkageAction ?? '',
+    linkageEnabled: !!(t.linkageAction && t.linkageAction !== 'DISABLED'),
+    methods: [],
+    message: '',
+    founder: t.creator?.fullName ?? '—',
+    triggerCondition: conditionLabelFromTrigger(t),
+    updatedAt: fmtDate(t.updatedAt),
+    status: t.isActive === false ? 'Inactive' : 'Active',
+    active: t.isActive,
+    method: 'Email',
+    contactId: contact?.id ?? '',
+    contactName: contact?.name ?? '',
+    contactPhone: contact?.mobile ?? '',
+    contactEmail: contact?.email ?? '',
+    alarmSettingId: setting?.id ?? '',
+    pushMechanism: silenceMatch ? 'silence' : 'first_time',
+    silenceSeconds: silenceMatch ? silenceMatch[1] : '',
+    alarmEnabled: setting ? setting.status !== 'INACTIVE' : t.isActive !== false,
+    _raw: t,
+  }
+}
 
 export const mapAlarmSetting = (s) => ({
   id: s.id,

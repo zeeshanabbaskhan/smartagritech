@@ -4,14 +4,16 @@ const prisma              = require('../config/database')
 const userCache           = require('../utils/userCache')
 const notificationService = require('./notificationService')
 
-function evaluateCondition(val, operator, threshold) {
-  switch (operator.toUpperCase()) {
-    case 'GT':  return val >  threshold
-    case 'LT':  return val <  threshold
-    case 'GTE': return val >= threshold
-    case 'LTE': return val <= threshold
-    case 'EQ':  return val === threshold
-    default:    return false
+function evaluateCondition(val, operator, threshold, thresholdB) {
+  switch (String(operator || '').toUpperCase()) {
+    case 'GT':      return val >  threshold
+    case 'LT':      return val <  threshold
+    case 'GTE':     return val >= threshold
+    case 'LTE':     return val <= threshold
+    case 'EQ':      return val === threshold
+    case 'BETWEEN': return val > threshold && val < thresholdB
+    case 'OUTSIDE': return val < threshold || val > thresholdB
+    default:        return false
   }
 }
 
@@ -48,12 +50,14 @@ async function runAnomalyCheck({ deviceId, organizationId, readings, io: hasIo }
       if (!reading) continue
 
       const val      = parseFloat(reading.value)
-      const breached = evaluateCondition(val, trigger.operator, trigger.threshold)
+      const breached = evaluateCondition(val, trigger.operator, trigger.threshold, trigger.thresholdB)
       if (!breached) continue
 
       if (await userCache.isAnomalyOnCooldown(deviceId, trigger.id)) continue
 
-      const condition = `${triggerVar.name} ${trigger.operator} ${trigger.threshold}`
+      const condition = trigger.thresholdB != null
+        ? `${triggerVar.name} ${trigger.operator} ${trigger.threshold}/${trigger.thresholdB}`
+        : `${triggerVar.name} ${trigger.operator} ${trigger.threshold}`
 
       await prisma.deviceVariableAlarmHistory.create({
         data: {
