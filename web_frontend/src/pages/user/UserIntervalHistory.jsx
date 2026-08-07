@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Eye, Pencil, Trash2, Plus } from 'lucide-react'
 import DataTable from '../../components/ui/DataTable'
 import Modal from '../../components/ui/Modal'
@@ -9,56 +9,113 @@ import { useToast } from '../../context/ToastContext'
 import emsApi, { list } from '../../api/emsApi'
 import { mapIntervalHistory } from '../../utils/mappers'
 
-const blank = { variableName: '', slaveName: '', totalUnit: '', tariff: '', startDate: '', endDate: '' }
+const blank = {
+  deviceId: '',
+  slaveId: '',
+  variableName: '',
+  startDate: '',
+  endDate: '',
+}
 
 export default function UserIntervalHistory() {
-  const { devices, slaves } = useDevices()
+  const { devices } = useDevices()
   const { showToast } = useToast()
   const [deviceFilter, setDeviceFilter] = useState('')
   const [modal, setModal] = useState(null)
   const [selected, setSelected] = useState(null)
   const [form, setForm] = useState(blank)
+  const [formSlaves, setFormSlaves] = useState([])
+  const [loadingSlaves, setLoadingSlaves] = useState(false)
+  const [errors, setErrors] = useState({})
   const [saving, setSaving] = useState(false)
 
-  const { data, loading, error, reload } = useFetch(async () => {
-    const rows = list(await emsApi.getIntervalHistory({ limit: 100 })).map((h) => {
-      const m = mapIntervalHistory(h)
-      return {
-        ...m,
-        variableName: m.variable,
-        slaveName: m.slave,
-        totalUnit: m.unit,
-        startDate: m.from?.slice?.(0, 10) ?? m.from,
-        endDate: m.to?.slice?.(0, 10) ?? m.to,
+  const { data: rows, loading, error, reload } = useFetch(async () => {
+    const params = { limit: 200 }
+    if (deviceFilter) params.deviceId = deviceFilter
+    return list(await emsApi.getIntervalHistory(params)).map(mapIntervalHistory)
+  }, [deviceFilter])
+
+  useEffect(() => {
+    let cancelled = false
+    const loadSlaves = async () => {
+      if (!form.deviceId || (modal !== 'add' && modal !== 'edit')) {
+        setFormSlaves([])
+        return
       }
-    })
-    return { rows }
-  }, [])
+      setLoadingSlaves(true)
+      try {
+        const slaves = list(await emsApi.getDeviceConfig(form.deviceId))
+        if (cancelled) return
+        setFormSlaves(slaves)
+        setForm((f) => {
+          if (f.slaveId && slaves.some((s) => s.id === f.slaveId)) return f
+          return { ...f, slaveId: slaves[0]?.id ?? '' }
+        })
+      } catch {
+        if (!cancelled) {
+          setFormSlaves([])
+          showToast('Failed to load slaves for location', 'error')
+        }
+      } finally {
+        if (!cancelled) setLoadingSlaves(false)
+      }
+    }
+    loadSlaves()
+    return () => { cancelled = true }
+  }, [form.deviceId, modal]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const openAdd = () => {
-    setForm({ ...blank, slaveName: slaves[0]?.name ?? slaves[0]?.slaveName ?? devices[0]?.name ?? '' })
+    setForm({ ...blank, deviceId: devices[0]?.id ?? '' })
+    setErrors({})
     setModal('add')
   }
-  const openEdit = (row) => { setSelected(row); setForm({ ...blank, ...row }); setModal('edit') }
+
+  const openEdit = (row) => {
+    setSelected(row)
+    setForm({
+      deviceId: row.deviceId ?? '',
+      slaveId: row.slaveId ?? '',
+      variableName: row.variableName ?? row.variable ?? '',
+      startDate: row.startDate || '',
+      endDate: row.endDate || '',
+    })
+    setErrors({})
+    setModal('edit')
+  }
+
   const openView = (row) => { setSelected(row); setModal('view') }
-  const close = () => { setModal(null); setSelected(null) }
+  const close = () => { setModal(null); setSelected(null); setErrors({}) }
+
+  const validate = () => {
+    const next = {}
+    if (!form.deviceId) next.deviceId = 'Location is required'
+    if (!form.slaveId) next.slaveId = 'Slave is required'
+    if (!form.variableName?.trim()) next.variableName = 'Variable name is required'
+    if (!form.startDate) next.startDate = 'Start date is required'
+    if (!form.endDate) next.endDate = 'End date is required'
+    else if (form.startDate && form.endDate < form.startDate) next.endDate = 'Must be on or after start date'
+    setErrors(next)
+    return Object.keys(next).length === 0
+  }
 
   const handleSave = async () => {
-    if (!form.variableName) return
+    if (!validate()) {
+      showToast('Please fill all required fields', 'error')
+      return
+    }
     setSaving(true)
     try {
       const body = {
-        variableName: form.variableName,
-        slaveName: form.slaveName,
-        totalUnit: form.totalUnit !== '' ? Number(form.totalUnit) : undefined,
-        tariff: form.tariff !== '' ? Number(form.tariff) : undefined,
-        startDate: form.startDate || undefined,
-        endDate: form.endDate || undefined,
+        deviceConfigSlaveId: form.slaveId,
+        variableName: form.variableName.trim(),
+        startDate: form.startDate,
+        endDate: form.endDate,
       }
       if (modal === 'edit' && selected?.id) {
-        await emsApi.deleteIntervalHistory(selected.id).catch(() => {})
+        await emsApi.deleteIntervalHistory(selected.id)
       }
       await emsApi.createIntervalHistory(body)
+      showToast(modal === 'add' ? 'Interval computed and saved' : 'Interval updated', 'success')
       close()
       reload()
     } catch (e) {
@@ -69,19 +126,19 @@ export default function UserIntervalHistory() {
   }
 
   const handleDelete = async (row) => {
-    if (!confirm(`Delete interval "${row.variableName}"?`)) return
+    if (!confirm(`Delete interval "${row.variableName || row.variable}"?`)) return
     try {
       await emsApi.deleteIntervalHistory(row.id)
+      showToast('Interval deleted', 'success')
       reload()
     } catch (e) {
       showToast(e.message || 'Delete failed', 'error')
     }
   }
 
-  const filtered = (data?.rows ?? []).filter((r) => !deviceFilter || r.slaveName === deviceFilter)
-
   const columns = [
     { key: 'variableName', label: 'Variable Name' },
+    { key: 'location', label: 'Location' },
     { key: 'slaveName', label: 'Slave Name' },
     { key: 'totalUnit', label: 'Total Unit' },
     { key: 'tariff', label: 'Tariff' },
@@ -89,8 +146,9 @@ export default function UserIntervalHistory() {
     { key: 'endDate', label: 'End Date' },
   ]
 
-  const slaveOptions = (slaves.length ? slaves : devices).map((s) => ({
-    value: s.name ?? s.slaveName ?? s.id,
+  const locationOptions = devices.map((d) => ({ value: d.id, label: d.name }))
+  const slaveOptions = formSlaves.map((s) => ({
+    value: s.id,
     label: s.name ?? s.slaveName ?? s.id,
   }))
 
@@ -107,17 +165,23 @@ export default function UserIntervalHistory() {
 
         <div className="card p-4 mb-5">
           <div className="w-56">
-            <label className="label">Device</label>
-            <select className="select" value={deviceFilter} onChange={(e) => setDeviceFilter(e.target.value)}>
+            <label className="label">Location</label>
+            <select
+              className="select"
+              value={deviceFilter}
+              onChange={(e) => setDeviceFilter(e.target.value)}
+            >
               <option value="">All locations</option>
-              {devices.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
+              {devices.map((d) => (
+                <option key={d.id} value={d.id}>{d.name}</option>
+              ))}
             </select>
           </div>
         </div>
 
         <DataTable
           columns={columns}
-          data={filtered}
+          data={rows ?? []}
           searchPlaceholder="Search intervals..."
           emptyMessage="No data available in table"
           actions={(row) => (
@@ -136,43 +200,72 @@ export default function UserIntervalHistory() {
           footer={(
             <>
               <button type="button" className="btn-secondary" onClick={close}>Cancel</button>
-              <button type="button" className="btn-primary" onClick={handleSave} disabled={saving}>
+              <button type="button" className="btn-primary" onClick={handleSave} disabled={saving || loadingSlaves}>
                 {saving ? 'Saving...' : modal === 'add' ? 'Create' : 'Save Changes'}
               </button>
             </>
           )}
         >
           <div className="space-y-4">
+            <SelectInput
+              label="Location"
+              required
+              placeholder="Select location"
+              value={form.deviceId}
+              error={errors.deviceId}
+              onChange={(e) => setForm((f) => ({
+                ...f,
+                deviceId: e.target.value || locationOptions[0]?.value || '',
+                slaveId: '',
+              }))}
+              options={locationOptions}
+            />
+            <SelectInput
+              label="Slave"
+              required
+              placeholder={loadingSlaves ? 'Loading slaves...' : 'Select slave'}
+              value={form.slaveId}
+              error={errors.slaveId}
+              disabled={!form.deviceId || loadingSlaves}
+              onChange={(e) => setForm((f) => ({
+                ...f,
+                slaveId: e.target.value || slaveOptions[0]?.value || '',
+              }))}
+              options={slaveOptions}
+            />
             <TextInput
               label="Variable Name"
               required
               placeholder="e.g. Active Power"
               value={form.variableName}
+              error={errors.variableName}
               onChange={(e) => setForm((f) => ({ ...f, variableName: e.target.value }))}
             />
-            <SelectInput
-              label="Slave Name"
-              required
-              placeholder="Select device"
-              value={form.slaveName}
-              onChange={(e) => setForm((f) => ({
-                ...f,
-                slaveName: e.target.value || slaveOptions[0]?.value || '',
-              }))}
-              options={slaveOptions}
-            />
-            <TextInput label="Total Unit" value={form.totalUnit} onChange={(e) => setForm((f) => ({ ...f, totalUnit: e.target.value }))} />
-            <TextInput label="Tariff" value={form.tariff} onChange={(e) => setForm((f) => ({ ...f, tariff: e.target.value }))} />
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="label">Start Date</label>
-                <input type="date" className="input" value={form.startDate || ''} onChange={(e) => setForm((f) => ({ ...f, startDate: e.target.value }))} />
+                <input
+                  type="date"
+                  className="input"
+                  value={form.startDate || ''}
+                  onChange={(e) => setForm((f) => ({ ...f, startDate: e.target.value }))}
+                />
+                {errors.startDate && <p className="text-xs text-danger-600 mt-1">{errors.startDate}</p>}
               </div>
               <div>
                 <label className="label">End Date</label>
-                <input type="date" className="input" value={form.endDate || ''} onChange={(e) => setForm((f) => ({ ...f, endDate: e.target.value }))} />
+                <input
+                  type="date"
+                  className="input"
+                  value={form.endDate || ''}
+                  onChange={(e) => setForm((f) => ({ ...f, endDate: e.target.value }))}
+                />
+                {errors.endDate && <p className="text-xs text-danger-600 mt-1">{errors.endDate}</p>}
               </div>
             </div>
+            <p className="text-xs text-surface-400">
+              Total units and tariff are calculated from sensor readings and slab rates for the selected range.
+            </p>
           </div>
         </Modal>
 
@@ -180,12 +273,13 @@ export default function UserIntervalHistory() {
           {selected && (
             <div className="space-y-3">
               {[
-                ['Variable Name', selected.variableName],
-                ['Slave Name', selected.slaveName],
-                ['Total Unit', selected.totalUnit],
+                ['Variable Name', selected.variableName || selected.variable],
+                ['Location', selected.location],
+                ['Slave Name', selected.slaveName || selected.slave],
+                ['Total Unit', selected.totalUnit || selected.unit],
                 ['Tariff', selected.tariff],
-                ['Start Date', selected.startDate],
-                ['End Date', selected.endDate],
+                ['Start Date', selected.startDate || selected.from],
+                ['End Date', selected.endDate || selected.to],
               ].map(([label, val]) => (
                 <div key={label} className="flex justify-between text-sm">
                   <span className="text-surface-400">{label}</span>

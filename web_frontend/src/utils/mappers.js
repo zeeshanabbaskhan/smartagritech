@@ -234,17 +234,30 @@ export const mapSlabRate = (s) => {
   }
 }
 
-export const mapIntervalHistory = (h) => ({
-  id: h.id,
-  variable: h.variableName,
-  slave: h.slaveName ?? '—',
-  unit: h.totalUnit != null ? String(h.totalUnit) : '—',
-  tariff: h.tariff != null ? String(h.tariff) : '—',
-  from: fmtDate(h.startDate),
-  to: fmtDate(h.endDate),
-  computedAt: fmtDate(h.computedAt),
-  _raw: h,
-})
+export const mapIntervalHistory = (h) => {
+  const slave = h.configSlave ?? h.deviceConfigSlave
+  const device = h.device ?? slave?.device
+  const deviceId = h.deviceId ?? device?.id ?? slave?.deviceId ?? null
+  return {
+    id: h.id,
+    variable: h.variableName,
+    variableName: h.variableName,
+    location: device?.name ?? '—',
+    deviceId,
+    slave: slave?.name ?? h.slaveName ?? '—',
+    slaveName: slave?.name ?? h.slaveName ?? '—',
+    slaveId: h.deviceConfigSlaveId ?? slave?.id ?? null,
+    unit: h.totalUnit != null ? String(h.totalUnit) : '—',
+    totalUnit: h.totalUnit != null ? String(h.totalUnit) : '—',
+    tariff: h.tariff != null ? String(h.tariff) : '—',
+    from: fmtDate(h.startDate),
+    to: fmtDate(h.endDate),
+    startDate: fmtDate(h.startDate)?.slice?.(0, 10) ?? fmtDate(h.startDate),
+    endDate: fmtDate(h.endDate)?.slice?.(0, 10) ?? fmtDate(h.endDate),
+    computedAt: fmtDate(h.computedAt),
+    _raw: h,
+  }
+}
 
 export const mapAnomaly = (a) => ({
   id: a.id,
