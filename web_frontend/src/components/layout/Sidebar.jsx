@@ -3,6 +3,7 @@ import { NavLink } from 'react-router-dom'
 import { ChevronDown, ChevronRight, PanelLeftClose, PanelLeft, X } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useTheme } from '../../context/ThemeContext'
+import { DEFAULT_DISPLAY_NAME, DEFAULT_LOGO } from '../../utils/branding'
 
 function SidebarItem({ item, depth = 0, collapsed, onNavClick }) {
   const [open, setOpen] = useState(false)
@@ -101,8 +102,8 @@ export default function Sidebar({ navItems, role, mobileOpen = false, onMobileCl
     user:  'text-primary-500'
   }
 
-  const platformName = branding?.name || 'Elsa Energy'
-  const logoUrl = branding?.logoUrl || '/elsa_logo.jpeg'
+  const platformName = branding?.name || DEFAULT_DISPLAY_NAME
+  const logoUrl = branding?.logoUrl || DEFAULT_LOGO
   const showLogo = branding?.showLogoInSidebar !== false
 
   return (

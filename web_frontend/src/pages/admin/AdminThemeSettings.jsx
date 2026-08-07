@@ -5,10 +5,15 @@ import { Save, Palette, Trash2 } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
 import { resolveMediaUrl } from '../../api/client'
 import { mapTheme, mapOrganization } from '../../utils/mappers'
+import {
+  DEFAULT_DISPLAY_NAME,
+  DEFAULT_LOGO,
+  DEFAULT_PRIMARY_COLOR,
+  themeDisplayName,
+  themeRecordName,
+} from '../../utils/branding'
 import { useToast } from '../../context/ToastContext'
 import { useTheme } from '../../context/ThemeContext'
-
-const DEFAULT_LOGO = '/elsa_logo.jpeg'
 
 export default function AdminThemeSettings() {
   const { showToast } = useToast()
@@ -32,8 +37,8 @@ export default function AdminThemeSettings() {
   const [hasCustomLogo, setHasCustomLogo] = useState(false)
   const fileRef = useRef(null)
   const [form, setForm] = useState({
-    platformName: 'Elsa Energy',
-    primaryColor: '#F5A623',
+    platformName: DEFAULT_DISPLAY_NAME,
+    primaryColor: DEFAULT_PRIMARY_COLOR,
     darkModeDefault: true,
     showLogo: true,
   })
@@ -48,8 +53,8 @@ export default function AdminThemeSettings() {
     const theme = meta?.themes?.find((t) => t.id === selectedThemeId)
     if (!theme) return
     setForm({
-      platformName: theme.name || 'Elsa Energy',
-      primaryColor: theme.headerBgColor || theme.primary || '#F5A623',
+      platformName: themeDisplayName(theme.name),
+      primaryColor: theme.headerBgColor || theme.primary || DEFAULT_PRIMARY_COLOR,
       darkModeDefault: theme.darkModeDefault !== false,
       showLogo: theme.showLogoInSidebar !== false,
     })
@@ -90,7 +95,7 @@ export default function AdminThemeSettings() {
 
   const buildFormData = () => {
     const fd = new FormData()
-    fd.append('name', form.platformName)
+    fd.append('name', themeRecordName(form.platformName))
     fd.append('headerBgColor', form.primaryColor)
     fd.append('headerFontColor', '#ffffff')
     fd.append('bodyFontColor', '#1f2937')

@@ -1,15 +1,21 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import emsApi from '../api/emsApi'
 import { tokenStore, resolveMediaUrl } from '../api/client'
+import {
+  DEFAULT_DISPLAY_NAME,
+  DEFAULT_LOGO,
+  DEFAULT_PRIMARY_COLOR,
+  themeDisplayName,
+} from '../utils/branding'
 
 const ThemeContext = createContext(null)
 
 const BRANDING_CACHE_KEY = 'ems_branding'
 
 const DEFAULT_BRANDING = {
-  name: 'Elsa Energy',
-  logoUrl: '/elsa_logo.jpeg',
-  primaryColor: '#F5A623',
+  name: DEFAULT_DISPLAY_NAME,
+  logoUrl: DEFAULT_LOGO,
+  primaryColor: DEFAULT_PRIMARY_COLOR,
   darkModeDefault: true,
   showLogoInSidebar: true,
 }
@@ -27,7 +33,7 @@ function mapApiTheme(t) {
   if (!t) return null
   return {
     id: t.id,
-    name: t.name || DEFAULT_BRANDING.name,
+    name: themeDisplayName(t.name),
     logoUrl: resolveMediaUrl(t.logoUrl) || DEFAULT_BRANDING.logoUrl,
     primaryColor: t.headerBgColor || t.primaryColor || DEFAULT_BRANDING.primaryColor,
     darkModeDefault: t.darkModeDefault !== false,

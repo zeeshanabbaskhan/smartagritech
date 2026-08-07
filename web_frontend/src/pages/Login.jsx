@@ -5,6 +5,7 @@ import { useTheme } from '../context/ThemeContext'
 import { useToast } from '../context/ToastContext'
 import emsApi from '../api/emsApi'
 import { Eye, EyeOff, CheckCircle2, Sun, Moon, LogIn } from 'lucide-react'
+import { DEFAULT_DISPLAY_NAME, DEFAULT_LOGO } from '../utils/branding'
 
 // Seeded demo accounts (see ems-backend/utils/dummyDataSeeder.js TEST_CREDENTIALS).
 const DEMO_CREDENTIALS = [
@@ -18,8 +19,8 @@ export default function Login() {
   const { loginWithCredentials } = useAuth()
   const { showToast } = useToast()
   const { theme, toggleTheme, branding } = useTheme()
-  const platformName = branding?.name || 'Elsa Energy'
-  const logoUrl = branding?.logoUrl || '/elsa_logo.jpeg'
+  const platformName = branding?.name || DEFAULT_DISPLAY_NAME
+  const logoUrl = branding?.logoUrl || DEFAULT_LOGO
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')

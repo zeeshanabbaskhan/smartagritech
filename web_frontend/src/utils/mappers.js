@@ -1,5 +1,6 @@
 /** Map API entities to UI table/card shapes used across pages */
 import { apiRoleToLabel } from './roles'
+import { themeDisplayName } from './branding'
 
 const fmtDate = (d) => {
   if (!d) return '—'
@@ -63,7 +64,7 @@ export const mapOrganization = (o) => ({
   description: o.description ?? '',
   status: statusLabel(o.status),
   statusRaw: o.status,
-  theme: o.theme?.name ?? '—',
+  theme: o.theme?.name ? themeDisplayName(o.theme.name) : '—',
   themeId: o.themeId,
   logoUrl: o.logoUrl,
   createdAt: fmtDate(o.createdAt),
@@ -438,6 +439,7 @@ export const mapDeviceTimestamp = (t, orgName) => {
 export const mapTheme = (t) => ({
   id: t.id,
   name: t.name,
+  displayName: themeDisplayName(t.name),
   primary: t.headerBgColor ?? t.primaryColor ?? '#F5A623',
   secondary: t.bodyBgColor ?? t.secondaryColor ?? '#0ea5e9',
   headerFontColor: t.headerFontColor,

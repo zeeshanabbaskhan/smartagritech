@@ -52,14 +52,16 @@ const seedDummyData = async () => {
   // ── 1. Theme ─────────────────────────────────────────────────────────────────
   const theme = await findOrCreate(
     'theme',
-    { name: 'Default' },
+    { name: 'Elsa' },
     {
-      name:            'Default',
+      name:            'Elsa',
       headerBgColor:   '#F5A623',
       headerFontColor: '#ffffff',
       bodyBgColor:     '#f5f5f5',
       bodyFontColor:   '#333333',
       status:          'ACTIVE',
+      darkModeDefault: true,
+      showLogoInSidebar: true,
     }
   )
   console.log('Theme:', theme.name)
@@ -866,19 +868,38 @@ const ensureManagedLists = async () => {
 const ensureTestCredentials = async () => {
   await ensureManagedLists()
 
+  const DEFAULT_THEME_NAME = 'Elsa'
   const DEFAULT_PRIMARY = '#F5A623'
-  let theme = await findOrCreate(
-    'theme',
-    { name: 'Default' },
-    {
-      name: 'Default',
-      headerBgColor: DEFAULT_PRIMARY,
-      headerFontColor: '#ffffff',
-      bodyBgColor: '#f5f5f5',
-      bodyFontColor: '#333333',
-      status: 'ACTIVE',
-    }
-  )
+
+  let theme = await prisma.theme.findFirst({
+    where: { name: { in: [DEFAULT_THEME_NAME, 'Default'] } },
+    orderBy: { createdAt: 'asc' },
+  })
+
+  if (theme?.name === 'Default') {
+    theme = await prisma.theme.update({
+      where: { id: theme.id },
+      data: {
+        name: DEFAULT_THEME_NAME,
+        headerBgColor: DEFAULT_PRIMARY,
+        darkModeDefault: true,
+        showLogoInSidebar: true,
+      },
+    })
+  } else if (!theme) {
+    theme = await prisma.theme.create({
+      data: {
+        name: DEFAULT_THEME_NAME,
+        headerBgColor: DEFAULT_PRIMARY,
+        headerFontColor: '#ffffff',
+        bodyBgColor: '#f5f5f5',
+        bodyFontColor: '#333333',
+        status: 'ACTIVE',
+        darkModeDefault: true,
+        showLogoInSidebar: true,
+      },
+    })
+  }
 
   // Migrate old seeded navy "primary" to the system gold accent
   if (!theme.headerBgColor || theme.headerBgColor.toLowerCase() === '#1a1a2e') {
@@ -891,6 +912,15 @@ const ensureTestCredentials = async () => {
     where: { headerBgColor: { equals: '#1a1a2e', mode: 'insensitive' } },
     data: { headerBgColor: DEFAULT_PRIMARY },
   })
+  if (theme.darkModeDefault === false || theme.showLogoInSidebar === false) {
+    theme = await prisma.theme.update({
+      where: { id: theme.id },
+      data: {
+        darkModeDefault: true,
+        showLogoInSidebar: true,
+      },
+    })
+  }
 
   const org = await findOrCreate(
     'organization',
