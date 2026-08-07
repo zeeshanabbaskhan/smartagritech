@@ -21,6 +21,7 @@ router.use('/sensor-data',       require('./sensorData'));
 router.use('/anomalies',         require('./anomalies'));
 router.use('/interval-history',  require('./intervalHistory'));
 router.use('/ai',                require('./aiAnalytics'));
+router.use('/chatbot',           require('./chatbot'));
 
 // ─── Alarm system ─────────────────────────────────────────────────────────────
 router.use('/alarm-templates',   templateRouter);

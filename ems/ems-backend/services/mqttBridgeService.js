@@ -300,24 +300,7 @@ const startBridge = async (bridgeId) => {
         host: bridge.brokerHost,
         topic: bridge.subscribeTopic,
       })
-      // Bridge is up — restore ONLINE for devices that already have readings (keep last values visible as live)
-      try {
-        const restored = await prisma.device.updateMany({
-          where: {
-            organizationId: bridge.organizationId,
-            switchState: 'ON',
-            lastDataReceivedAt: { not: null },
-            status: 'OFFLINE',
-          },
-          data: { status: 'ONLINE' },
-        })
-        if (restored.count) {
-          logger.info('devicePresence: restored ONLINE after bridge connect', {
-            organizationId: bridge.organizationId,
-            count: restored.count,
-          })
-        }
-      } catch (_) {}
+      // Devices go ONLINE only when fresh ingest arrives — do not restore from lastDataReceivedAt.
     })
   })
 

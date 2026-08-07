@@ -4,17 +4,21 @@ import Modal from '../../components/ui/Modal'
 import CredentialsModal from '../../components/ui/CredentialsModal'
 import PageState, { useFetch } from '../../components/ui/PageState'
 import { TextInput, SelectInput } from '../../components/ui/FormFields'
-import { Plus, Pencil, Trash2, Eye } from 'lucide-react'
+import { Plus, Pencil, Trash2, Eye, LogIn } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
 import { mapUser, mapOrganization } from '../../utils/mappers'
 import { uiStatusToApi, uiRoleToApi } from '../../utils/apiForm'
 import { ROLE_UI_LABELS, ROLE_UI_OPTIONS } from '../../utils/roles'
 import { useToast } from '../../context/ToastContext'
+import { useAuth } from '../../context/AuthContext'
+import { useNavigate } from 'react-router-dom'
 
 const blank = { name: '', email: '', password: '', phone: '', organizationId: '', role: ROLE_UI_LABELS.USER, status: 'Active' }
 
 export default function AdminUsers() {
   const { showToast } = useToast()
+  const { impersonateUser } = useAuth()
+  const navigate = useNavigate()
   const { data, loading, error, reload } = useFetch(async () => {
     const [usersRes, orgsRes] = await Promise.all([
       emsApi.getUsers({ limit: 100 }),
@@ -34,6 +38,7 @@ export default function AdminUsers() {
   const [form, setForm] = useState(blank)
   const [saving, setSaving] = useState(false)
   const [credentials, setCredentials] = useState(null)
+  const [loggingInId, setLoggingInId] = useState(null)
 
   const openAdd = () => { setForm(blank); setModal('add') }
   const openEdit = (row) => {
@@ -104,6 +109,31 @@ export default function AdminUsers() {
     }
   }
 
+  const canLoginAs = (row) =>
+    row.statusRaw !== 'INACTIVE' &&
+    row.statusRaw !== 'DELETED' &&
+    row.status !== 'Inactive' &&
+    row.roleRaw !== 'SUPER_ADMIN' &&
+    row.role !== 'Super Admin'
+
+  const handleLoginAs = async (row) => {
+    if (!canLoginAs(row)) {
+      showToast('Cannot login as this account', 'error')
+      return
+    }
+    if (!confirm(`Login as "${row.name}" (${row.role})?`)) return
+    setLoggingInId(row.id)
+    try {
+      const session = await impersonateUser(row.id)
+      showToast(`Logged in as ${session.name}`, 'success')
+      navigate(`/${session.role}`)
+    } catch (e) {
+      showToast(e.message || 'Login failed', 'error')
+    } finally {
+      setLoggingInId(null)
+    }
+  }
+
   const columns = [
     { key: 'name', label: 'Name' },
     { key: 'email', label: 'Email' },
@@ -132,6 +162,17 @@ export default function AdminUsers() {
           searchPlaceholder="Search users..."
           actions={(row) => (
             <>
+              {canLoginAs(row) && (
+                <button
+                  type="button"
+                  className="btn-ghost p-1.5 text-primary-600"
+                  onClick={() => handleLoginAs(row)}
+                  title="Login as this user"
+                  disabled={loggingInId === row.id}
+                >
+                  <LogIn size={14} className={loggingInId === row.id ? 'animate-pulse' : ''} />
+                </button>
+              )}
               <button type="button" className="btn-ghost p-1.5" onClick={() => openView(row)} title="View"><Eye size={14} /></button>
               <button type="button" className="btn-ghost p-1.5" onClick={() => openEdit(row)} title="Edit"><Pencil size={14} /></button>
               <button type="button" className="btn-danger p-1.5" onClick={() => handleDelete(row)} title="Delete"><Trash2 size={14} /></button>

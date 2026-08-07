@@ -6,7 +6,7 @@ import { TextInput, SelectInput } from '../../components/ui/FormFields'
 import { Eye, Pencil, RefreshCw } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
 import { mapGateway } from '../../utils/mappers'
-import { uiGatewayStatusToApi } from '../../utils/apiForm'
+import { uiGatewayStatusToApi, GATEWAY_STATUS_OPTIONS, gatewayStatusBadgeClass } from '../../utils/apiForm'
 import { useToast } from '../../context/ToastContext'
 
 export default function OrgGateways() {
@@ -80,10 +80,10 @@ export default function OrgGateways() {
 
   const totalCount = (rows ?? []).length
   const onlineCount = (rows ?? []).filter((d) => d.status === 'Online').length
-  const offlineCount = totalCount - onlineCount
+  const offlineCount = (rows ?? []).filter((d) => d.status === 'Offline').length
 
   const columns = [
-    { key: 'status', label: 'Gateway Status', render: (v) => <span className={`badge ${v === 'Online' ? 'badge-success' : 'badge-danger'}`}>{v}</span> },
+    { key: 'status', label: 'Gateway Status', render: (v) => <span className={`badge ${gatewayStatusBadgeClass(v)}`}>{v}</span> },
     { key: 'name', label: 'Gateway Name' },
     { key: 'serial', label: 'Serial Number', render: (v) => <span className="font-mono text-xs text-surface-400">{v}</span> },
     { key: 'model', label: 'Model' },
@@ -114,11 +114,11 @@ export default function OrgGateways() {
           <div className="flex flex-wrap items-end gap-3">
             <SelectInput
               label="Status"
-              className="w-36"
+              className="w-44"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              options={['Online', 'Offline']}
-              placeholder="All"
+              options={GATEWAY_STATUS_OPTIONS}
+              placeholder="All status"
             />
             <SelectInput
               label="Model"
@@ -195,7 +195,7 @@ export default function OrgGateways() {
             <TextInput label="Gateway Name" required value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
             <TextInput label="Serial Number" value={form.serial} onChange={(e) => setForm((f) => ({ ...f, serial: e.target.value }))} />
             <SelectInput label="Model" value={form.model} onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))} options={['CF-G200', 'CF-G100']} />
-            <SelectInput label="Status" value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))} options={['Online', 'Offline']} />
+            <SelectInput label="Status" value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))} options={GATEWAY_STATUS_OPTIONS} />
           </div>
         </Modal>
       </div>

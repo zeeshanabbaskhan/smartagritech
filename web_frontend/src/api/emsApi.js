@@ -16,6 +16,9 @@ const emsApi = {
   resetPassword: (body) => api.post('/auth/reset-password', body),
   changePassword: (currentPassword, newPassword) =>
     api.post('/auth/change-password', { currentPassword, newPassword }),
+  impersonateUser: (userId) => api.post(`/auth/impersonate/user/${userId}`),
+  impersonateOrganization: (organizationId) =>
+    api.post(`/auth/impersonate/organization/${organizationId}`),
 
   // ─── Template slaves / variables ────────────────────────────────────────
   getTemplateSlaves: (templateId, params) =>
@@ -250,6 +253,13 @@ const emsApi = {
   updatePowerFlow: (body) => api.put('/custom-dashboards/power-flow', body),
 
   downloadSensorCsv: (params) => api.download('/sensor-data/download', params, 'sensor-data.csv'),
+
+  // ─── Elsa chatbot ─────────────────────────────────────────────────────────
+  chatbotQuery: (messages, organizationId) =>
+    api.post('/chatbot/query', {
+      messages,
+      ...(organizationId ? { organizationId } : {}),
+    }),
 }
 
 export { api, list, one }

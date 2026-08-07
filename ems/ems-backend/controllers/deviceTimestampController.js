@@ -1,8 +1,9 @@
 // ─── Device timestamp controller ──────────────────────────────────────────────
 // DeviceTimestamp records the last time each device sent data (upserted by the
-// ingest endpoint).  Online = last ping within 5 minutes.
+// ingest endpoint). Online = last ping within DEVICE_OFFLINE_AFTER_MS.
 const prisma      = require('../config/database')
 const { orgScope, paginate } = require('../utils/helpers')
+const { OFFLINE_AFTER_MS } = require('../services/devicePresenceService')
 
 // @desc  List device timestamps with computed online status
 // @access SUPER_ADMIN | ORG_ADMIN
@@ -24,7 +25,7 @@ const getDeviceTimestamps = async (req, res, next) => {
     const data = records.map((r) => ({
       ...r,
       lastActiveMinsAgo: Math.floor((now - new Date(r.lastActiveAt).getTime()) / 60_000),
-      onlineStatus:      now - new Date(r.lastActiveAt).getTime() < 5 * 60_000 ? 'ONLINE' : 'OFFLINE',
+      onlineStatus:      now - new Date(r.lastActiveAt).getTime() < OFFLINE_AFTER_MS ? 'ONLINE' : 'OFFLINE',
     }))
 
     res.json({ success: true, data, total, page, pages: Math.ceil(total / limit) })

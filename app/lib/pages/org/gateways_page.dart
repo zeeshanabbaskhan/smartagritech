@@ -50,7 +50,7 @@ class _GatewaysTabState extends State<GatewaysTab> {
               'name': data['name'],
               'serialNumber': data['serialNo'],
               'model': data['ipAddress'],
-              'status': data['status'] == 'Online' ? 'ONLINE' : 'OFFLINE',
+              'status': ApiMappers.gatewayStatusToApi(data['status'] as String),
             };
             if (index != null) {
               await EmsApi.instance.updateGateway(_gateways[index]['id'] as String, body);
@@ -108,7 +108,7 @@ class _GatewaysTabState extends State<GatewaysTab> {
   }
 
   static const _cols = ['Name', 'IP Address', 'Location', 'Devices', 'Status', 'Last Seen', 'Ops'];
-  static const _widths = [110.0, 125.0, 135.0, 70.0, 75.0, 145.0, 64.0];
+  static const _widths = [110.0, 125.0, 135.0, 70.0, 120.0, 145.0, 64.0];
 
   @override
   Widget build(BuildContext context) {
@@ -123,6 +123,7 @@ class _GatewaysTabState extends State<GatewaysTab> {
     }
 
     final online = _gateways.where((g) => g['status'] == 'Online').length;
+    final offline = _gateways.where((g) => g['status'] == 'Offline').length;
 
     return Scaffold(
       backgroundColor: kBg,
@@ -143,7 +144,7 @@ class _GatewaysTabState extends State<GatewaysTab> {
               const SizedBox(width: 16),
               StatChip('Online', online, kGreen),
               const SizedBox(width: 16),
-              StatChip('Offline', _gateways.length - online, kRed),
+              StatChip('Offline', offline, kRed),
             ]),
           ),
           Expanded(
@@ -171,7 +172,10 @@ class _GatewaysTabState extends State<GatewaysTab> {
   }
 
   Widget _row(int idx, Map<String, dynamic> g) {
-    final online = g['status'] == 'Online';
+    final status = g['status'] as String;
+    final online = status == 'Online';
+    final alarm = status == 'Gateway alarm';
+    final color = online ? kGreen : alarm ? kRed : Colors.grey.shade600;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
       child: Row(children: [
@@ -203,13 +207,14 @@ class _GatewaysTabState extends State<GatewaysTab> {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
-              color: online ? kGreen.withValues(alpha: 0.12) : kRed.withValues(alpha: 0.1),
+              color: color.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(20),
             ),
-            child: Text(g['status'] as String,
+            child: Text(status,
                 style: TextStyle(
                     fontSize: 11, fontWeight: FontWeight.w600,
-                    color: online ? kGreen : kRed)),
+                    color: color),
+                overflow: TextOverflow.ellipsis),
           ),
         ),
         SizedBox(
@@ -288,8 +293,14 @@ class _GatewayFormModalState extends State<_GatewayFormModal> {
           const SizedBox(height: 14),
           ModalField('Serial Number', _serial),
           const SizedBox(height: 14),
-          ModalDropdown('Status', _status, ['Online', 'Offline'],
-              (v) => setState(() => _status = v!)),
+          ModalDropdown('Status', _status, const [
+            'Online',
+            'Offline',
+            'Upgrading',
+            'In the configuration',
+            'Gateway alarm',
+            'Disabled',
+          ], (v) => setState(() => _status = v!)),
           const SizedBox(height: 24),
           ModalActions(
             onCancel: () => Navigator.pop(context),

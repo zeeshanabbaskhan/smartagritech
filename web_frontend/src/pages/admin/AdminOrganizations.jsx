@@ -5,12 +5,14 @@ import CredentialsModal from '../../components/ui/CredentialsModal'
 import PageState, { useFetch } from '../../components/ui/PageState'
 import { TextInput, TextareaInput, SelectInput } from '../../components/ui/FormFields'
 import HierarchyEditor from '../../components/facility/HierarchyEditor'
-import { Plus, Pencil, Trash2, Eye, ListTree, Building2, Sparkles } from 'lucide-react'
+import { Plus, Pencil, Trash2, Eye, LogIn, ListTree, Building2, Sparkles } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
 import { mapOrganization } from '../../utils/mappers'
 import { mapTreeFromApi, flattenTreeForApi } from '../../data/facilitiesHierarchy'
 import { uiStatusToApi } from '../../utils/apiForm'
 import { useToast } from '../../context/ToastContext'
+import { useAuth } from '../../context/AuthContext'
+import { useNavigate } from 'react-router-dom'
 
 const blank = {
   name: '',
@@ -24,6 +26,8 @@ const blank = {
 
 export default function AdminOrganizations() {
   const { showToast } = useToast()
+  const { impersonateOrganization } = useAuth()
+  const navigate = useNavigate()
   const { data: rows, loading, error, reload } = useFetch(
     async () => list(await emsApi.getOrganizations({ limit: 100 })).map(mapOrganization),
     []
@@ -33,6 +37,7 @@ export default function AdminOrganizations() {
   const [form, setForm] = useState(blank)
   const [saving, setSaving] = useState(false)
   const [credentials, setCredentials] = useState(null)
+  const [loggingInId, setLoggingInId] = useState(null)
 
   // Facility Structure (per-org) — SUPER_ADMIN can scope by organizationId
   const [hierarchyMode, setHierarchyMode] = useState('auto') // 'auto' | 'manual'
@@ -132,6 +137,20 @@ export default function AdminOrganizations() {
     }
   }
 
+  const handleLoginAs = async (row) => {
+    if (!confirm(`Login as Org Admin for "${row.name}"?`)) return
+    setLoggingInId(row.id)
+    try {
+      const session = await impersonateOrganization(row.id)
+      showToast(`Logged in as ${session.name}`, 'success')
+      navigate(`/${session.role}`)
+    } catch (e) {
+      showToast(e.message || 'Login failed', 'error')
+    } finally {
+      setLoggingInId(null)
+    }
+  }
+
   const columns = [
     { key: 'name', label: 'Organization Name' },
     { key: 'description', label: 'Description' },
@@ -158,6 +177,15 @@ export default function AdminOrganizations() {
           searchPlaceholder="Search organizations..."
           actions={(row) => (
             <>
+              <button
+                type="button"
+                className="btn-ghost p-1.5 text-primary-600"
+                onClick={() => handleLoginAs(row)}
+                title="Login as Org Admin"
+                disabled={loggingInId === row.id}
+              >
+                <LogIn size={14} className={loggingInId === row.id ? 'animate-pulse' : ''} />
+              </button>
               <button type="button" className="btn-ghost p-1.5" onClick={() => openView(row)} title="View"><Eye size={14} /></button>
               <button type="button" className="btn-ghost p-1.5" onClick={() => openEdit(row)} title="Edit"><Pencil size={14} /></button>
               <button type="button" className="btn-danger p-1.5" onClick={() => handleDelete(row)} title="Delete"><Trash2 size={14} /></button>

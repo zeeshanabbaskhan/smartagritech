@@ -205,4 +205,109 @@ const changePassword = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
-module.exports = { login, logout, refresh, getMe, forgotPassword, resetPassword, changePassword }
+const USER_PUBLIC_SELECT = {
+  id: true, fullName: true, email: true, role: true, organizationId: true, status: true,
+  organization: { select: { id: true, name: true, status: true, logoUrl: true, themeId: true } },
+}
+
+/** Issue tokens for a target user (same shape as login). Used by impersonation. */
+const issueSessionForUser = async (user, res) => {
+  const userCache = require('../utils/userCache')
+  await userCache.invalidate(user.id)
+  const token = signAccessToken(user.id)
+  // Short-lived refresh for impersonation sessions
+  const refreshToken = await issueRefreshToken(user.id, { days: 1 })
+  res.cookie('token', token, cookieOptions)
+  const userData = {
+    id: user.id,
+    fullName: user.fullName,
+    email: user.email,
+    role: user.role,
+    organizationId: user.organizationId,
+    status: user.status,
+    organization: user.organization ?? undefined,
+  }
+  await userCache.set(user.id, {
+    id: userData.id,
+    fullName: userData.fullName,
+    email: userData.email,
+    role: userData.role,
+    organizationId: userData.organizationId,
+    status: userData.status,
+  })
+  return { userData, token, refreshToken }
+}
+
+// @desc  Super Admin logs in as a specific user / org admin
+// @access SUPER_ADMIN
+const impersonateUser = async (req, res, next) => {
+  try {
+    const target = await prisma.user.findUnique({
+      where: { id: req.params.userId },
+      select: USER_PUBLIC_SELECT,
+    })
+    if (!target || target.status === 'DELETED') {
+      return next(new AppError('User not found', 404))
+    }
+    if (target.status === 'INACTIVE') {
+      return next(new AppError('Cannot login as an inactive account', 403))
+    }
+    if (target.role === 'SUPER_ADMIN') {
+      return next(new AppError('Cannot login as another Super Admin', 403))
+    }
+    if (target.id === req.user.id) {
+      return next(new AppError('Already logged in as this user', 400))
+    }
+
+    const { userData, token, refreshToken } = await issueSessionForUser(target, res)
+    res.json({
+      success: true,
+      data: userData,
+      token,
+      refreshToken,
+      impersonatedBy: req.user.id,
+    })
+  } catch (err) { next(err) }
+}
+
+// @desc  Super Admin logs in as the Org Admin for an organization
+// @access SUPER_ADMIN
+const impersonateOrganization = async (req, res, next) => {
+  try {
+    const org = await prisma.organization.findUnique({
+      where: { id: req.params.organizationId },
+      select: { id: true, name: true, status: true },
+    })
+    if (!org) return next(new AppError('Organization not found', 404))
+    if (org.status === 'INACTIVE') {
+      return next(new AppError('Organization is not active', 403))
+    }
+
+    const target = await prisma.user.findFirst({
+      where: {
+        organizationId: org.id,
+        role: 'ORG_ADMIN',
+        status: 'ACTIVE',
+      },
+      orderBy: { createdAt: 'asc' },
+      select: USER_PUBLIC_SELECT,
+    })
+    if (!target) {
+      return next(new AppError('No active Org Admin found for this organization', 404))
+    }
+
+    const { userData, token, refreshToken } = await issueSessionForUser(target, res)
+    res.json({
+      success: true,
+      data: userData,
+      token,
+      refreshToken,
+      impersonatedBy: req.user.id,
+    })
+  } catch (err) { next(err) }
+}
+
+module.exports = {
+  login, logout, refresh, getMe, forgotPassword, resetPassword, changePassword,
+  impersonateUser, impersonateOrganization,
+}

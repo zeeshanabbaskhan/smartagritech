@@ -14,6 +14,44 @@ class ApiMappers {
   static String deviceStatus(dynamic status) =>
       status == 'ONLINE' ? 'Online' : 'Offline';
 
+  static String gatewayStatus(dynamic status) {
+    switch (status) {
+      case 'ONLINE':
+        return 'Online';
+      case 'OFFLINE':
+        return 'Offline';
+      case 'UPGRADING':
+        return 'Upgrading';
+      case 'IN_CONFIGURATION':
+        return 'In the configuration';
+      case 'GATEWAY_ALARM':
+        return 'Gateway alarm';
+      case 'DISABLED':
+        return 'Disabled';
+      default:
+        return status?.toString() ?? 'Offline';
+    }
+  }
+
+  static String gatewayStatusToApi(String status) {
+    switch (status) {
+      case 'Online':
+        return 'ONLINE';
+      case 'Offline':
+        return 'OFFLINE';
+      case 'Upgrading':
+        return 'UPGRADING';
+      case 'In the configuration':
+        return 'IN_CONFIGURATION';
+      case 'Gateway alarm':
+        return 'GATEWAY_ALARM';
+      case 'Disabled':
+        return 'DISABLED';
+      default:
+        return 'OFFLINE';
+    }
+  }
+
   static String userStatus(dynamic status) {
     switch (status) {
       case 'ACTIVE':
@@ -131,7 +169,7 @@ class ApiMappers {
         'id': g['id'],
         'name': g['name'] ?? '—',
         'ipAddress': g['model'] ?? '—',
-        'status': deviceStatus(g['status']),
+        'status': gatewayStatus(g['status']),
         'devices': devices,
         'location': g['organization']?['name'] ?? '—',
         'lastSeen': fmtDate(g['lastSeenAt']),

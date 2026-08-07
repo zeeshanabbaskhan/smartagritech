@@ -4,6 +4,7 @@ import { tokenStore, setUnauthorizedHandler, ensureFreshAccessToken } from '../a
 import { backendToFrontend } from '../utils/roles'
 
 const AuthContext = createContext(null)
+const IMPERSONATION_KEY = 'ems_impersonation'
 
 export const ROLES = {
   ADMIN: 'admin',
@@ -28,6 +29,18 @@ function mapSessionUser(apiUser) {
   }
 }
 
+function readImpersonationMeta() {
+  try {
+    const raw = sessionStorage.getItem(IMPERSONATION_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (!parsed?.adminUser) return null
+    return parsed
+  } catch (_) {
+    return null
+  }
+}
+
 export function AuthProvider({ children }) {
   const getBuildUser = () => {
     if (typeof window !== 'undefined' && window.__BONEYARD_BUILD) {
@@ -40,11 +53,18 @@ export function AuthProvider({ children }) {
   }
 
   const [user, setUser] = useState(getBuildUser)
+  const [impersonation, setImpersonation] = useState(() => {
+    const meta = readImpersonationMeta()
+    return meta
+      ? { active: true, adminName: meta.adminUser?.name, adminEmail: meta.adminUser?.email }
+      : null
+  })
   const [initializing, setInitializing] = useState(!getBuildUser())
 
   const clearSession = useCallback(() => {
     tokenStore.clear()
-    sessionStorage.removeItem('ems_impersonation')
+    sessionStorage.removeItem(IMPERSONATION_KEY)
+    setImpersonation(null)
     setUser(null)
   }, [])
 
@@ -90,6 +110,12 @@ export function AuthProvider({ children }) {
         await ensureFreshAccessToken(0)
         const res = await emsApi.me()
         setUser(mapSessionUser(res))
+        const meta = readImpersonationMeta()
+        setImpersonation(
+          meta
+            ? { active: true, adminName: meta.adminUser?.name, adminEmail: meta.adminUser?.email }
+            : null
+        )
       } catch (_) {
         clearSession()
       } finally {
@@ -98,8 +124,7 @@ export function AuthProvider({ children }) {
     })()
   }, [clearSession])
 
-  const loginWithCredentials = async (email, password) => {
-    const res = await emsApi.login(email.trim(), password)
+  const applySessionTokens = (res) => {
     if (res.token) tokenStore.set(res.token)
     if (res.refreshToken) tokenStore.setRefresh(res.refreshToken)
     const session = mapSessionUser(res.data ? { data: res.data } : res)
@@ -108,13 +133,92 @@ export function AuthProvider({ children }) {
     return session
   }
 
+  const loginWithCredentials = async (email, password) => {
+    sessionStorage.removeItem(IMPERSONATION_KEY)
+    setImpersonation(null)
+    const res = await emsApi.login(email.trim(), password)
+    return applySessionTokens(res)
+  }
+
+  const startImpersonation = async (res) => {
+    if (!user || user.backendRole !== 'SUPER_ADMIN') {
+      throw new Error('Only Super Admin can login as another account')
+    }
+    // Preserve the admin session so we can restore it without re-entering password
+    sessionStorage.setItem(IMPERSONATION_KEY, JSON.stringify({
+      token: tokenStore.get(),
+      refreshToken: tokenStore.getRefresh(),
+      adminUser: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        backendRole: user.backendRole,
+      },
+    }))
+    const session = applySessionTokens(res)
+    setImpersonation({
+      active: true,
+      adminName: user.name,
+      adminEmail: user.email,
+    })
+    return session
+  }
+
+  const impersonateUser = async (userId) => {
+    const res = await emsApi.impersonateUser(userId)
+    return startImpersonation(res)
+  }
+
+  const impersonateOrganization = async (organizationId) => {
+    const res = await emsApi.impersonateOrganization(organizationId)
+    return startImpersonation(res)
+  }
+
+  const stopImpersonation = async () => {
+    const meta = readImpersonationMeta()
+    if (!meta?.token) {
+      clearSession()
+      throw new Error('Admin session expired — please sign in again')
+    }
+    // Drop the impersonated refresh token so it cannot be reused
+    try { await emsApi.logout() } catch (_) {}
+
+    tokenStore.set(meta.token)
+    tokenStore.setRefresh(meta.refreshToken)
+    sessionStorage.removeItem(IMPERSONATION_KEY)
+    setImpersonation(null)
+
+    try {
+      await ensureFreshAccessToken(0)
+      const res = await emsApi.me()
+      const session = mapSessionUser(res)
+      setUser(session)
+      return session
+    } catch (_) {
+      clearSession()
+      throw new Error('Could not restore Super Admin session — please sign in again')
+    }
+  }
+
   const logout = async () => {
     try { await emsApi.logout() } catch (_) {}
     clearSession()
   }
 
   return (
-    <AuthContext.Provider value={{ user, loginWithCredentials, logout, initializing }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        loginWithCredentials,
+        logout,
+        initializing,
+        impersonation,
+        impersonateUser,
+        impersonateOrganization,
+        stopImpersonation,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   )
