@@ -39,9 +39,9 @@ const themeBodyFromReq = (req, existing = {}) => {
   return {
     name: b.name ?? existing.name,
     headerFontColor: b.headerFontColor ?? existing.headerFontColor ?? '#ffffff',
-    headerBgColor: b.headerBgColor ?? b.primaryColor ?? existing.headerBgColor,
+    headerBgColor: b.headerBgColor ?? b.primaryColor ?? existing.headerBgColor ?? '#F5A623',
     bodyFontColor: b.bodyFontColor ?? existing.bodyFontColor ?? '#1f2937',
-    bodyBgColor: b.bodyBgColor ?? b.secondaryColor ?? existing.bodyBgColor,
+    bodyBgColor: b.bodyBgColor ?? b.secondaryColor ?? existing.bodyBgColor ?? '#f5f5f5',
     fontSize: b.fontSize ?? existing.fontSize,
     logoUrl: logoFromUpload || b.logoUrl || existing.logoUrl || null,
     sidebarColor: b.sidebarColor ?? existing.sidebarColor ?? 'Dark',

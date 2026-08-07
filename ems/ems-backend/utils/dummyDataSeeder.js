@@ -55,7 +55,7 @@ const seedDummyData = async () => {
     { name: 'Default' },
     {
       name:            'Default',
-      headerBgColor:   '#1a1a2e',
+      headerBgColor:   '#F5A623',
       headerFontColor: '#ffffff',
       bodyBgColor:     '#f5f5f5',
       bodyFontColor:   '#333333',
@@ -822,18 +822,31 @@ const TEST_CREDENTIALS = [
  * Safe to run on every server start.
  */
 const ensureTestCredentials = async () => {
-  const theme = await findOrCreate(
+  const DEFAULT_PRIMARY = '#F5A623'
+  let theme = await findOrCreate(
     'theme',
     { name: 'Default' },
     {
       name: 'Default',
-      headerBgColor: '#1a1a2e',
+      headerBgColor: DEFAULT_PRIMARY,
       headerFontColor: '#ffffff',
       bodyBgColor: '#f5f5f5',
       bodyFontColor: '#333333',
       status: 'ACTIVE',
     }
   )
+
+  // Migrate old seeded navy "primary" to the system gold accent
+  if (!theme.headerBgColor || theme.headerBgColor.toLowerCase() === '#1a1a2e') {
+    theme = await prisma.theme.update({
+      where: { id: theme.id },
+      data: { headerBgColor: DEFAULT_PRIMARY },
+    })
+  }
+  await prisma.theme.updateMany({
+    where: { headerBgColor: { equals: '#1a1a2e', mode: 'insensitive' } },
+    data: { headerBgColor: DEFAULT_PRIMARY },
+  })
 
   const org = await findOrCreate(
     'organization',
