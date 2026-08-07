@@ -6,7 +6,17 @@ const prisma      = require('../config/database')
 const { AppError } = require('../middleware/errorHandler')
 const { orgScope, paginate } = require('../utils/helpers')
 const { addTask, removeTask } = require('../services/schedulerService')
-const { listAccessibleDeviceIds } = require('../utils/deviceAccess')
+const { assertDeviceAccess, listAccessibleDeviceIds } = require('../utils/deviceAccess')
+
+/** Load a scheduled task in the caller's org and enforce device ACL for USER. */
+const findAccessibleTask = async (id, user) => {
+  const existing = await prisma.scheduledTask.findFirst({
+    where: { id, ...orgScope(user) },
+  })
+  if (!existing) return null
+  await assertDeviceAccess(existing.deviceId, user)
+  return existing
+}
 
 // @desc  List scheduled tasks; filterable by device and status
 // @access SUPER_ADMIN | ORG_ADMIN | USER (ACL-scoped devices)
@@ -43,14 +53,18 @@ const getScheduledTasks = async (req, res, next) => {
 }
 
 // @desc  Create a scheduled task and register it in the cron scheduler
-// @access SUPER_ADMIN | ORG_ADMIN
+// @access SUPER_ADMIN | ORG_ADMIN | USER (ACL-scoped device)
 const createScheduledTask = async (req, res, next) => {
   try {
     const {
       organizationId, deviceId, deviceConfigSlaveId, deviceConfigVariableId,
-      variableName, action, scheduledTime, repeatType, daysOfWeek,
+      variableName, action, scheduledTime, repeatType, daysOfWeek, status,
     } = req.body
-    const orgId = req.user.role === 'SUPER_ADMIN' ? organizationId : req.user.organizationId
+
+    const device = await assertDeviceAccess(deviceId, req.user)
+    const orgId = req.user.role === 'SUPER_ADMIN'
+      ? (organizationId || device.organizationId)
+      : req.user.organizationId
 
     const data = await prisma.scheduledTask.create({
       data: {
@@ -58,20 +72,20 @@ const createScheduledTask = async (req, res, next) => {
         deviceId, deviceConfigSlaveId, deviceConfigVariableId,
         variableName, action, scheduledTime, repeatType,
         daysOfWeek: daysOfWeek || [],
+        ...(status ? { status } : {}),
       },
     })
 
-    addTask(data)
+    if (data.status === 'ACTIVE') addTask(data)
     res.status(201).json({ success: true, data })
   } catch (err) { next(err) }
 }
 
 // @desc  Update a scheduled task; re-registers the cron job
-// @access SUPER_ADMIN | ORG_ADMIN
+// @access SUPER_ADMIN | ORG_ADMIN | USER (ACL-scoped device)
 const updateScheduledTask = async (req, res, next) => {
   try {
-    const where    = { id: req.params.id, ...orgScope(req.user) }
-    const existing = await prisma.scheduledTask.findFirst({ where })
+    const existing = await findAccessibleTask(req.params.id, req.user)
     if (!existing) return next(new AppError('Scheduled task not found', 404))
 
     const { variableName, action, scheduledTime, repeatType, daysOfWeek, status } = req.body
@@ -88,11 +102,10 @@ const updateScheduledTask = async (req, res, next) => {
 }
 
 // @desc  Delete a scheduled task and its execution logs; removes cron job
-// @access SUPER_ADMIN | ORG_ADMIN
+// @access SUPER_ADMIN | ORG_ADMIN | USER (ACL-scoped device)
 const deleteScheduledTask = async (req, res, next) => {
   try {
-    const where    = { id: req.params.id, ...orgScope(req.user) }
-    const existing = await prisma.scheduledTask.findFirst({ where })
+    const existing = await findAccessibleTask(req.params.id, req.user)
     if (!existing) return next(new AppError('Scheduled task not found', 404))
 
     await prisma.$transaction([
@@ -106,9 +119,12 @@ const deleteScheduledTask = async (req, res, next) => {
 }
 
 // @desc  Paginated execution log for a specific task
-// @access SUPER_ADMIN | ORG_ADMIN
+// @access SUPER_ADMIN | ORG_ADMIN | USER (ACL-scoped device)
 const getTaskLogs = async (req, res, next) => {
   try {
+    const existing = await findAccessibleTask(req.params.id, req.user)
+    if (!existing) return next(new AppError('Scheduled task not found', 404))
+
     const { page, limit, skip } = paginate(req.query)
     const where = { scheduleTaskId: req.params.id }
 
@@ -121,11 +137,10 @@ const getTaskLogs = async (req, res, next) => {
 }
 
 // @desc  Toggle a task between ACTIVE and INACTIVE; updates cron scheduler
-// @access SUPER_ADMIN | ORG_ADMIN
+// @access SUPER_ADMIN | ORG_ADMIN | USER (ACL-scoped device)
 const toggleTask = async (req, res, next) => {
   try {
-    const where    = { id: req.params.id, ...orgScope(req.user) }
-    const existing = await prisma.scheduledTask.findFirst({ where })
+    const existing = await findAccessibleTask(req.params.id, req.user)
     if (!existing) return next(new AppError('Scheduled task not found', 404))
 
     const newStatus = existing.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE'
