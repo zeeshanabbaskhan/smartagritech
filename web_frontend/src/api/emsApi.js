@@ -195,6 +195,16 @@ const emsApi = {
     body instanceof FormData ? api.upload('PUT', `/products/${id}`, body) : api.put(`/products/${id}`, body),
   deleteProduct: (id) => api.delete(`/products/${id}`),
 
+  // ─── Managed lists (protocols, acquisition methods, product catalog) ─────
+  getListTypes: (params) => api.get('/list-types', q(params)),
+  createListType: (body) => api.post('/list-types', body),
+  updateListType: (id, body) => api.put(`/list-types/${id}`, body),
+  deleteListType: (id) => api.delete(`/list-types/${id}`),
+  getListItems: (listTypeId, params) => api.get(`/list-types/${listTypeId}/items`, q(params)),
+  createListItem: (listTypeId, body) => api.post(`/list-types/${listTypeId}/items`, body),
+  updateListItem: (listTypeId, itemId, body) => api.put(`/list-types/${listTypeId}/items/${itemId}`, body),
+  deleteListItem: (listTypeId, itemId) => api.delete(`/list-types/${listTypeId}/items/${itemId}`),
+
   getThemes: (params) => api.get('/themes', q(params)),
   getActiveTheme: () => api.get('/themes/active'),
   createTheme: (body) => (

@@ -7,6 +7,7 @@ import {
   BellRing, BrainCircuit, Gauge, TrendingUp, AlertOctagon,
   ListTree, UserCog, LayoutGrid, Radio, LayoutTemplate, ShieldCheck, Boxes,
   PlugZap, BarChart3, BatteryCharging, Recycle, Bot, Car, UserCircle, SlidersHorizontal,
+  List,
 } from 'lucide-react'
 
 // ─── Active navigation (aligned with improved CF dashboard) ──────────────────
@@ -26,6 +27,7 @@ export const adminNav = [
   { to: '/admin/device-groups', label: 'Device Groups',    icon: Boxes },
   { to: '/admin/icons',         label: 'Manage Icons',     icon: Smile },
   { to: '/admin/products',      label: 'Manage Products',  icon: Package },
+  { to: '/admin/lists',         label: 'Manage List',      icon: List },
   { divider: true, label: 'Data' },
   { to: '/admin/data-center',   label: 'Data Center',      icon: Database },
   { to: '/admin/historical-data', label: 'Historical Data',icon: History },

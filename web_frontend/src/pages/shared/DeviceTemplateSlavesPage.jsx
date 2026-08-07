@@ -7,10 +7,12 @@ import { TextInput, SelectInput, ToggleInput } from '../../components/ui/FormFie
 import { Plus, Pencil, Trash2, ArrowLeft } from 'lucide-react'
 import emsApi, { list, one } from '../../api/emsApi'
 import { useToast } from '../../context/ToastContext'
-import { PROTOCOL_OPTIONS, formatSyncToast } from '../../data/slaveVariables'
+import { formatSyncToast } from '../../data/slaveVariables'
+import { DEFAULT_PROTOCOL_OPTIONS, LIST_TYPE_NAMES } from '../../data/managedLists'
+import { useManagedListOptions } from '../../hooks/useManagedListOptions'
 import VariablesModal from '../../components/admin/VariablesModal'
 
-const blankSlave = { name: '', protocol: 'Modbus RTU', description: '', isDefault: false }
+const blankSlave = { name: '', protocol: '', description: '', isDefault: false }
 
 /**
  * Shared portal-style Device Template Slaves page (admin + org).
@@ -22,6 +24,8 @@ export default function DeviceTemplateSlavesPage({ basePath = '/admin', readOnly
   const navigate = useNavigate()
   const { showToast } = useToast()
   const listPath = `${basePath}/device-templates`
+  const protocolOptions = useManagedListOptions(LIST_TYPE_NAMES.PROTOCOLS, DEFAULT_PROTOCOL_OPTIONS)
+  const defaultProtocol = protocolOptions[0] || 'Modbus RTU'
 
   const { data, loading, error, reload } = useFetch(async () => {
     const [tplRes, slavesRes] = await Promise.all([
@@ -51,12 +55,15 @@ export default function DeviceTemplateSlavesPage({ basePath = '/admin', readOnly
     if (msg) showToast(msg, 'success')
   }
 
-  const openAdd = () => { setForm(blankSlave); setModal('add') }
+  const openAdd = () => {
+    setForm({ ...blankSlave, protocol: defaultProtocol })
+    setModal('add')
+  }
   const openEdit = (row) => {
     setSelected(row)
     setForm({
       name: row.name,
-      protocol: row.protocol || 'Modbus RTU',
+      protocol: row.protocol || defaultProtocol,
       description: row.description || '',
       isDefault: !!row.isDefault,
     })
@@ -252,9 +259,9 @@ export default function DeviceTemplateSlavesPage({ basePath = '/admin', readOnly
             />
             <SelectInput
               label="Protocols & Drivers"
-              value={form.protocol}
+              value={form.protocol || defaultProtocol}
               onChange={(e) => setForm((f) => ({ ...f, protocol: e.target.value }))}
-              options={PROTOCOL_OPTIONS}
+              options={protocolOptions}
             />
             <TextInput
               label="Description"

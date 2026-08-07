@@ -8,16 +8,17 @@ import { Plus, Pencil, Trash2, Eye, List } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
 import { mapDeviceTemplate, mapOrganization } from '../../utils/mappers'
 import { useToast } from '../../context/ToastContext'
+import { DEFAULT_ACQUISITION_OPTIONS, LIST_TYPE_NAMES } from '../../data/managedLists'
+import { useManagedListOptions } from '../../hooks/useManagedListOptions'
 
 const blankQuery = { organizationId: '', name: '' }
 
 const blank = { name: '', organizationId: '', method: 'Edge Computing', description: '' }
 
-const ACQUISITION_METHODS = ['Edge Computing', 'Modbus RTU', 'Modbus TCP', 'Modbus ASCII']
-
 export default function AdminDeviceTemplates() {
   const navigate = useNavigate()
   const { showToast } = useToast()
+  const acquisitionOptions = useManagedListOptions(LIST_TYPE_NAMES.ACQUISITION, DEFAULT_ACQUISITION_OPTIONS)
   const { data, loading, error, reload } = useFetch(async () => {
     const [templatesRes, orgsRes] = await Promise.all([
       emsApi.getDeviceTemplates({ limit: 100 }),
@@ -194,7 +195,7 @@ export default function AdminDeviceTemplates() {
               disabled={modal === 'edit'} />
             <SelectInput label="Acquisition Method"
               value={form.method} onChange={(e) => setForm((f) => ({ ...f, method: e.target.value }))}
-              options={ACQUISITION_METHODS} />
+              options={acquisitionOptions} />
             <TextareaInput label="Description" placeholder="Template description..."
               value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
           </div>

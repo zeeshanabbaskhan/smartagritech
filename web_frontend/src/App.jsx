@@ -20,6 +20,7 @@ import AdminDevices           from './pages/admin/AdminDevices'
 import AdminDeviceTemplates   from './pages/admin/AdminDeviceTemplates'
 import AdminDeviceTemplateSlaves from './pages/admin/AdminDeviceTemplateSlaves'
 import AdminManageIcons       from './pages/admin/AdminManageIcons'
+import AdminManageLists       from './pages/admin/AdminManageLists'
 import AdminProducts          from './pages/admin/AdminProducts'
 import AdminDataCenter        from './pages/admin/AdminDataCenter'
 import AdminHistoricalData    from './pages/admin/AdminHistoricalData'
@@ -136,6 +137,7 @@ function AppRoutes() {
         <Route path="access-groups"     element={<AdminAccessGroups />} />
         <Route path="device-groups"     element={<AdminDeviceGroups />} />
         <Route path="icons"             element={<AdminManageIcons />} />
+        <Route path="lists"             element={<AdminManageLists />} />
         <Route path="products"          element={<AdminProducts />} />
         <Route path="data-center"       element={<AdminDataCenter />} />
         <Route path="custom-dashboard"  element={<DashboardList />} />

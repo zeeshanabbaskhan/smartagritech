@@ -306,25 +306,8 @@ const seedDummyData = async () => {
   })
   console.log('DeviceTimestamp upserted')
 
-  // ── 15. ListType 'Protocols and Drivers' + 3 ListTypeItem records ──────────────
-  const listType = await prisma.listType.upsert({
-    where:  { name: 'Protocols and Drivers' },
-    update: {},
-    create: { name: 'Protocols and Drivers', description: 'IoT communication protocols', isActive: true },
-  })
-  console.log('ListType:', listType.name)
-
-  for (const item of [
-    { name: 'Modbus RTU',     description: 'Serial Modbus RTU protocol'      },
-    { name: 'Modbus TCP',     description: 'Ethernet Modbus TCP protocol'     },
-    { name: 'Edge Computing', description: 'On-device edge computation'       },
-  ]) {
-    const exists = await prisma.listTypeItem.findFirst({ where: { listTypeId: listType.id, name: item.name } })
-    if (!exists) {
-      await prisma.listTypeItem.create({ data: { listTypeId: listType.id, ...item, isActive: true } })
-      console.log('ListTypeItem:', item.name)
-    }
-  }
+  // ── 15. Managed list types (protocols / acquisition / product catalog) ───────
+  await ensureManagedLists()
 
   // ── 16. 200 SensorReading records with realistic JSON readings ─────────────────
   const readingCount = await prisma.sensorReading.count({ where: { deviceId: device.id } })
@@ -817,11 +800,72 @@ const TEST_CREDENTIALS = [
 ]
 
 /**
+ * Ensure managed list types + default items exist (safe on every boot).
+ * Protocols feed Edge Computing template slave dropdowns.
+ */
+const ensureManagedLists = async () => {
+  const catalogs = [
+    {
+      name: 'Protocols and Drivers',
+      description: 'IoT communication protocols and drivers',
+      items: [
+        { name: 'Modbus TCP', description: 'Modbus TCP' },
+        { name: 'Modbus ASCII', description: 'Modbus ASCII' },
+        { name: 'Modbus RTU', description: 'Modbus RTU' },
+        { name: 'AC500 RTU', description: 'AC500 RTU' },
+        { name: 'AC500 TCP', description: 'AC500 TCP' },
+        { name: 'M100 IO', description: 'M100 IO' },
+        { name: 'M100-AUTO', description: 'M100-AUTO' },
+        { name: '2DI 2AI 2DO', description: '2DI 2AI 2DO' },
+        { name: '4DI 4DO', description: '4DI 4DO' },
+        { name: '6DI 6DO', description: '6DI 6DO' },
+      ],
+    },
+    {
+      name: 'Acquisition Methods',
+      description: 'Device template acquisition methods',
+      items: [
+        { name: 'Edge Computing', description: 'On-device edge computation' },
+        { name: 'Cloud Polling', description: 'Cloud-side polling' },
+        { name: 'Modbus RTU', description: 'Serial Modbus RTU' },
+        { name: 'Modbus TCP', description: 'Ethernet Modbus TCP' },
+        { name: 'Modbus ASCII', description: 'Modbus ASCII' },
+      ],
+    },
+    {
+      name: 'Product Catalog',
+      description: 'Product catalog entries',
+      items: [],
+    },
+  ]
+
+  for (const cat of catalogs) {
+    const listType = await prisma.listType.upsert({
+      where: { name: cat.name },
+      update: { description: cat.description, isActive: true },
+      create: { name: cat.name, description: cat.description, isActive: true },
+    })
+    for (const item of cat.items) {
+      const exists = await prisma.listTypeItem.findFirst({
+        where: { listTypeId: listType.id, name: item.name },
+      })
+      if (!exists) {
+        await prisma.listTypeItem.create({
+          data: { listTypeId: listType.id, name: item.name, description: item.description, isActive: true },
+        })
+      }
+    }
+  }
+}
+
+/**
  * Ensure demo org + test credential users exist.
  * Creates only missing rows; never overwrites existing passwords.
  * Safe to run on every server start.
  */
 const ensureTestCredentials = async () => {
+  await ensureManagedLists()
+
   const DEFAULT_PRIMARY = '#F5A623'
   let theme = await findOrCreate(
     'theme',
@@ -938,6 +982,7 @@ module.exports = {
   seedIfEmpty,
   isDatabaseSeeded,
   ensureTestCredentials,
+  ensureManagedLists,
   TEST_CREDENTIALS,
 }
 
