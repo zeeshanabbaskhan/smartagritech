@@ -7,10 +7,39 @@ const fmtDate = (d) => {
   return s.length > 16 ? s.slice(0, 16).replace('T', ' ') : s
 }
 
+/** Match backend DEVICE_OFFLINE_AFTER_MS (default 5 min). */
+const DEVICE_OFFLINE_AFTER_MS = 5 * 60_000
+
 const statusLabel = (s) => {
   if (!s) return '—'
-  const m = { ONLINE: 'Online', OFFLINE: 'Offline', ACTIVE: 'Active', INACTIVE: 'Inactive', ON: 'On', OFF: 'Off' }
+  const m = {
+    ONLINE: 'Online',
+    OFFLINE: 'Offline',
+    UPGRADING: 'Upgrading',
+    IN_CONFIGURATION: 'In the configuration',
+    GATEWAY_ALARM: 'Gateway alarm',
+    DISABLED: 'Disabled',
+    ACTIVE: 'Active',
+    INACTIVE: 'Inactive',
+    ON: 'On',
+    OFF: 'Off',
+  }
   return m[s] ?? s.charAt(0) + s.slice(1).toLowerCase()
+}
+
+/** Prefer API status, but treat stale / never-seen devices as Offline in the UI. */
+const resolveDeviceStatus = (d) => {
+  const raw = String(d?.status || '').toUpperCase()
+  if (raw === 'OFFLINE') return { status: 'Offline', statusRaw: 'OFFLINE' }
+  if (raw && raw !== 'ONLINE') return { status: statusLabel(raw), statusRaw: raw }
+
+  const last = d?.lastDataReceivedAt
+  if (!last) return { status: 'Offline', statusRaw: 'OFFLINE' }
+  const age = Date.now() - new Date(last).getTime()
+  if (!Number.isFinite(age) || age >= DEVICE_OFFLINE_AFTER_MS) {
+    return { status: 'Offline', statusRaw: 'OFFLINE' }
+  }
+  return { status: 'Online', statusRaw: 'ONLINE' }
 }
 
 export const mapOrganization = (o) => ({
@@ -56,23 +85,31 @@ export const mapGateway = (g) => ({
   _raw: g,
 })
 
-export const mapDevice = (d) => ({
-  id: d.id,
-  name: d.name,
-  org: d.organization?.name ?? '—',
-  organizationId: d.organizationId,
-  gateway: d.gateway?.name ?? '—',
-  gatewayId: d.gatewayId,
-  template: d.template?.name ?? '—',
-  templateId: d.templateId,
-  status: statusLabel(d.status),
-  statusRaw: d.status,
-  switchOn: d.switchState === 'ON',
-  switchState: d.switchState,
-  lastSeen: fmtDate(d.lastDataReceivedAt),
-  latestMetrics: d.latestMetrics,
-  _raw: d,
-})
+export const mapDevice = (d) => {
+  const { status, statusRaw } = resolveDeviceStatus(d)
+  return {
+    id: d.id,
+    name: d.name,
+    org: d.organization?.name ?? '—',
+    organizationId: d.organizationId,
+    gateway: d.gateway?.name ?? '—',
+    gatewayId: d.gatewayId,
+    template: d.template?.name ?? '—',
+    templateId: d.templateId,
+    status,
+    statusRaw,
+    switchOn: d.switchState === 'ON',
+    switchState: d.switchState,
+    lastSeen: fmtDate(d.lastDataReceivedAt),
+    lastSeenRaw: d.lastDataReceivedAt,
+    createdAt: fmtDate(d.createdAt),
+    createdAtRaw: d.createdAt,
+    updatedAt: fmtDate(d.updatedAt),
+    updatedAtRaw: d.updatedAt,
+    latestMetrics: d.latestMetrics,
+    _raw: d,
+  }
+}
 
 export const mapDeviceTemplate = (t) => ({
   id: t.id,

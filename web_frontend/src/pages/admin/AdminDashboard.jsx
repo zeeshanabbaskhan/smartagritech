@@ -109,7 +109,13 @@ export default function AdminDashboard() {
     const source = selectedOrg
       ? (scope.devices || [])
       : (stats?.devices ?? [])
-    return source.slice(0, 5)
+    return [...source]
+      .sort((a, b) => {
+        const aOff = (isOffline(a) || isSwitchOff(a)) ? 1 : 0
+        const bOff = (isOffline(b) || isSwitchOff(b)) ? 1 : 0
+        return aOff - bOff
+      })
+      .slice(0, 8)
   }, [selectedOrg, scope.devices, stats?.devices])
 
   const onlineCount = useMemo(() => {

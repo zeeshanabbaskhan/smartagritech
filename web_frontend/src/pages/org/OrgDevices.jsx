@@ -49,7 +49,7 @@ export default function OrgDevices() {
 
   const totalCount = rows.length
   const onlineCount = rows.filter((d) => d.status === 'Online').length
-  const offlineCount = totalCount - onlineCount
+  const offlineCount = rows.filter((d) => d.status === 'Offline').length
 
   const gatewayOptions = [...new Set(rows.map((r) => r.gateway).filter(Boolean))]
 

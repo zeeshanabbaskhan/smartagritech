@@ -56,8 +56,8 @@ export const isSwitchOff = (d) => {
   return s === 'OFF'
 }
 
-/** Device contributes live metrics when switch is ON (recent values OK even if Offline). */
-export const isTelemetryActive = (d) => !isSwitchOff(d)
+/** Device contributes live KPIs only when switch is ON and status is Online. */
+export const isTelemetryActive = (d) => !isSwitchOff(d) && !isOffline(d)
 
 function parseMetricRaw(raw) {
   if (raw == null || raw === '') return NaN

@@ -109,12 +109,14 @@ export default function AdminUsers() {
     }
   }
 
-  const canLoginAs = (row) =>
-    row.statusRaw !== 'INACTIVE' &&
-    row.statusRaw !== 'DELETED' &&
-    row.status !== 'Inactive' &&
-    row.roleRaw !== 'SUPER_ADMIN' &&
-    row.role !== 'Super Admin'
+  const canLoginAs = (row) => {
+    const role = String(row.roleRaw || row._raw?.role || '').toUpperCase()
+    const status = String(row.statusRaw || row._raw?.status || '').toUpperCase()
+    if (role === 'SUPER_ADMIN' || role === 'ADMIN') return false
+    if (status === 'INACTIVE' || status === 'DELETED') return false
+    if (row.status === 'Inactive') return false
+    return true
+  }
 
   const handleLoginAs = async (row) => {
     if (!canLoginAs(row)) {
@@ -162,23 +164,29 @@ export default function AdminUsers() {
           searchPlaceholder="Search users..."
           actions={(row) => (
             <>
-              {canLoginAs(row) && (
+              {canLoginAs(row) ? (
                 <button
                   type="button"
-                  className="btn-ghost p-1.5 text-primary-600"
+                  className="btn-ghost px-2 py-1.5 text-primary-600 inline-flex items-center gap-1 text-[11px] font-bold"
                   onClick={() => handleLoginAs(row)}
                   title="Login as this user"
                   disabled={loggingInId === row.id}
                 >
                   <LogIn size={14} className={loggingInId === row.id ? 'animate-pulse' : ''} />
+                  <span className="hidden sm:inline">{loggingInId === row.id ? '…' : 'Login'}</span>
                 </button>
-              )}
+              ) : null}
               <button type="button" className="btn-ghost p-1.5" onClick={() => openView(row)} title="View"><Eye size={14} /></button>
               <button type="button" className="btn-ghost p-1.5" onClick={() => openEdit(row)} title="Edit"><Pencil size={14} /></button>
               <button type="button" className="btn-danger p-1.5" onClick={() => handleDelete(row)} title="Delete"><Trash2 size={14} /></button>
             </>
           )}
         />
+
+        <p className="text-xs text-surface-500 mt-3">
+          <LogIn size={11} className="inline mr-1 text-primary-600" />
+          Use <span className="text-primary-600 font-semibold">Login</span> to open that user&apos;s portal as Super Admin.
+        </p>
 
         <Modal
           open={modal === 'add' || modal === 'edit'}

@@ -199,15 +199,19 @@ export default function DashboardTelemetry({
 
   const filteredDevices = useMemo(() => {
     const q = deviceSearch.toLowerCase().trim()
-    if (q) {
-      return activeDevices.filter((d) =>
-        d.name.toLowerCase().includes(q)
-        || (d.gateway ?? '').toLowerCase().includes(q)
-        || (d.org ?? '').toLowerCase().includes(q)
-        || (d.template ?? '').toLowerCase().includes(q)
-      )
-    }
-    return [...activeDevices].reverse().slice(0, 5)
+    const ranked = [...activeDevices].sort((a, b) => {
+      const aOff = isOffline(a) || isSwitchOff(a) ? 1 : 0
+      const bOff = isOffline(b) || isSwitchOff(b) ? 1 : 0
+      if (aOff !== bOff) return aOff - bOff
+      return String(a.name || '').localeCompare(String(b.name || ''))
+    })
+    if (!q) return ranked
+    return ranked.filter((d) =>
+      d.name.toLowerCase().includes(q)
+      || (d.gateway ?? '').toLowerCase().includes(q)
+      || (d.org ?? '').toLowerCase().includes(q)
+      || (d.template ?? '').toLowerCase().includes(q)
+    )
   }, [activeDevices, deviceSearch])
 
   const handleToggleSwitch = async (device) => {
@@ -236,7 +240,7 @@ export default function DashboardTelemetry({
   const drillCfg = drillMetric ? KPI_CONFIG.find((k) => k.key === drillMetric) : null
   const defaultTelemetryHint = deviceSearch.trim()
     ? `Search results for "${deviceSearch}"`
-    : (telemetrySubtitle || 'Showing 5 latest devices. Use the search bar to find past devices.')
+    : (telemetrySubtitle || `${activeDevices.length} device${activeDevices.length === 1 ? '' : 's'} in scope (online first).`)
 
   return (
     <div className="space-y-6">
@@ -373,10 +377,10 @@ export default function DashboardTelemetry({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-6">
+          <div className="grid grid-cols-1 gap-6 max-h-[70vh] overflow-y-auto pr-1">
             {filteredDevices.length === 0 ? (
               <div className="p-8 text-center text-xs text-surface-500 font-bold bg-surface-50/30 dark:bg-surface-900/40 rounded-xl border border-dashed border-surface-200 dark:border-surface-800">
-                No matching devices found. Clear search to see latest devices.
+                No matching devices found.
               </div>
             ) : (
               filteredDevices.map((d) => {
