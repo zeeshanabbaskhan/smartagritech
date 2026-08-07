@@ -163,3 +163,4 @@ const assignTheme = async (req, res, next) => {
 module.exports = {
   getActiveTheme, getThemes, createTheme, updateTheme, deleteTheme, assignTheme,
 }
+
