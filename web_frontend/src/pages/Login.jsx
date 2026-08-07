@@ -17,7 +17,9 @@ const DEMO_CREDENTIALS = [
 export default function Login() {
   const { loginWithCredentials } = useAuth()
   const { showToast } = useToast()
-  const { theme, toggleTheme } = useTheme()
+  const { theme, toggleTheme, branding } = useTheme()
+  const platformName = branding?.name || 'Elsa Energy'
+  const logoUrl = branding?.logoUrl || '/elsa_logo.jpeg'
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -80,11 +82,11 @@ export default function Login() {
           <div className="w-full flex-1 flex flex-col justify-between z-10">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden p-1 shadow-sm">
-                <img src="/elsa_logo.jpeg" alt="Elsa Energy" className="w-full h-full object-contain rounded-lg" />
+                <img src={logoUrl} alt={platformName} className="w-full h-full object-contain rounded-lg" />
               </div>
               <div>
                 <h1 className="text-base font-bold text-surface-100 tracking-wide leading-none">
-                  Elsa Energy
+                  {platformName}
                 </h1>
               </div>
             </div>
@@ -117,7 +119,7 @@ export default function Login() {
             </div>
 
             <div className="text-xs text-surface-500">
-              &copy; 2026 Elsa Energy. All rights reserved.
+              &copy; 2026 {platformName}. All rights reserved.
             </div>
           </div>
         </div>
@@ -136,10 +138,10 @@ export default function Login() {
             {/* Logo on mobile only */}
             <div className="flex items-center gap-3 mb-4 lg:hidden">
               <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden p-0.5 shadow-sm border border-surface-200 dark:border-surface-700">
-                <img src="/elsa_logo.jpeg" alt="Elsa Energy" className="w-full h-full object-contain rounded-md" />
+                <img src={logoUrl} alt={platformName} className="w-full h-full object-contain rounded-md" />
               </div>
               <h1 className="text-sm font-bold text-surface-900 dark:text-surface-100 tracking-wide uppercase">
-                Elsa Energy
+                {platformName}
               </h1>
             </div>
 
@@ -256,11 +258,11 @@ export default function Login() {
         <div className="fixed inset-0 flex flex-col items-center justify-center bg-white dark:bg-surface-950 z-[99999] px-6 select-none welcome-content-fade-in">
           <div className="text-center space-y-6 max-w-md">
             <div className="w-32 h-32 bg-white rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl animate-pulse overflow-hidden p-3 border border-surface-200 dark:border-surface-700">
-              <img src="/elsa_logo.jpeg" alt="Elsa Energy" className="w-full h-full object-contain rounded-[1.75rem]" />
+              <img src={logoUrl} alt={platformName} className="w-full h-full object-contain rounded-[1.75rem]" />
             </div>
             <div className="space-y-2">
               <h2 className="text-3xl font-black text-[#141828] dark:text-surface-100 tracking-widest uppercase mt-4">
-                Elsa Energy
+                {platformName}
               </h2>
               <p className="text-sm text-surface-500 uppercase tracking-[0.25em] font-bold animate-pulse mt-2">
                 Opening secure portal...

@@ -196,8 +196,13 @@ const emsApi = {
   deleteProduct: (id) => api.delete(`/products/${id}`),
 
   getThemes: (params) => api.get('/themes', q(params)),
-  createTheme: (body) => api.post('/themes', body),
-  updateTheme: (id, body) => api.put(`/themes/${id}`, body),
+  getActiveTheme: () => api.get('/themes/active'),
+  createTheme: (body) => (
+    body instanceof FormData ? api.upload('POST', '/themes', body) : api.post('/themes', body)
+  ),
+  updateTheme: (id, body) => (
+    body instanceof FormData ? api.upload('PUT', `/themes/${id}`, body) : api.put(`/themes/${id}`, body)
+  ),
   deleteTheme: (id) => api.delete(`/themes/${id}`),
   assignTheme: (id, organizationId) => api.post(`/themes/${id}/assign`, { orgId: organizationId }),
 

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { NavLink } from 'react-router-dom'
 import { ChevronDown, ChevronRight, PanelLeftClose, PanelLeft, X } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
+import { useTheme } from '../../context/ThemeContext'
 
 function SidebarItem({ item, depth = 0, collapsed, onNavClick }) {
   const [open, setOpen] = useState(false)
@@ -82,6 +83,7 @@ function SidebarItem({ item, depth = 0, collapsed, onNavClick }) {
 
 export default function Sidebar({ navItems, role, mobileOpen = false, onMobileClose }) {
   const { user } = useAuth()
+  const { branding } = useTheme()
   const [collapsed, setCollapsed] = useState(() => {
     return localStorage.getItem('sidebar-collapsed') === 'true'
   })
@@ -99,24 +101,42 @@ export default function Sidebar({ navItems, role, mobileOpen = false, onMobileCl
     user:  'text-primary-500'
   }
 
+  const platformName = branding?.name || 'Elsa Energy'
+  const logoUrl = branding?.logoUrl || '/elsa_logo.jpeg'
+  const showLogo = branding?.showLogoInSidebar !== false
+  const sidebarTone = String(branding?.sidebarColor || 'Dark').toLowerCase()
+  const sidebarBg = sidebarTone === 'light'
+    ? 'bg-white border-surface-200'
+    : sidebarTone.startsWith('#')
+      ? ''
+      : 'bg-surface-950 border-surface-800'
+  const sidebarStyle = sidebarTone.startsWith('#')
+    ? { backgroundColor: branding.sidebarColor }
+    : undefined
+  const brandTextClass = sidebarTone === 'light' ? 'text-surface-900' : 'text-surface-100'
+
   return (
     <aside
       className={`
-        bg-surface-950 border-r border-surface-800 flex flex-col h-screen select-none transition-all duration-250 z-40
+        border-r flex flex-col h-screen select-none transition-all duration-250 z-40
         fixed inset-y-0 left-0 md:sticky md:top-0 md:flex-shrink-0
         ${mobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
         ${collapsed ? 'w-64 md:w-16' : 'w-64'}
+        ${sidebarBg}
       `}
+      style={sidebarStyle}
     >
       {/* Logo Area */}
-      <div className="flex items-center gap-3 px-4 py-4 border-b border-surface-800 min-h-[57px]">
-        <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden p-0.5 shadow-sm">
-          <img src="/elsa_logo.jpeg" alt="Elsa Energy" className="w-full h-full object-contain rounded-md" />
-        </div>
+      <div className={`flex items-center gap-3 px-4 py-4 border-b min-h-[57px] ${sidebarTone === 'light' ? 'border-surface-200' : 'border-surface-800'}`}>
+        {showLogo && (
+          <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden p-0.5 shadow-sm">
+            <img src={logoUrl} alt={platformName} className="w-full h-full object-contain rounded-md" />
+          </div>
+        )}
         {!collapsed && (
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-bold text-surface-100 leading-none tracking-wide">
-              Elsa Energy
+            <p className={`text-sm font-bold leading-none tracking-wide truncate ${brandTextClass}`}>
+              {platformName}
             </p>
           </div>
         )}
@@ -124,7 +144,7 @@ export default function Sidebar({ navItems, role, mobileOpen = false, onMobileCl
         <button
           type="button"
           onClick={onMobileClose}
-          className="md:hidden p-1 text-surface-500 hover:text-surface-200 transition-colors"
+          className={`md:hidden p-1 transition-colors ${sidebarTone === 'light' ? 'text-surface-500 hover:text-surface-800' : 'text-surface-500 hover:text-surface-200'}`}
         >
           <X size={18} />
         </button>

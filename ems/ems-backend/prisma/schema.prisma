@@ -820,17 +820,22 @@ enum ProductStatus {
 }
 
 model Theme {
-  id              String      @id @default(uuid())
-  name            String
-  headerFontColor String?
-  headerBgColor   String?
-  bodyFontColor   String?
-  bodyBgColor     String?
-  fontSize        String?
-  status          ThemeStatus @default(ACTIVE)
-  createdBy       String?
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
+  id                 String      @id @default(uuid())
+  name               String
+  headerFontColor    String?
+  headerBgColor      String?
+  bodyFontColor      String?
+  bodyBgColor        String?
+  fontSize           String?
+  logoUrl            String?
+  sidebarColor       String?     @default("Dark")
+  fontFamily         String?     @default("Inter")
+  darkModeDefault    Boolean     @default(true)
+  showLogoInSidebar  Boolean     @default(true)
+  status             ThemeStatus @default(ACTIVE)
+  createdBy          String?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
 
   organizations   Organization[]
   widgetTemplates WidgetTemplate[]

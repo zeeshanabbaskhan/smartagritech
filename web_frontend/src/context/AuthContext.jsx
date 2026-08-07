@@ -66,6 +66,7 @@ export function AuthProvider({ children }) {
     sessionStorage.removeItem(IMPERSONATION_KEY)
     setImpersonation(null)
     setUser(null)
+    window.dispatchEvent(new Event('ems:auth-changed'))
   }, [])
 
   useEffect(() => {
@@ -137,7 +138,9 @@ export function AuthProvider({ children }) {
     sessionStorage.removeItem(IMPERSONATION_KEY)
     setImpersonation(null)
     const res = await emsApi.login(email.trim(), password)
-    return applySessionTokens(res)
+    const session = applySessionTokens(res)
+    window.dispatchEvent(new Event('ems:auth-changed'))
+    return session
   }
 
   const startImpersonation = async (res) => {
@@ -162,6 +165,7 @@ export function AuthProvider({ children }) {
       adminName: user.name,
       adminEmail: user.email,
     })
+    window.dispatchEvent(new Event('ems:auth-changed'))
     return session
   }
 
@@ -194,6 +198,7 @@ export function AuthProvider({ children }) {
       const res = await emsApi.me()
       const session = mapSessionUser(res)
       setUser(session)
+      window.dispatchEvent(new Event('ems:auth-changed'))
       return session
     } catch (_) {
       clearSession()

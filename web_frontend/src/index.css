@@ -44,10 +44,12 @@
     @apply text-surface-100;
   }
   .sidebar-link.active {
-    background: rgba(245, 166, 35, 0.10);
-    @apply text-primary-500 font-semibold border-l-2 border-primary-500 rounded-l-none rounded-r-lg;
+    @apply font-semibold border-l-2 rounded-l-none rounded-r-lg;
+    color: var(--brand-primary, #F5A623);
+    border-color: var(--brand-primary, #F5A623);
+    background: color-mix(in srgb, var(--brand-primary, #F5A623) 12%, transparent);
   }
-  .sidebar-link.active svg { @apply text-primary-500; }
+  .sidebar-link.active svg { color: var(--brand-primary, #F5A623); }
 
   /* ── Cards — light/dark surface ── */
   .card {
@@ -61,7 +63,8 @@
            focus-visible:ring-2 focus-visible:ring-offset-2;
   }
   .btn-primary {
-    @apply btn bg-primary-500 text-surface-950 hover:bg-primary-400 active:scale-95 focus-visible:ring-primary-500;
+    @apply btn text-surface-950 hover:brightness-110 active:scale-95 focus-visible:ring-primary-500;
+    background-color: var(--brand-primary, #F5A623);
   }
   .btn-secondary {
     @apply btn bg-white dark:bg-surface-900 text-surface-700 dark:text-surface-300 border border-surface-300 dark:border-surface-800
