@@ -225,3 +225,4 @@ export const api = {
 
 export const list = (res) => (Array.isArray(res?.data) ? res.data : [])
 export const one = (res) => res?.data ?? res
+
