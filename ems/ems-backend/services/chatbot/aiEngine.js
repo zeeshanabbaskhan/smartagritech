@@ -397,7 +397,7 @@ async function callGemini(messages, ctx) {
 
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
   const model = genAI.getGenerativeModel({
-    model: process.env.GEMINI_MODEL || 'gemini-1.5-flash',
+    model: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
     systemInstruction: SYSTEM_PROMPT,
     tools: [{ functionDeclarations: TOOL_SCHEMAS_GEMINI }],
   })
