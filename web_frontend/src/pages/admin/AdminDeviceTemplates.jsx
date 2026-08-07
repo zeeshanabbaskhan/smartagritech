@@ -195,7 +195,8 @@ export default function AdminDeviceTemplates() {
               disabled={modal === 'edit'} />
             <SelectInput label="Acquisition Method"
               value={form.method} onChange={(e) => setForm((f) => ({ ...f, method: e.target.value }))}
-              options={acquisitionOptions} />
+              options={acquisitionOptions}
+            />
             <TextareaInput label="Description" placeholder="Template description..."
               value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
           </div>

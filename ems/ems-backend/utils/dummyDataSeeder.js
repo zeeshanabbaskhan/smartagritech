@@ -142,7 +142,7 @@ const seedDummyData = async () => {
     {
       name:              'Agritech Energy Monitor',
       organizationId:    org.id,
-      acquisitionMethod: 'edge_computing',
+      acquisitionMethod: 'Edge Computing',
     }
   )
   console.log('DeviceTemplate:', template.name)
