@@ -29,9 +29,6 @@ export default function AdminThemeSettings() {
   const [form, setForm] = useState({
     platformName: 'Elsa Energy',
     primaryColor: '#F5A623',
-    secondaryColor: '#0ea5e9',
-    sidebarColor: 'Dark',
-    fontFamily: 'Inter',
     darkModeDefault: true,
     showLogo: true,
   })
@@ -48,9 +45,6 @@ export default function AdminThemeSettings() {
     setForm({
       platformName: theme.name || 'Elsa Energy',
       primaryColor: theme.headerBgColor || theme.primary || '#F5A623',
-      secondaryColor: theme.bodyBgColor || theme.secondary || '#0ea5e9',
-      sidebarColor: theme.sidebarColor || 'Dark',
-      fontFamily: theme.fontFamily || 'Inter',
       darkModeDefault: theme.darkModeDefault !== false,
       showLogo: theme.showLogoInSidebar !== false,
     })
@@ -72,11 +66,8 @@ export default function AdminThemeSettings() {
     const fd = new FormData()
     fd.append('name', form.platformName)
     fd.append('headerBgColor', form.primaryColor)
-    fd.append('bodyBgColor', form.secondaryColor)
     fd.append('headerFontColor', '#ffffff')
     fd.append('bodyFontColor', '#1f2937')
-    fd.append('sidebarColor', form.sidebarColor)
-    fd.append('fontFamily', form.fontFamily)
     fd.append('darkModeDefault', String(form.darkModeDefault))
     fd.append('showLogoInSidebar', String(form.showLogo))
     fd.append('status', 'ACTIVE')
@@ -162,49 +153,15 @@ export default function AdminThemeSettings() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="label">Primary Color</label>
-                <div className="flex items-center gap-2">
-                  <input type="color" value={form.primaryColor}
-                    onChange={(e) => setForm((f) => ({ ...f, primaryColor: e.target.value }))}
-                    className="w-9 h-9 rounded cursor-pointer bg-surface-100 border border-surface-200 p-0.5" />
-                  <input className="input flex-1 font-mono text-xs" value={form.primaryColor}
-                    onChange={(e) => setForm((f) => ({ ...f, primaryColor: e.target.value }))} />
-                </div>
-              </div>
-              <div>
-                <label className="label">Secondary Color</label>
-                <div className="flex items-center gap-2">
-                  <input type="color" value={form.secondaryColor}
-                    onChange={(e) => setForm((f) => ({ ...f, secondaryColor: e.target.value }))}
-                    className="w-9 h-9 rounded cursor-pointer bg-surface-100 border border-surface-200 p-0.5" />
-                  <input className="input flex-1 font-mono text-xs" value={form.secondaryColor}
-                    onChange={(e) => setForm((f) => ({ ...f, secondaryColor: e.target.value }))} />
-                </div>
-              </div>
-            </div>
-
             <div>
-              <label className="label">Sidebar Color</label>
-              <select className="select"
-                value={form.sidebarColor}
-                onChange={(e) => setForm((f) => ({ ...f, sidebarColor: e.target.value }))}>
-                <option value="Dark">Dark</option>
-                <option value="Light">Light</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="label">Font Family</label>
-              <select className="select"
-                value={form.fontFamily}
-                onChange={(e) => setForm((f) => ({ ...f, fontFamily: e.target.value }))}>
-                <option value="Inter">Inter</option>
-                <option value="Roboto">Roboto</option>
-                <option value="Open Sans">Open Sans</option>
-                <option value="Poppins">Poppins</option>
-              </select>
+              <label className="label">Primary Color</label>
+              <div className="flex items-center gap-2 max-w-xs">
+                <input type="color" value={form.primaryColor}
+                  onChange={(e) => setForm((f) => ({ ...f, primaryColor: e.target.value }))}
+                  className="w-9 h-9 rounded cursor-pointer bg-surface-100 border border-surface-200 p-0.5" />
+                <input className="input flex-1 font-mono text-xs" value={form.primaryColor}
+                  onChange={(e) => setForm((f) => ({ ...f, primaryColor: e.target.value }))} />
+              </div>
             </div>
 
             <SelectInput label="Assign to Organization" placeholder="Optional — assign theme to org"

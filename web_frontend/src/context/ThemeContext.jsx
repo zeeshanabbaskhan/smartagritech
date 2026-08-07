@@ -10,9 +10,6 @@ const DEFAULT_BRANDING = {
   name: 'Elsa Energy',
   logoUrl: '/elsa_logo.jpeg',
   primaryColor: '#F5A623',
-  secondaryColor: '#0ea5e9',
-  sidebarColor: 'Dark',
-  fontFamily: 'Inter',
   darkModeDefault: true,
   showLogoInSidebar: true,
 }
@@ -33,9 +30,6 @@ function mapApiTheme(t) {
     name: t.name || DEFAULT_BRANDING.name,
     logoUrl: t.logoUrl || DEFAULT_BRANDING.logoUrl,
     primaryColor: t.headerBgColor || t.primaryColor || DEFAULT_BRANDING.primaryColor,
-    secondaryColor: t.bodyBgColor || t.secondaryColor || DEFAULT_BRANDING.secondaryColor,
-    sidebarColor: t.sidebarColor || DEFAULT_BRANDING.sidebarColor,
-    fontFamily: t.fontFamily || t.fontSize || DEFAULT_BRANDING.fontFamily,
     darkModeDefault: t.darkModeDefault !== false,
     showLogoInSidebar: t.showLogoInSidebar !== false,
   }
@@ -44,12 +38,6 @@ function mapApiTheme(t) {
 function applyBrandingCss(branding) {
   const root = document.documentElement
   root.style.setProperty('--brand-primary', branding.primaryColor)
-  root.style.setProperty('--brand-secondary', branding.secondaryColor)
-  root.style.setProperty('--brand-font', branding.fontFamily)
-  if (branding.fontFamily) {
-    root.style.setProperty('font-family', `${branding.fontFamily}, ui-sans-serif, system-ui, sans-serif`)
-  }
-  // Map primary into common Tailwind-like CSS vars used by btn-primary where possible
   root.style.setProperty('--color-primary-500', branding.primaryColor)
   root.style.setProperty('--color-primary-600', branding.primaryColor)
 }

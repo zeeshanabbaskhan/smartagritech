@@ -104,16 +104,6 @@ export default function Sidebar({ navItems, role, mobileOpen = false, onMobileCl
   const platformName = branding?.name || 'Elsa Energy'
   const logoUrl = branding?.logoUrl || '/elsa_logo.jpeg'
   const showLogo = branding?.showLogoInSidebar !== false
-  const sidebarTone = String(branding?.sidebarColor || 'Dark').toLowerCase()
-  const sidebarBg = sidebarTone === 'light'
-    ? 'bg-white border-surface-200'
-    : sidebarTone.startsWith('#')
-      ? ''
-      : 'bg-surface-950 border-surface-800'
-  const sidebarStyle = sidebarTone.startsWith('#')
-    ? { backgroundColor: branding.sidebarColor }
-    : undefined
-  const brandTextClass = sidebarTone === 'light' ? 'text-surface-900' : 'text-surface-100'
 
   return (
     <aside
@@ -122,12 +112,11 @@ export default function Sidebar({ navItems, role, mobileOpen = false, onMobileCl
         fixed inset-y-0 left-0 md:sticky md:top-0 md:flex-shrink-0
         ${mobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
         ${collapsed ? 'w-64 md:w-16' : 'w-64'}
-        ${sidebarBg}
+        bg-surface-950 border-surface-800
       `}
-      style={sidebarStyle}
     >
       {/* Logo Area */}
-      <div className={`flex items-center gap-3 px-4 py-4 border-b min-h-[57px] ${sidebarTone === 'light' ? 'border-surface-200' : 'border-surface-800'}`}>
+      <div className="flex items-center gap-3 px-4 py-4 border-b min-h-[57px] border-surface-800">
         {showLogo && (
           <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden p-0.5 shadow-sm">
             <img src={logoUrl} alt={platformName} className="w-full h-full object-contain rounded-md" />
@@ -135,7 +124,7 @@ export default function Sidebar({ navItems, role, mobileOpen = false, onMobileCl
         )}
         {!collapsed && (
           <div className="min-w-0 flex-1">
-            <p className={`text-sm font-bold leading-none tracking-wide truncate ${brandTextClass}`}>
+            <p className="text-sm font-bold leading-none tracking-wide truncate text-surface-100">
               {platformName}
             </p>
           </div>
@@ -144,7 +133,7 @@ export default function Sidebar({ navItems, role, mobileOpen = false, onMobileCl
         <button
           type="button"
           onClick={onMobileClose}
-          className={`md:hidden p-1 transition-colors ${sidebarTone === 'light' ? 'text-surface-500 hover:text-surface-800' : 'text-surface-500 hover:text-surface-200'}`}
+          className="md:hidden p-1 transition-colors text-surface-500 hover:text-surface-200"
         >
           <X size={18} />
         </button>
