@@ -1,23 +1,40 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Eye, Pencil, Trash2, Plus } from 'lucide-react'
 import DataTable from '../../components/ui/DataTable'
 import Modal from '../../components/ui/Modal'
-import { TextInput, SelectInput } from '../../components/ui/FormFields'
+import { TextInput, SelectInput, RadioInput } from '../../components/ui/FormFields'
 import PageState, { useFetch } from '../../components/ui/PageState'
 import { useDevices } from '../../context/DeviceContext'
 import { useToast } from '../../context/ToastContext'
 import emsApi, { list } from '../../api/emsApi'
 import { mapSlabRate } from '../../utils/mappers'
 
-const blank = { slaveId: '', unitFrom: '', unitTo: '', rate: '', onPeakRate: '', offPeakRate: '' }
+const RATE_TYPES = [
+  { value: 'default', label: 'Default Rate' },
+  { value: 'time_based', label: 'Time-Based (On/Off Peak)' },
+]
+
+const blank = {
+  deviceId: '',
+  slaveId: '',
+  unitFrom: '',
+  unitTo: '',
+  rateType: 'default',
+  rate: '',
+  onPeakRate: '',
+  offPeakRate: '',
+}
 
 export default function UserSlabRates() {
-  const { devices, slaves } = useDevices()
+  const { devices } = useDevices()
   const { showToast } = useToast()
   const [deviceFilter, setDeviceFilter] = useState('')
   const [modal, setModal] = useState(null)
   const [selected, setSelected] = useState(null)
   const [form, setForm] = useState(blank)
+  const [formSlaves, setFormSlaves] = useState([])
+  const [loadingSlaves, setLoadingSlaves] = useState(false)
+  const [errors, setErrors] = useState({})
   const [saving, setSaving] = useState(false)
 
   const { data: rows, loading, error, reload } = useFetch(
@@ -25,39 +42,105 @@ export default function UserSlabRates() {
     []
   )
 
+  useEffect(() => {
+    let cancelled = false
+    const loadSlaves = async () => {
+      if (!form.deviceId || (modal !== 'add' && modal !== 'edit')) {
+        setFormSlaves([])
+        return
+      }
+      setLoadingSlaves(true)
+      try {
+        const slaves = list(await emsApi.getDeviceConfig(form.deviceId))
+        if (cancelled) return
+        setFormSlaves(slaves)
+        setForm((f) => {
+          if (f.slaveId && slaves.some((s) => s.id === f.slaveId)) return f
+          return { ...f, slaveId: slaves[0]?.id ?? '' }
+        })
+      } catch {
+        if (!cancelled) {
+          setFormSlaves([])
+          showToast('Failed to load slaves for location', 'error')
+        }
+      } finally {
+        if (!cancelled) setLoadingSlaves(false)
+      }
+    }
+    loadSlaves()
+    return () => { cancelled = true }
+  }, [form.deviceId, modal]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const openAdd = () => {
-    setForm({ ...blank, slaveId: slaves[0]?.id ?? '' })
+    const deviceId = devices[0]?.id ?? ''
+    setForm({ ...blank, deviceId })
+    setErrors({})
     setModal('add')
   }
+
   const openEdit = (row) => {
     setSelected(row)
+    const rateType = row.rateType === 'time_based' ? 'time_based' : 'default'
     setForm({
+      deviceId: row.deviceId ?? row.locationId ?? '',
       slaveId: row.slaveId ?? '',
       unitFrom: row.unitFrom ?? '',
       unitTo: row.unitTo ?? '',
-      rate: row.rate ?? '',
-      onPeakRate: row._raw?.onPeakRate ?? '',
-      offPeakRate: row._raw?.offPeakRate ?? '',
+      rateType,
+      rate: rateType === 'default' ? (row.rate ?? '') : '',
+      onPeakRate: row.onPeakRate ?? row._raw?.onPeakRate ?? '',
+      offPeakRate: row.offPeakRate ?? row._raw?.offPeakRate ?? '',
     })
+    setErrors({})
     setModal('edit')
   }
+
   const openView = (row) => { setSelected(row); setModal('view') }
-  const close = () => { setModal(null); setSelected(null) }
+  const close = () => { setModal(null); setSelected(null); setErrors({}) }
+
+  const validate = () => {
+    const next = {}
+    if (!form.deviceId) next.deviceId = 'Location is required'
+    if (!form.slaveId) next.slaveId = 'Slave is required'
+    if (form.unitFrom === '' || Number.isNaN(parseFloat(form.unitFrom))) next.unitFrom = 'Unit From is required'
+    if (form.unitTo === '' || Number.isNaN(parseFloat(form.unitTo))) next.unitTo = 'Unit To is required'
+    else if (parseFloat(form.unitTo) <= parseFloat(form.unitFrom)) next.unitTo = 'Must be greater than Unit From'
+    if (!form.rateType) next.rateType = 'Rate Type is required'
+    if (form.rateType === 'default') {
+      if (form.rate === '' || Number.isNaN(parseFloat(form.rate))) next.rate = 'Rate is required'
+    } else {
+      if (form.onPeakRate === '' || Number.isNaN(parseFloat(form.onPeakRate))) next.onPeakRate = 'On Peak Rate is required'
+      if (form.offPeakRate === '' || Number.isNaN(parseFloat(form.offPeakRate))) next.offPeakRate = 'Off Peak Rate is required'
+    }
+    setErrors(next)
+    return Object.keys(next).length === 0
+  }
 
   const handleSave = async () => {
-    if (!form.slaveId) return
+    if (!validate()) {
+      showToast('Please fill all required fields', 'error')
+      return
+    }
     setSaving(true)
     try {
       const body = {
         deviceConfigSlaveId: form.slaveId,
         unitFrom: parseFloat(form.unitFrom),
         unitTo: parseFloat(form.unitTo),
-        rate: parseFloat(form.rate),
-        onPeakRate: form.onPeakRate !== '' ? parseFloat(form.onPeakRate) : undefined,
-        offPeakRate: form.offPeakRate !== '' ? parseFloat(form.offPeakRate) : undefined,
       }
+      if (form.rateType === 'time_based') {
+        body.onPeakRate = parseFloat(form.onPeakRate)
+        body.offPeakRate = parseFloat(form.offPeakRate)
+        body.rate = body.onPeakRate
+      } else {
+        body.rate = parseFloat(form.rate)
+        body.onPeakRate = null
+        body.offPeakRate = null
+      }
+
       if (modal === 'add') await emsApi.createSlabRate(body)
       else await emsApi.updateSlabRate(selected.id, body)
+      showToast(modal === 'add' ? 'Slab rate created' : 'Slab rate updated', 'success')
       close()
       reload()
     } catch (e) {
@@ -71,6 +154,7 @@ export default function UserSlabRates() {
     if (!confirm(`Delete slab rate for "${row.slave}"?`)) return
     try {
       await emsApi.deleteSlabRate(row.id)
+      showToast('Slab rate deleted', 'success')
       reload()
     } catch (e) {
       showToast(e.message || 'Delete failed', 'error')
@@ -78,23 +162,27 @@ export default function UserSlabRates() {
   }
 
   const filtered = (rows ?? [])
-    .filter((r) => !deviceFilter || r.slave === deviceFilter || r.slaveName === deviceFilter)
+    .filter((r) => !deviceFilter || r.location === deviceFilter || r.deviceId === deviceFilter)
     .map((r) => ({
       ...r,
-      onPeakRate: r._raw?.onPeakRate ?? '—',
-      offPeakRate: r._raw?.offPeakRate ?? '—',
+      onPeakRate: r.onPeakRate ?? '—',
+      offPeakRate: r.offPeakRate ?? '—',
+      rateDisplay: r.rateType === 'time_based'
+        ? `On ${r.onPeakRate ?? '—'} / Off ${r.offPeakRate ?? '—'}`
+        : (r.rate ?? '—'),
     }))
 
   const columns = [
+    { key: 'location', label: 'Location' },
     { key: 'slave', label: 'Slave' },
     { key: 'unitFrom', label: 'Unit From' },
     { key: 'unitTo', label: 'Unit To' },
-    { key: 'rate', label: 'Rate' },
-    { key: 'onPeakRate', label: 'On-Peak Rate' },
-    { key: 'offPeakRate', label: 'Off-Peak Rate' },
+    { key: 'rateTypeLabel', label: 'Rate Type' },
+    { key: 'rateDisplay', label: 'Rate' },
   ]
 
-  const slaveOptions = (slaves.length ? slaves : devices).map((s) => ({
+  const locationOptions = devices.map((d) => ({ value: d.id, label: d.name }))
+  const slaveOptions = formSlaves.map((s) => ({
     value: s.id,
     label: s.name ?? s.slaveName ?? s.id,
   }))
@@ -112,7 +200,7 @@ export default function UserSlabRates() {
 
         <div className="card p-4 mb-5">
           <div className="w-56">
-            <label className="label">Device</label>
+            <label className="label">Location</label>
             <select className="select" value={deviceFilter} onChange={(e) => setDeviceFilter(e.target.value)}>
               <option value="">All locations</option>
               {devices.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
@@ -137,22 +225,37 @@ export default function UserSlabRates() {
         <Modal
           open={modal === 'add' || modal === 'edit'}
           onClose={close}
-          title={modal === 'add' ? 'Add Slab Rate' : 'Edit Slab Rate'}
+          title={modal === 'add' ? 'Add Slab Rates' : 'Edit Slab Rates'}
           footer={(
             <>
               <button type="button" className="btn-secondary" onClick={close}>Cancel</button>
-              <button type="button" className="btn-primary" onClick={handleSave} disabled={saving}>
-                {saving ? 'Saving...' : modal === 'add' ? 'Create' : 'Save Changes'}
+              <button type="button" className="btn-primary" onClick={handleSave} disabled={saving || loadingSlaves}>
+                {saving ? 'Saving...' : 'Save'}
               </button>
             </>
           )}
         >
           <div className="space-y-4">
             <SelectInput
+              label="Location"
+              required
+              placeholder="Select location"
+              value={form.deviceId}
+              error={errors.deviceId}
+              onChange={(e) => setForm((f) => ({
+                ...f,
+                deviceId: e.target.value || locationOptions[0]?.value || '',
+                slaveId: '',
+              }))}
+              options={locationOptions}
+            />
+            <SelectInput
               label="Slave"
               required
-              placeholder="Select device"
+              placeholder={loadingSlaves ? 'Loading slaves...' : 'Select slave'}
               value={form.slaveId}
+              error={errors.slaveId}
+              disabled={!form.deviceId || loadingSlaves}
               onChange={(e) => setForm((f) => ({
                 ...f,
                 slaveId: e.target.value || slaveOptions[0]?.value || '',
@@ -160,14 +263,61 @@ export default function UserSlabRates() {
               options={slaveOptions}
             />
             <div className="grid grid-cols-2 gap-4">
-              <TextInput label="Unit From" value={form.unitFrom} onChange={(e) => setForm((f) => ({ ...f, unitFrom: e.target.value }))} />
-              <TextInput label="Unit To" value={form.unitTo} onChange={(e) => setForm((f) => ({ ...f, unitTo: e.target.value }))} />
+              <TextInput
+                label="Unit From"
+                required
+                type="number"
+                value={form.unitFrom}
+                error={errors.unitFrom}
+                onChange={(e) => setForm((f) => ({ ...f, unitFrom: e.target.value }))}
+              />
+              <TextInput
+                label="Unit To"
+                required
+                type="number"
+                value={form.unitTo}
+                error={errors.unitTo}
+                onChange={(e) => setForm((f) => ({ ...f, unitTo: e.target.value }))}
+              />
             </div>
-            <TextInput label="Rate" value={form.rate} onChange={(e) => setForm((f) => ({ ...f, rate: e.target.value }))} />
-            <div className="grid grid-cols-2 gap-4">
-              <TextInput label="On-Peak Rate" value={form.onPeakRate} onChange={(e) => setForm((f) => ({ ...f, onPeakRate: e.target.value }))} />
-              <TextInput label="Off-Peak Rate" value={form.offPeakRate} onChange={(e) => setForm((f) => ({ ...f, offPeakRate: e.target.value }))} />
-            </div>
+            <RadioInput
+              label="Rate Type"
+              name="slab-rate-type"
+              required
+              value={form.rateType}
+              error={errors.rateType}
+              options={RATE_TYPES}
+              onChange={(v) => setForm((f) => ({ ...f, rateType: v }))}
+            />
+            {form.rateType === 'default' ? (
+              <TextInput
+                label="Rate"
+                required
+                type="number"
+                value={form.rate}
+                error={errors.rate}
+                onChange={(e) => setForm((f) => ({ ...f, rate: e.target.value }))}
+              />
+            ) : (
+              <div className="grid grid-cols-2 gap-4">
+                <TextInput
+                  label="On Peak Rate"
+                  required
+                  type="number"
+                  value={form.onPeakRate}
+                  error={errors.onPeakRate}
+                  onChange={(e) => setForm((f) => ({ ...f, onPeakRate: e.target.value }))}
+                />
+                <TextInput
+                  label="Off Peak Rate"
+                  required
+                  type="number"
+                  value={form.offPeakRate}
+                  error={errors.offPeakRate}
+                  onChange={(e) => setForm((f) => ({ ...f, offPeakRate: e.target.value }))}
+                />
+              </div>
+            )}
           </div>
         </Modal>
 
@@ -175,12 +325,14 @@ export default function UserSlabRates() {
           {selected && (
             <div className="space-y-3">
               {[
+                ['Location', selected.location],
                 ['Slave', selected.slave],
                 ['Unit From', selected.unitFrom],
                 ['Unit To', selected.unitTo],
-                ['Rate', selected.rate],
-                ['On-Peak Rate', selected._raw?.onPeakRate ?? '—'],
-                ['Off-Peak Rate', selected._raw?.offPeakRate ?? '—'],
+                ['Rate Type', selected.rateTypeLabel],
+                ['Rate', selected.rateType === 'time_based' ? '—' : selected.rate],
+                ['On-Peak Rate', selected.onPeakRate ?? '—'],
+                ['Off-Peak Rate', selected.offPeakRate ?? '—'],
               ].map(([label, val]) => (
                 <div key={label} className="flex justify-between text-sm">
                   <span className="text-surface-400">{label}</span>

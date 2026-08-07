@@ -203,24 +203,36 @@ export const mapScheduledTask = (t) => ({
   _raw: t,
 })
 
-export const mapSlabRate = (s) => ({
-  id: s.id,
-  slave: s.deviceConfigSlave?.name ?? s.deviceConfigSlaveId ?? '—',
-  slaveId: s.deviceConfigSlaveId,
-  slaveName: s.deviceConfigSlave?.name ?? s.deviceConfigSlaveId ?? '—',
-  variable: s.variableName ?? '—',
-  variableName: s.variableName ?? 'Power Consumption',
-  from: s.unitFrom,
-  to: s.unitTo,
-  totalUnit: s.unitTo ?? s.unitFrom ?? 0,
-  tariff: s.rate != null ? `PKR ${s.rate}/unit` : '—',
-  startDate: fmtDate(s.createdAt)?.slice(0, 10) ?? '—',
-  endDate: fmtDate(s.updatedAt)?.slice(0, 10) ?? '—',
-  rate: s.rate,
-  unitFrom: s.unitFrom,
-  unitTo: s.unitTo,
-  _raw: s,
-})
+export const mapSlabRate = (s) => {
+  const slave = s.configSlave ?? s.deviceConfigSlave
+  const device = slave?.device
+  const isTimeBased = s.onPeakRate != null || s.offPeakRate != null
+  return {
+    id: s.id,
+    location: device?.name ?? '—',
+    locationId: device?.id ?? slave?.deviceId ?? null,
+    deviceId: device?.id ?? slave?.deviceId ?? null,
+    slave: slave?.name ?? s.deviceConfigSlaveId ?? '—',
+    slaveId: s.deviceConfigSlaveId,
+    slaveName: slave?.name ?? s.deviceConfigSlaveId ?? '—',
+    variable: s.variableName ?? '—',
+    variableName: s.variableName ?? 'Power Consumption',
+    from: s.unitFrom,
+    to: s.unitTo,
+    totalUnit: s.unitTo ?? s.unitFrom ?? 0,
+    tariff: s.rate != null ? `PKR ${s.rate}/unit` : '—',
+    startDate: fmtDate(s.createdAt)?.slice(0, 10) ?? '—',
+    endDate: fmtDate(s.updatedAt)?.slice(0, 10) ?? '—',
+    rate: s.rate,
+    onPeakRate: s.onPeakRate,
+    offPeakRate: s.offPeakRate,
+    rateType: isTimeBased ? 'time_based' : 'default',
+    rateTypeLabel: isTimeBased ? 'Time-Based' : 'Default Rate',
+    unitFrom: s.unitFrom,
+    unitTo: s.unitTo,
+    _raw: s,
+  }
+}
 
 export const mapIntervalHistory = (h) => ({
   id: h.id,
