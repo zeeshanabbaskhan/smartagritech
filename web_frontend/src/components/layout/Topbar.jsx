@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { Bell, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, LogOut, User, Settings, Search, Sun, Moon, Menu, X } from 'lucide-react'
+import { Bell, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, LogOut, User, Settings, Search, Sun, Moon, Menu, X, Undo2 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useTheme } from '../../context/ThemeContext'
 import { useNavigate, useLocation } from 'react-router-dom'
 import emsApi, { list } from '../../api/emsApi'
 import { mapNotification } from '../../utils/mappers'
+import { useToast } from '../../context/ToastContext'
 
 const highlightMatch = (text, search) => {
   if (!search || !text) return text
@@ -21,11 +22,12 @@ const highlightMatch = (text, search) => {
 }
 
 export default function Topbar({ title, onMenuClick }) {
-  const { user, logout } = useAuth()
+  const { user, logout, impersonation, stopImpersonation } = useAuth()
+  const { showToast } = useToast()
   const { theme, toggleTheme } = useTheme()
   const navigate = useNavigate()
   const location = useLocation()
-  
+  const [exitingImpersonation, setExitingImpersonation] = useState(false)
   const [dropOpen, setDropOpen] = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -93,6 +95,20 @@ export default function Topbar({ title, onMenuClick }) {
   }
 
   const handleLogout = async () => { await logout(); navigate('/login') }
+
+  const handleExitImpersonation = async () => {
+    setExitingImpersonation(true)
+    try {
+      await stopImpersonation()
+      showToast('Returned to Super Admin', 'success')
+      navigate('/admin')
+    } catch (e) {
+      showToast(e.message || 'Could not restore admin session', 'error')
+      navigate('/login')
+    } finally {
+      setExitingImpersonation(false)
+    }
+  }
 
   const markAllRead = async () => {
     try {
@@ -305,7 +321,26 @@ export default function Topbar({ title, onMenuClick }) {
 
   return (
     <>
-    <header className="h-14 bg-white dark:bg-surface-900 border-b border-surface-200 dark:border-surface-800 flex items-center justify-between px-3 sm:px-6 sticky top-0 z-30 shadow-sm select-none transition-colors duration-200">
+    <div className="sticky top-0 z-40">
+    {impersonation?.active && (
+      <div className="bg-amber-500 text-amber-950 px-3 sm:px-6 py-2 flex flex-wrap items-center justify-between gap-2 text-xs font-semibold">
+        <span>
+          Viewing as <strong>{user?.name}</strong>
+          {user?.email ? ` (${user.email})` : ''}
+          {impersonation.adminName ? ` — signed in from ${impersonation.adminName}` : ''}
+        </span>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1.5 bg-amber-950/15 hover:bg-amber-950/25 px-2.5 py-1 rounded-md font-bold"
+          onClick={handleExitImpersonation}
+          disabled={exitingImpersonation}
+        >
+          <Undo2 size={13} />
+          {exitingImpersonation ? 'Returning…' : 'Return to Super Admin'}
+        </button>
+      </div>
+    )}
+    <header className="h-14 bg-white dark:bg-surface-900 border-b border-surface-200 dark:border-surface-800 flex items-center justify-between px-3 sm:px-6 shadow-sm select-none transition-colors duration-200">
       {/* Left: Hamburger (mobile) + Title & Breadcrumbs */}
       <div className="min-w-0 flex items-center gap-2 sm:gap-3">
         {/* Hamburger — mobile only */}
@@ -566,6 +601,7 @@ export default function Topbar({ title, onMenuClick }) {
         </div>
       </div>
     </header>
+    </div>
 
     {/* Mobile search panel — slides in below header */}
     {mobileSearchOpen && (

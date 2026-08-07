@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import Topbar from './Topbar'
+import ChatbotWidget from '../chatbot/ChatbotWidget'
 
 const pageTitles = {
   // Admin
@@ -103,6 +104,8 @@ export default function DashboardLayout({ navItems, role }) {
           <Outlet />
         </main>
       </div>
+
+      <ChatbotWidget />
     </div>
   )
 }

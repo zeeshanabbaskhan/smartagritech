@@ -102,20 +102,29 @@ enum UserStatus {
 }
 
 model Gateway {
-  id             String       @id @default(uuid())
+  id             String        @id @default(uuid())
   name           String
-  serialNumber   String       @unique
+  serialNumber   String        @unique
   model          String?
-  status         DeviceStatus @default(OFFLINE)
+  status         GatewayStatus @default(OFFLINE)
   organizationId String
   lastSeenAt     DateTime?
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id])
   devices      Device[]
 
   @@map("gateways")
+}
+
+enum GatewayStatus {
+  ONLINE
+  OFFLINE
+  UPGRADING
+  IN_CONFIGURATION
+  GATEWAY_ALARM
+  DISABLED
 }
 
 enum DeviceStatus {

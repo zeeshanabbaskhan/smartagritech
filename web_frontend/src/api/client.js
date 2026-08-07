@@ -132,7 +132,10 @@ async function request(method, path, { body, query, retry = true } = {}) {
   if (res.status === 401 && onUnauthorized) await onUnauthorized()
 
   if (!res.ok) {
-    const msg = typeof data === 'object' && data?.message ? data.message : `Request failed (${res.status})`
+    const msg =
+      typeof data === 'object' && (data?.message || data?.error)
+        ? (data.message || data.error)
+        : `Request failed (${res.status})`
     throw new ApiError(msg, res.status)
   }
 

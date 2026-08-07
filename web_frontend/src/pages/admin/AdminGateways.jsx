@@ -6,7 +6,7 @@ import { TextInput, SelectInput } from '../../components/ui/FormFields'
 import { Plus, Pencil, Trash2, Eye } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
 import { mapGateway, mapOrganization } from '../../utils/mappers'
-import { uiGatewayStatusToApi } from '../../utils/apiForm'
+import { uiGatewayStatusToApi, GATEWAY_STATUS_OPTIONS, gatewayStatusBadgeClass } from '../../utils/apiForm'
 import { useToast } from '../../context/ToastContext'
 
 const blank = { name: '', serial: '', model: 'CF-G200', organizationId: '', status: 'Online' }
@@ -128,7 +128,7 @@ export default function AdminGateways() {
   }
 
   const columns = [
-    { key: 'status', label: 'Gateway Status', render: (v) => <span className={`badge ${v === 'Online' ? 'badge-success' : 'badge-neutral'}`}>{v}</span> },
+    { key: 'status', label: 'Gateway Status', render: (v) => <span className={`badge ${gatewayStatusBadgeClass(v)}`}>{v}</span> },
     { key: 'name', label: 'Gateway Name' },
     { key: 'serial', label: 'Serial Number', render: (v) => <span className="font-mono text-xs text-surface-400">{v}</span> },
     { key: 'model', label: 'Gateway Model' },
@@ -173,10 +173,10 @@ export default function AdminGateways() {
                 onChange={(e) => setOrgFilter(e.target.value)}
                 options={orgs.map((o) => ({ value: o.id, label: o.name }))} />
             </div>
-            <div className="w-36">
+            <div className="w-48">
               <SelectInput label="Status" placeholder="All status" value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
-                options={['Online', 'Offline']} />
+                options={GATEWAY_STATUS_OPTIONS} />
             </div>
             <div className="w-36">
               <SelectInput label="Model" placeholder="All Models" value={modelFilter}
@@ -239,7 +239,7 @@ export default function AdminGateways() {
                 options={['CF-G100', 'CF-G200', 'CF-G300']} />
               <SelectInput label="Status" value={form.status}
                 onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
-                options={['Online', 'Offline']} />
+                options={GATEWAY_STATUS_OPTIONS} />
             </div>
           </div>
         </Modal>
