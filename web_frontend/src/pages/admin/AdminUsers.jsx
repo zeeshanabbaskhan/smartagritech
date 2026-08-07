@@ -167,13 +167,13 @@ export default function AdminUsers() {
               {canLoginAs(row) ? (
                 <button
                   type="button"
-                  className="btn-ghost px-2 py-1.5 text-primary-600 inline-flex items-center gap-1 text-[11px] font-bold"
+                  className="btn-secondary px-2.5 py-1 text-primary-700 dark:text-primary-400 border-primary-500/40 inline-flex items-center gap-1 text-[11px] font-bold shrink-0"
                   onClick={() => handleLoginAs(row)}
                   title="Login as this user"
                   disabled={loggingInId === row.id}
                 >
                   <LogIn size={14} className={loggingInId === row.id ? 'animate-pulse' : ''} />
-                  <span className="hidden sm:inline">{loggingInId === row.id ? '…' : 'Login'}</span>
+                  {loggingInId === row.id ? '…' : 'Login'}
                 </button>
               ) : null}
               <button type="button" className="btn-ghost p-1.5" onClick={() => openView(row)} title="View"><Eye size={14} /></button>

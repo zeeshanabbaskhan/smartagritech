@@ -179,13 +179,13 @@ export default function AdminOrganizations() {
             <>
               <button
                 type="button"
-                className="btn-ghost px-2 py-1.5 text-primary-600 inline-flex items-center gap-1 text-[11px] font-bold"
+                className="btn-secondary px-2.5 py-1 text-primary-700 dark:text-primary-400 border-primary-500/40 inline-flex items-center gap-1 text-[11px] font-bold shrink-0"
                 onClick={() => handleLoginAs(row)}
                 title="Login as Org Admin"
                 disabled={loggingInId === row.id || row.status === 'Inactive'}
               >
                 <LogIn size={14} className={loggingInId === row.id ? 'animate-pulse' : ''} />
-                <span className="hidden sm:inline">{loggingInId === row.id ? '…' : 'Login'}</span>
+                {loggingInId === row.id ? '…' : 'Login'}
               </button>
               <button type="button" className="btn-ghost p-1.5" onClick={() => openView(row)} title="View"><Eye size={14} /></button>
               <button type="button" className="btn-ghost p-1.5" onClick={() => openEdit(row)} title="Edit"><Pencil size={14} /></button>
@@ -196,7 +196,7 @@ export default function AdminOrganizations() {
 
         <p className="text-xs text-surface-500 mt-3">
           <LogIn size={11} className="inline mr-1 text-primary-600" />
-          Use <span className="text-primary-600 font-semibold">Login</span> to open that organization&apos;s Org Admin portal.
+          Use the <span className="text-primary-600 font-semibold">Login</span> button in Actions to open that organization&apos;s Org Admin portal.
         </p>
 
         <Modal
