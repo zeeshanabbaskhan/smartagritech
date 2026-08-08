@@ -254,8 +254,10 @@ export const mapIntervalHistory = (h) => {
     tariff: h.tariff != null ? String(h.tariff) : '—',
     from: fmtDate(h.startDate),
     to: fmtDate(h.endDate),
-    startDate: fmtDate(h.startDate)?.slice?.(0, 10) ?? fmtDate(h.startDate),
-    endDate: fmtDate(h.endDate)?.slice?.(0, 10) ?? fmtDate(h.endDate),
+    startDate: fmtDate(h.startDate),
+    endDate: fmtDate(h.endDate),
+    startDateTime: h.startDate ?? null,
+    endDateTime: h.endDate ?? null,
     computedAt: fmtDate(h.computedAt),
     _raw: h,
   }

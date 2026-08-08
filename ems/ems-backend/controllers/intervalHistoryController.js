@@ -94,7 +94,7 @@ const getIntervalHistory = async (req, res, next) => {
 // @access SUPER_ADMIN | ORG_ADMIN | USER
 const createIntervalHistory = async (req, res, next) => {
   try {
-    const { deviceConfigSlaveId, variableName, startDate, endDate } = req.body
+    const { deviceConfigSlaveId, variableName, unitVariableName, startDate, endDate } = req.body
     if (!deviceConfigSlaveId) return next(new AppError('Slave is required', 400))
     if (!variableName) return next(new AppError('Variable name is required', 400))
     if (!startDate || !endDate) return next(new AppError('Start and end dates are required', 400))
@@ -108,7 +108,9 @@ const createIntervalHistory = async (req, res, next) => {
       return next(new AppError('Access denied', 403))
     }
 
-    const { totalUnit, tariff } = await computeIntervalCost(deviceConfigSlaveId, variableName, startDate, endDate)
+    // Unit variable drives kWh/tariff math when provided; variableName is the stored label.
+    const computeVar = unitVariableName || variableName
+    const { totalUnit, tariff } = await computeIntervalCost(deviceConfigSlaveId, computeVar, startDate, endDate)
 
     const data = await prisma.intervalHistory.create({
       data: {
