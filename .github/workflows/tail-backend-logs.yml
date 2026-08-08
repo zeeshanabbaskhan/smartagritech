@@ -18,4 +18,4 @@ jobs:
           SSH_PORT="${DEPLOY_SSH_PORT:-22}"
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           ssh-keyscan -p "$SSH_PORT" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
-          ssh -p "$SSH_PORT" "${DEPLOY_USER}@${DEPLOY_HOST}" "cd '$DEPLOY_PATH' && docker compose logs --tail=80 backend 2>&1 | grep -iE 'gemini|chatbot|groq|error|429|API|quota|resource|AI_PROVIDER|GEMINI' || docker compose logs --tail=40 backend"
+          ssh -p "$SSH_PORT" "${DEPLOY_USER}@${DEPLOY_HOST}" "cd '$DEPLOY_PATH' && docker compose logs --tail=120 backend"
