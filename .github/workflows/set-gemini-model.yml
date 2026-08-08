@@ -1,0 +1,55 @@
+name: Set Gemini Model (one-shot)
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: Gemini model id
+        required: true
+        default: gemini-2.0-flash-lite
+jobs:
+  set-model:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: webfactory/ssh-agent@v0.9.1
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+      - name: Patch GEMINI_MODEL
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          DEPLOY_SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
+          MODEL: ${{ github.event.inputs.model }}
+        run: |
+          set -euo pipefail
+          SSH_PORT="${DEPLOY_SSH_PORT:-22}"
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          ssh-keyscan -p "$SSH_PORT" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -p "$SSH_PORT" "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "DEPLOY_PATH='$DEPLOY_PATH' MODEL='$MODEL' bash -s" <<'EOS'
+          set -euo pipefail
+          ENV_FILE="${DEPLOY_PATH}/.env"
+          python3 - <<'PY'
+          import os
+          path = os.environ["DEPLOY_PATH"] + "/.env"
+          model = os.environ["MODEL"]
+          lines = open(path, encoding="utf-8", errors="replace").read().splitlines()
+          out=[]; seen_m=False; seen_p=False
+          for line in lines:
+            if line.startswith("GEMINI_MODEL="):
+              out.append("GEMINI_MODEL="+model); seen_m=True
+            elif line.startswith("AI_PROVIDER="):
+              out.append("AI_PROVIDER=gemini"); seen_p=True
+            else:
+              out.append(line)
+          if not seen_m: out.append("GEMINI_MODEL="+model)
+          if not seen_p: out.append("AI_PROVIDER=gemini")
+          open(path,"w",encoding="utf-8",newline="\n").write("\n".join(out)+"\n")
+          print("GEMINI_MODEL="+model)
+          PY
+          cd "$DEPLOY_PATH"
+          docker compose up -d --force-recreate --no-deps backend
+          sleep 8
+          docker compose exec -T backend sh -c 'echo MODEL=$GEMINI_MODEL; echo PROVIDER=$AI_PROVIDER; echo KEYLEN=${#GEMINI_API_KEY}; echo PREFIX=$(printf %s "$GEMINI_API_KEY" | cut -c1-3)'
+          curl -fsS http://127.0.0.1:9001/health || true
+          EOS
