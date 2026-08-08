@@ -17,6 +17,11 @@ jobs:
           set -euo pipefail
           SSH_PORT="${DEPLOY_SSH_PORT:-22}"
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          ssh-keyscan -p "$SSH_PORT" -H "$DEPLOY_HOST" >> ~/.ssh.known_hosts 2>/dev/null || ssh-keyscan -p "$SSH_PORT" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
-          ssh -p "$SSH_PORT" "${DEPLOY_USER}@${DEPLOY_HOST}" \
-            "cd '$DEPLOY_PATH' && docker compose logs --tail=80 backend 2>&1 | egrep -i 'gemini|chatbot|error|429|404|quota|model|AI_|Elsa|generative' || docker compose logs --tail=40 backend"
+          ssh-keyscan -p "$SSH_PORT" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -p "$SSH_PORT" "${DEPLOY_USER}@${DEPLOY_HOST}" bash -s <<EOS
+          set -euo pipefail
+          cd "$DEPLOY_PATH"
+          docker compose logs --tail=100 backend 2>&1 | grep -iE 'chatbot|gemini|GoogleGenerative|429|404|403|quota|MODEL|not found|API key|RESOURCE|PERMISSION|error detail' || true
+          echo '---LAST40---'
+          docker compose logs --tail=40 backend
+          EOS
