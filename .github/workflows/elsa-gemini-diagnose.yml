@@ -1,0 +1,77 @@
+name: Elsa Gemini Diagnose (one-shot)
+on:
+  workflow_dispatch:
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: webfactory/ssh-agent@v0.9.1
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+      - name: Diagnose Gemini key + list models
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          DEPLOY_SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
+        run: |
+          set -euo pipefail
+          SSH_PORT="${DEPLOY_SSH_PORT:-22}"
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          ssh-keyscan -p "$SSH_PORT" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -p "$SSH_PORT" "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "DEPLOY_PATH='$DEPLOY_PATH' bash -s" <<'EOS'
+          set -euo pipefail
+          cd "$DEPLOY_PATH"
+          echo "=== ENV (safe) ==="
+          python3 - <<'PY'
+          import os,re
+          path=os.environ["DEPLOY_PATH"]+"/.env"
+          d={}
+          for line in open(path,encoding="utf-8",errors="replace"):
+            line=line.strip()
+            if not line or line.startswith("#") or "=" not in line: continue
+            k,v=line.split("=",1)
+            d[k]=v.strip().strip('"').strip("'")
+          key=d.get("GEMINI_API_KEY","")
+          groq=d.get("GROQ_API_KEY","")
+          print("AI_PROVIDER=", d.get("AI_PROVIDER","<unset>"))
+          print("GEMINI_MODEL=", d.get("GEMINI_MODEL","<unset>"))
+          print("GEMINI_KEY_LEN=", len(key))
+          print("GEMINI_KEY_PREFIX=", (key[:3]+"...") if key else "<missing>")
+          print("GROQ_KEY_PRESENT=", "yes" if groq else "no")
+          print("GROQ_KEY_LEN=", len(groq))
+          open("/tmp/elsa_gemini_key.txt","w").write(key)
+          PY
+          echo "=== LIST MODELS v1beta ==="
+          KEY=$(cat /tmp/elsa_gemini_key.txt)
+          rm -f /tmp/elsa_gemini_key.txt
+          HTTP=$(curl -sS -o /tmp/models.json -w "%{http_code}" \
+            "https://generativelanguage.googleapis.com/v1beta/models?pageSize=100&key=${KEY}" || true)
+          echo "listModels_http=$HTTP"
+          python3 - <<'PY'
+          import json
+          try:
+            data=json.load(open("/tmp/models.json",encoding="utf-8"))
+          except Exception as e:
+            print("parse_error", e); raise SystemExit
+          if "error" in data:
+            err=data["error"]
+            print("ERROR_STATUS=", err.get("status") or err.get("code"))
+            print("ERROR_MSG=", (err.get("message") or "")[:500])
+            details=err.get("details") or []
+            for d in details[:5]:
+              print("DETAIL=", json.dumps(d)[:400])
+          models=data.get("models") or []
+          print("MODEL_COUNT=", len(models))
+          for m in models:
+            name=m.get("name","")
+            methods=m.get("supportedGenerationMethods") or []
+            if "generateContent" in methods:
+              short=name.replace("models/","")
+              print("GEN:", short, "|", ",".join(methods))
+          PY
+          echo "=== RECENT CHATBOT LOGS ==="
+          docker compose logs --since=2h backend 2>&1 | grep -iE 'chatbot|GoogleGenerative|Gemini|generateContent|RESOURCE|PERMISSION|quota|429|404 Not|403 Forbidden|API key|error detail|models/' | tail -n 60 || true
+          echo "=== DONE ==="
+          EOS
