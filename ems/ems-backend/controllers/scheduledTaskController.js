@@ -88,10 +88,24 @@ const updateScheduledTask = async (req, res, next) => {
     const existing = await findAccessibleTask(req.params.id, req.user)
     if (!existing) return next(new AppError('Scheduled task not found', 404))
 
-    const { variableName, action, scheduledTime, repeatType, daysOfWeek, status } = req.body
+    const {
+      deviceId, deviceConfigSlaveId, deviceConfigVariableId,
+      variableName, action, scheduledTime, repeatType, daysOfWeek, status,
+    } = req.body
+
+    // Allow relocating the task to another accessible device on edit
+    if (deviceId && deviceId !== existing.deviceId) {
+      await assertDeviceAccess(deviceId, req.user)
+    }
+
     const data = await prisma.scheduledTask.update({
       where: { id: req.params.id },
-      data:  { variableName, action, scheduledTime, repeatType, daysOfWeek, status },
+      data: {
+        ...(deviceId ? { deviceId } : {}),
+        ...(deviceConfigSlaveId !== undefined ? { deviceConfigSlaveId } : {}),
+        ...(deviceConfigVariableId !== undefined ? { deviceConfigVariableId } : {}),
+        variableName, action, scheduledTime, repeatType, daysOfWeek, status,
+      },
     })
 
     removeTask(req.params.id)

@@ -177,7 +177,7 @@ export const mapNotification = (n) => ({
   _raw: n,
 })
 
-const repeatToUi = (r) => ({ DAILY: 'Daily', WEEKLY: 'Weekly', MONTHLY: 'Monthly', ONCE: 'Once' }[r] ?? r)
+const repeatToUi = (r) => ({ DAILY: 'Daily', WEEKLY: 'Weekly', MONTHLY: 'Monthly', ONCE: 'One Time' }[r] ?? r)
 
 export const mapScheduledTask = (t) => ({
   id: t.id,
@@ -187,6 +187,8 @@ export const mapScheduledTask = (t) => ({
   organizationId: t.organizationId,
   device: t.device?.name ?? t.deviceId ?? '—',
   deviceId: t.deviceId,
+  slaveId: t.deviceConfigSlaveId ?? null,
+  variableId: t.deviceConfigVariableId ?? null,
   variable: t.variableName,
   taskType: t.action === 'ON' ? 'Turn On' : 'Turn Off',
   frequency: repeatToUi(t.repeatType),

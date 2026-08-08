@@ -67,7 +67,7 @@ export const uiOperatorToApi = (c) => {
 }
 
 export const uiRepeatToApi = (f) => (
-  { Daily: 'DAILY', Weekly: 'WEEKLY', Monthly: 'MONTHLY', Once: 'ONCE' }[f] ?? 'DAILY'
+  { Daily: 'DAILY', Weekly: 'WEEKLY', Monthly: 'MONTHLY', Once: 'ONCE', 'One Time': 'ONCE' }[f] ?? 'DAILY'
 )
 
 export const uiMechanismToApi = (m) => (m === 'Delayed' ? 'DELAYED' : 'INSTANT')
