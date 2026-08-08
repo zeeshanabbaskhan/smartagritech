@@ -2,7 +2,7 @@
 const prisma      = require('../config/database')
 const { AppError } = require('../middleware/errorHandler')
 const { orgScope, TIME_RANGE_MS, BUCKET_MS } = require('../utils/helpers')
-const { bucketVariable, sumVariable } = require('../utils/sensorAggregation')
+const { bucketVariable, sumVariable, periodEnergyKwh } = require('../utils/sensorAggregation')
 const { cached } = require('../utils/responseCache')
 const { assertDeviceAccess } = require('../utils/deviceAccess')
 
@@ -134,22 +134,46 @@ const buildEnergyAnalysis = async (deviceId, slaveId, timeRange) => {
   const startDate = new Date(Date.now() - (TIME_RANGE_MS[timeRange] || TIME_RANGE_MS['24h']))
   const bucketMs  = BUCKET_MS[timeRange] || BUCKET_MS['24h']
   const base      = { deviceId, slaveId: slaveId || null, startDate, bucketMs }
+  const now       = Date.now()
+  const slave     = slaveId || null
 
-  const [chartData, totalConsumption, currentVars, forecast] = await Promise.all([
+  const savingsBlock = async (curStart, curEnd, priorStart, priorEnd) => {
+    const [current, previous] = await Promise.all([
+      periodEnergyKwh(prisma, { deviceId, slaveId: slave, startDate: curStart, endDate: curEnd }),
+      periodEnergyKwh(prisma, { deviceId, slaveId: slave, startDate: priorStart, endDate: priorEnd }),
+    ])
+    const cur = Number(current) || 0
+    const prev = Number(previous) || 0
+    return {
+      current: cur,
+      previous: prev,
+      percentage: prev === 0 ? (cur > 0 ? 100 : 0) : parseFloat((((cur - prev) / prev) * 100).toFixed(2)),
+      percentChange: prev === 0 ? (cur > 0 ? 100 : 0) : parseFloat((((cur - prev) / prev) * 100).toFixed(2)),
+    }
+  }
+
+  const [chartData, totalConsumption, energyDelta, currentVars, forecast, dailyComparison, weeklyComparison, monthlyComparison] = await Promise.all([
     bucketVariable(prisma, { ...base, variableName: 'PowerConsumption' }),
     sumVariable(prisma, { ...base, variableName: 'PowerConsumption' }),
+    periodEnergyKwh(prisma, { deviceId, slaveId: slave, startDate }),
     prisma.deviceConfigVariable.findMany({
-      where:  { deviceId, name: { in: ['PowerConsumption', 'ActivePower'] } },
+      where:  { deviceId, name: { in: ['PowerConsumption', 'ActivePower', 'Energy'] } },
       select: { name: true, currentValue: true },
     }),
     prisma.aIForecastReading.findFirst({ where: { deviceId, variableName: 'PowerConsumption' }, orderBy: { generatedAt: 'desc' } }),
+    savingsBlock(new Date(now - 86_400_000),   new Date(now), new Date(now - 172_800_000),   new Date(now - 86_400_000)),
+    savingsBlock(new Date(now - 604_800_000),  new Date(now), new Date(now - 1_209_600_000), new Date(now - 604_800_000)),
+    savingsBlock(new Date(now - 2_592_000_000),new Date(now), new Date(now - 5_184_000_000), new Date(now - 2_592_000_000)),
   ])
 
   return {
     current:          Object.fromEntries(currentVars.map((v) => [v.name, v.currentValue])),
-    totalConsumption,
+    totalConsumption: energyDelta > 0 ? energyDelta : totalConsumption,
     chartData,
     predictedChart:   forecast ? (Array.isArray(forecast.predictions) ? forecast.predictions : []) : [],
+    dailyComparison,
+    weeklyComparison,
+    monthlyComparison,
   }
 }
 

@@ -158,19 +158,27 @@ export default function UserDashboardDetail() {
       }
     })
 
-    const daily = energyRes?.data?.dailyComparison
-    const weekly = energyRes?.data?.weeklyComparison
-    const monthly = energyRes?.data?.monthlyComparison
+    // Prefer dashboard-summary energySavingsComparison (authoritative).
+    // AI energy endpoint historically lacked daily/weekly/monthly comparison fields.
+    const esc = summaryRes?.data?.energySavingsComparison || {}
+    const daily = esc.daily ?? energyRes?.data?.dailyComparison
+    const weekly = esc.weekly ?? energyRes?.data?.weeklyComparison
+    const monthly = esc.monthly ?? energyRes?.data?.monthlyComparison
+    const fmtKwh = (n) => {
+      const v = Number(n) || 0
+      return v.toLocaleString(undefined, { maximumFractionDigits: 2 })
+    }
     const toSaving = (label, block) => {
-      if (!block) return { label, pct: 0, sub: '0 vs 0 kWh', trend: 'flat' }
-      const pct = Number(block.percentChange ?? block.pct ?? 0)
-      const cur = block.current ?? block.currentKwh ?? 0
-      const prev = block.previous ?? block.previousKwh ?? 0
+      if (!block) return { label, pct: 0, sub: 'No energy data', trend: 'flat' }
+      const pct = Number(block.percentage ?? block.percentChange ?? block.pct ?? 0)
+      const cur = Number(block.current ?? block.currentKwh ?? 0)
+      const prev = Number(block.previous ?? block.previousKwh ?? 0)
+      const empty = cur === 0 && prev === 0
       return {
         label,
-        pct,
-        sub: `${Number(cur).toLocaleString()} vs ${Number(prev).toLocaleString()} kWh`,
-        trend: pct > 0 ? 'up' : pct < 0 ? 'down' : 'flat',
+        pct: empty ? 0 : pct,
+        sub: empty ? 'No energy data' : `${fmtKwh(cur)} vs ${fmtKwh(prev)} kWh`,
+        trend: empty ? 'flat' : pct > 0 ? 'up' : pct < 0 ? 'down' : 'flat',
       }
     }
 
@@ -186,9 +194,9 @@ export default function UserDashboardDetail() {
 
   const readouts = data?.readouts ?? READOUT_DEFS.map((d) => ({ ...d, value: '—', apiName: d.key }))
   const savings = data?.savings?.length ? data.savings : [
-    { label: 'Daily', pct: 0, sub: '0 vs 0 kWh', trend: 'flat' },
-    { label: 'Weekly', pct: 0, sub: '0 vs 0 kWh', trend: 'flat' },
-    { label: 'Monthly', pct: 0, sub: '0 vs 0 kWh', trend: 'flat' },
+    { label: 'Daily', pct: 0, sub: 'No energy data', trend: 'flat' },
+    { label: 'Weekly', pct: 0, sub: 'No energy data', trend: 'flat' },
+    { label: 'Monthly', pct: 0, sub: 'No energy data', trend: 'flat' },
   ]
 
   const selected = readouts.find((r) => r.key === selectedKey) || readouts[0]

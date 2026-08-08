@@ -120,6 +120,83 @@ const sumVariable = async (prisma, { deviceId, slaveId, variableName, startDate,
   return parseFloat(Number(rows[0]?.total ?? 0).toFixed(4))
 }
 
+/**
+ * Period consumption for cumulative meters: last reading − first reading in [startDate, endDate).
+ * Returns 0 when fewer than 2 samples or the meter went backwards.
+ */
+const deltaVariable = async (prisma, { deviceId, slaveId, variableName, startDate, endDate }) => {
+  const db = readDb(prisma)
+  const endClause = endDate ? Prisma.sql`AND v.timestamp < ${endDate}` : Prisma.empty
+
+  try {
+    const narrow = await db.$queryRaw`
+      SELECT
+        (ARRAY_AGG(v.value ORDER BY v.timestamp ASC))[1]::double precision AS first_val,
+        (ARRAY_AGG(v.value ORDER BY v.timestamp DESC))[1]::double precision AS last_val,
+        COUNT(*)::int AS n
+      FROM sensor_reading_values v
+      WHERE v."deviceId" = ${deviceId}
+        AND v."variableName" = ${variableName}
+        AND v.timestamp >= ${startDate}
+        ${slaveClauseValues(slaveId)}
+        ${endClause}
+    `
+    const row = narrow[0]
+    if (row && Number(row.n) >= 2) {
+      const first = Number(row.first_val)
+      const last = Number(row.last_val)
+      if (Number.isFinite(first) && Number.isFinite(last) && last >= first) {
+        return parseFloat((last - first).toFixed(4))
+      }
+    }
+  } catch (_) {}
+
+  const endClauseSr = endDate ? Prisma.sql`AND sr."timestamp" < ${endDate}` : Prisma.empty
+  const rows = await db.$queryRaw`
+    WITH vals AS (
+      SELECT (elem->>'value')::double precision AS val, sr."timestamp" AS ts
+      FROM "sensor_readings" sr,
+           jsonb_array_elements(sr.readings::jsonb) AS elem
+      WHERE sr."deviceId" = ${deviceId}
+        AND sr."timestamp" >= ${startDate}
+        AND elem->>'variableName' = ${variableName}
+        ${slaveClause(slaveId)}
+        ${endClauseSr}
+    )
+    SELECT
+      (ARRAY_AGG(val ORDER BY ts ASC))[1]::double precision AS first_val,
+      (ARRAY_AGG(val ORDER BY ts DESC))[1]::double precision AS last_val,
+      COUNT(*)::int AS n
+    FROM vals
+  `
+  const row = rows[0]
+  if (!row || Number(row.n) < 2) return 0
+  const first = Number(row.first_val)
+  const last = Number(row.last_val)
+  if (!Number.isFinite(first) || !Number.isFinite(last) || last < first) return 0
+  return parseFloat((last - first).toFixed(4))
+}
+
+/**
+ * Best-effort kWh for a window. Prefers cumulative Energy / PowerConsumption deltas,
+ * then PowerConsumption sum, then ActivePower (W) sum converted to kW·samples proxy.
+ */
+const periodEnergyKwh = async (prisma, opts) => {
+  const energyDelta = await deltaVariable(prisma, { ...opts, variableName: 'Energy' })
+  if (energyDelta > 0) return energyDelta
+
+  const pcDelta = await deltaVariable(prisma, { ...opts, variableName: 'PowerConsumption' })
+  if (pcDelta > 0) return pcDelta
+
+  const pcSum = await sumVariable(prisma, { ...opts, variableName: 'PowerConsumption' })
+  if (pcSum > 0) return pcSum
+
+  const apSum = await sumVariable(prisma, { ...opts, variableName: 'ActivePower' })
+  if (apSum > 0) return parseFloat((apSum / 1000).toFixed(4))
+
+  return 0
+}
+
 const bucketMany = async (prisma, deviceId, slaveId, startDate, bucketMs, names) => {
   const entries = await Promise.all(
     names.map(async (name) => [name, await bucketVariable(prisma, { deviceId, slaveId, variableName: name, startDate, bucketMs })])
@@ -127,4 +204,4 @@ const bucketMany = async (prisma, deviceId, slaveId, startDate, bucketMs, names)
   return Object.fromEntries(entries)
 }
 
-module.exports = { bucketVariable, sumVariable, bucketMany }
+module.exports = { bucketVariable, sumVariable, deltaVariable, periodEnergyKwh, bucketMany }

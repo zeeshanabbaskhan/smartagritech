@@ -5,7 +5,7 @@ const prisma      = require('../config/database')
 const redis       = require('../config/redis')
 const { AppError } = require('../middleware/errorHandler')
 const { TIME_RANGE_MS, BUCKET_MS, paginate, parseDateBound } = require('../utils/helpers')
-const { bucketVariable, sumVariable } = require('../utils/sensorAggregation')
+const { bucketVariable, sumVariable, periodEnergyKwh } = require('../utils/sensorAggregation')
 const { cached } = require('../utils/responseCache')
 const { assertDeviceAccess } = require('../utils/deviceAccess')
 
@@ -246,18 +246,16 @@ const buildDashboardSummary = async (deviceId, slaveId, timeRange) => {
     : (totalActive > 0 ? totalActive / 1000 : (latestNum('ActivePower') != null ? latestNum('ActivePower') / 1000 : 0))
 
   const savingsBlock = async (curStart, curEnd, priorStart, priorEnd) => {
-    const [currentPc, previousPc, currentAp, previousAp] = await Promise.all([
-      sumVariable(prisma, { ...base, variableName: 'PowerConsumption', startDate: curStart, endDate: curEnd }),
-      sumVariable(prisma, { ...base, variableName: 'PowerConsumption', startDate: priorStart, endDate: priorEnd }),
-      sumVariable(prisma, { ...base, variableName: 'ActivePower', startDate: curStart, endDate: curEnd }),
-      sumVariable(prisma, { ...base, variableName: 'ActivePower', startDate: priorStart, endDate: priorEnd }),
+    const [current, previous] = await Promise.all([
+      periodEnergyKwh(prisma, { deviceId, slaveId: slaveId || null, startDate: curStart, endDate: curEnd }),
+      periodEnergyKwh(prisma, { deviceId, slaveId: slaveId || null, startDate: priorStart, endDate: priorEnd }),
     ])
-    const current = currentPc > 0 ? currentPc : currentAp / 1000
-    const previous = previousPc > 0 ? previousPc : previousAp / 1000
+    const cur = Number(current) || 0
+    const prev = Number(previous) || 0
     return {
-      current,
-      previous,
-      percentage: previous === 0 ? (current > 0 ? 100 : 0) : parseFloat((((current - previous) / previous) * 100).toFixed(2)),
+      current: cur,
+      previous: prev,
+      percentage: prev === 0 ? (cur > 0 ? 100 : 0) : parseFloat((((cur - prev) / prev) * 100).toFixed(2)),
     }
   }
 
