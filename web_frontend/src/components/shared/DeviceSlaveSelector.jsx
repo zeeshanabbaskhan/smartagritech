@@ -63,14 +63,15 @@ export default function DeviceSlaveSelector({
     const next = v || devices[0]?.id || null
     if (!next) return
     await selectDevice(next)
-    onChange?.()
+    // After React commits the new device/slave, notify parents (macrotask).
+    setTimeout(() => onChange?.(), 0)
   }
 
   const handleSlaveChange = (v) => {
     const next = v || slaves[0]?.id || null
     if (!next) return
     setSelectedSlaveId(next)
-    onChange?.()
+    setTimeout(() => onChange?.(), 0)
   }
 
   const deviceValue =

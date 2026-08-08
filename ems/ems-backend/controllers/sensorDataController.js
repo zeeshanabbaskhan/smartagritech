@@ -106,14 +106,20 @@ const getLatest = async (req, res, next) => {
           })
           const meta = Object.fromEntries(vars.map((v) => [v.name, v]))
           const data = {}
-          for (const [name, value] of Object.entries(hot)) {
+          // Only expose variables for the selected slave (or all configured vars when no slaveId).
+          // Device-level Redis hash can mix slaves — never return hot keys outside meta.
+          for (const [name, metaRow] of Object.entries(meta)) {
+            if (!(name in hot)) continue
             data[name] = {
-              value,
-              unit:          meta[name]?.unit ?? null,
-              lastUpdatedAt: meta[name]?.lastUpdatedAt ?? null,
+              value:         hot[name],
+              unit:          metaRow?.unit ?? null,
+              lastUpdatedAt: metaRow?.lastUpdatedAt ?? null,
             }
           }
-          return res.json({ success: true, data, timestamp: device.lastDataReceivedAt ?? null, source: 'redis' })
+          if (Object.keys(data).length) {
+            return res.json({ success: true, data, timestamp: device.lastDataReceivedAt ?? null, source: 'redis' })
+          }
+          // Slave filter yielded nothing from Redis — fall through to Postgres.
         }
       } catch (_) { /* fall through to Postgres */ }
     }

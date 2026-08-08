@@ -65,7 +65,10 @@ export function DeviceProvider({ children }) {
   /** Select a device; empty/null falls back to the first available device. */
   const selectDevice = useCallback(async (deviceId) => {
     const next = deviceId || devicesRef.current[0]?.id || null
+    // Clear slave immediately so consumers never fetch new device + old slave.
     setSelectedDeviceId(next)
+    setSelectedSlaveId(null)
+    setSlaves([])
     await loadSlavesForDevice(next)
   }, [loadSlavesForDevice])
 

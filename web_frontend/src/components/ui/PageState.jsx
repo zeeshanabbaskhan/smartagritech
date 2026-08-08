@@ -1,21 +1,28 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Loader2 } from 'lucide-react'
 
 export function useFetch(fetcher, deps = []) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const genRef = useRef(0)
+  const fetcherRef = useRef(fetcher)
+  fetcherRef.current = fetcher
 
   const reload = useCallback(async () => {
+    const gen = ++genRef.current
     setLoading(true)
     setError(null)
     try {
-      const result = await fetcher()
-      setData(result)
+      const result = await fetcherRef.current()
+      if (gen !== genRef.current) return
+      // `undefined` = soft skip (e.g. filters not ready yet) — keep prior data.
+      if (result !== undefined) setData(result)
     } catch (e) {
+      if (gen !== genRef.current) return
       setError(e.message || 'Failed to load data')
     } finally {
-      setLoading(false)
+      if (gen === genRef.current) setLoading(false)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps)

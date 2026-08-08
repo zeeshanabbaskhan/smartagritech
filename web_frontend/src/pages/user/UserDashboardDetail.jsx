@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   AlertTriangle, Gauge, Activity, Zap, PieChart, Package,
   Waves, TrendingUp, TrendingDown, Minus, Download, Loader2,
@@ -112,8 +112,20 @@ function mapSeriesPoints(points = []) {
     .sort((a, b) => a.t - b.t)
 }
 
+function emptyReadouts() {
+  return READOUT_DEFS.map((d) => ({ ...d, value: '—', apiName: d.key }))
+}
+
+function emptySavings() {
+  return [
+    { label: 'Daily', pct: 0, sub: 'No energy data', trend: 'flat' },
+    { label: 'Weekly', pct: 0, sub: 'No energy data', trend: 'flat' },
+    { label: 'Monthly', pct: 0, sub: 'No energy data', trend: 'flat' },
+  ]
+}
+
 export default function UserDashboardDetail() {
-  const { selectedDeviceId, selectedSlaveId } = useDevices()
+  const { selectedDeviceId, selectedSlaveId, slaves, loading: devicesLoading } = useDevices()
   const { showToast } = useToast()
 
   const [selectedKey, setSelectedKey] = useState('VoltageA')
@@ -123,15 +135,25 @@ export default function UserDashboardDetail() {
   const [chartLoading, setChartLoading] = useState(false)
   const [chartError, setChartError] = useState(null)
   const [downloading, setDownloading] = useState(false)
+  const chartGenRef = useRef(0)
+
+  // Wait until device+slave selection settles (avoids new-device + old-slave races).
+  const filtersReady = Boolean(
+    selectedDeviceId
+    && (selectedSlaveId || (!devicesLoading && slaves.length === 0)),
+  )
 
   const { data, loading, error, reload } = useFetch(async () => {
     if (!selectedDeviceId) {
-      return {
-        readouts: READOUT_DEFS.map((d) => ({ ...d, value: '—', apiName: d.key })),
-        savings: [],
-      }
+      return { readouts: emptyReadouts(), savings: emptySavings() }
     }
-    const q = { deviceId: selectedDeviceId, slaveId: selectedSlaveId || undefined, timeRange: '24h' }
+    // Soft-skip until slave selection settles after a device change.
+    if (!filtersReady) return undefined
+    const q = {
+      deviceId: selectedDeviceId,
+      slaveId: selectedSlaveId || undefined,
+      timeRange: '24h',
+    }
     const [latestRes, summaryRes, energyRes] = await Promise.all([
       emsApi.getLatestReadings(q).catch(() => null),
       emsApi.getDashboardSummary(q).catch(() => null),
@@ -159,7 +181,6 @@ export default function UserDashboardDetail() {
     })
 
     // Prefer dashboard-summary energySavingsComparison (authoritative).
-    // AI energy endpoint historically lacked daily/weekly/monthly comparison fields.
     const esc = summaryRes?.data?.energySavingsComparison || {}
     const daily = esc.daily ?? energyRes?.data?.dailyComparison
     const weekly = esc.weekly ?? energyRes?.data?.weeklyComparison
@@ -190,20 +211,17 @@ export default function UserDashboardDetail() {
         toSaving('Monthly', monthly),
       ],
     }
-  }, [selectedDeviceId, selectedSlaveId])
+  }, [selectedDeviceId, selectedSlaveId, filtersReady])
 
-  const readouts = data?.readouts ?? READOUT_DEFS.map((d) => ({ ...d, value: '—', apiName: d.key }))
-  const savings = data?.savings?.length ? data.savings : [
-    { label: 'Daily', pct: 0, sub: 'No energy data', trend: 'flat' },
-    { label: 'Weekly', pct: 0, sub: 'No energy data', trend: 'flat' },
-    { label: 'Monthly', pct: 0, sub: 'No energy data', trend: 'flat' },
-  ]
+  const readouts = data?.readouts ?? emptyReadouts()
+  const savings = data?.savings?.length ? data.savings : emptySavings()
 
   const selected = readouts.find((r) => r.key === selectedKey) || readouts[0]
   const selectedApiName = selected?.apiName || selected?.key || 'VoltageA'
 
   const loadChart = useCallback(async () => {
-    if (!selectedDeviceId || !selectedApiName) {
+    const gen = ++chartGenRef.current
+    if (!filtersReady || !selectedDeviceId || !selectedApiName) {
       setChartData([])
       return
     }
@@ -215,40 +233,42 @@ export default function UserDashboardDetail() {
     setChartLoading(true)
     setChartError(null)
     try {
-      const timeRange = rangeToTimeRange(dateFrom, dateTo)
       const base = {
         deviceId: selectedDeviceId,
         slaveId: selectedSlaveId || undefined,
         variableName: selectedApiName,
       }
-
-      // Prefer aggregates (bucketed) for smoother charts; fall back to history for exact dates.
-      const aggRes = await emsApi.getSensorAggregate({ ...base, timeRange }).catch(() => null)
-      let points = Array.isArray(aggRes?.data) ? aggRes.data : list(aggRes)
-
-      if (!points.length) {
-        const histRes = await emsApi.getSensorHistory({
-          ...base,
-          startDate: dateFrom,
-          endDate: `${dateTo}T23:59:59.999`,
-          limit: 100,
-        }).catch(() => null)
-        points = Array.isArray(histRes?.data) ? histRes.data : list(histRes)
-      }
-
-      const series = mapSeriesPoints(points)
-      // When aggregate returned a wider window, clip to the selected date range.
       const fromMs = new Date(`${dateFrom}T00:00:00`).getTime()
       const toMs = new Date(`${dateTo}T23:59:59.999`).getTime()
-      const clipped = series.filter((p) => p.t >= fromMs && p.t <= toMs)
-      setChartData(clipped.length ? clipped : series)
+
+      // Exact date-range history first so custom From/To always drives the chart.
+      const histRes = await emsApi.getSensorHistory({
+        ...base,
+        startDate: dateFrom,
+        endDate: `${dateTo}T23:59:59.999`,
+        limit: 100,
+      }).catch(() => null)
+      let points = Array.isArray(histRes?.data) ? histRes.data : list(histRes)
+      let series = mapSeriesPoints(points).filter((p) => p.t >= fromMs && p.t <= toMs)
+
+      // Fall back to bucketed aggregates when history is sparse.
+      if (!series.length) {
+        const timeRange = rangeToTimeRange(dateFrom, dateTo)
+        const aggRes = await emsApi.getSensorAggregate({ ...base, timeRange }).catch(() => null)
+        points = Array.isArray(aggRes?.data) ? aggRes.data : list(aggRes)
+        series = mapSeriesPoints(points).filter((p) => p.t >= fromMs && p.t <= toMs)
+      }
+
+      if (gen !== chartGenRef.current) return
+      setChartData(series)
     } catch (e) {
+      if (gen !== chartGenRef.current) return
       setChartData([])
       setChartError(e.message || 'Failed to load chart')
     } finally {
-      setChartLoading(false)
+      if (gen === chartGenRef.current) setChartLoading(false)
     }
-  }, [selectedDeviceId, selectedSlaveId, selectedApiName, dateFrom, dateTo])
+  }, [filtersReady, selectedDeviceId, selectedSlaveId, selectedApiName, dateFrom, dateTo])
 
   useEffect(() => { loadChart() }, [loadChart])
 
@@ -332,178 +352,183 @@ export default function UserDashboardDetail() {
     }
   }
 
+  // Keep filters mounted while content reloads (PageState would unmount the selector).
+  const contentLoading = loading && !data
+
   return (
-    <PageState loading={loading} error={error} onRetry={reload}>
-      <div className="space-y-5">
-        <div className="page-header">
-          <div>
-            <h2 className="page-title">Dashboard Detail</h2>
-            <p className="breadcrumb">Manage Dashboard / Detail</p>
-          </div>
-        </div>
-
-        <DeviceSlaveSelector onChange={reload} />
-
-        <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
-          {/* Left: selectable metric cards */}
-          <div className="xl:col-span-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {readouts.map((row) => {
-              const Icon = readoutIcon(row)
-              const active = row.key === selected.key
-              return (
-                <button
-                  key={row.key}
-                  type="button"
-                  onClick={() => setSelectedKey(row.key)}
-                  className={`card p-4 text-left transition-all duration-150 border-2 ${
-                    active
-                      ? 'border-info-600 shadow-elevated ring-1 ring-info-600/30'
-                      : 'border-transparent hover:border-surface-300 dark:hover:border-surface-700'
-                  }`}
-                >
-                  <div className="flex items-center gap-1.5 text-xs font-semibold text-surface-700 dark:text-surface-300 mb-2">
-                    <Icon size={13} className={`flex-shrink-0 ${active ? 'text-info-600' : 'text-primary-600'}`} />
-                    <span>{row.label}</span>
-                  </div>
-                  <div className="flex items-baseline gap-1">
-                    <span className="text-xl font-bold text-surface-900 dark:text-surface-100">{row.value}</span>
-                    {row.unit ? <span className="text-xs font-semibold text-surface-400">{row.unit}</span> : null}
-                  </div>
-                </button>
-              )
-            })}
-          </div>
-
-          {/* Right: selected variable chart panel */}
-          <div className="xl:col-span-7 card p-4 sm:p-5 space-y-4 min-h-[28rem]">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h3 className="text-base font-bold text-surface-900 dark:text-surface-100">
-                  {selected?.label || 'Select a variable'}
-                </h3>
-                <p className="text-xs text-surface-400 mt-0.5">
-                  {selected?.value ?? '—'}{selected?.unit ? ` ${selected.unit}` : ''} · live reading
-                </p>
-              </div>
-              <div className="flex flex-wrap items-end gap-2">
-                <div>
-                  <label className="label" htmlFor="detail-date-from">From</label>
-                  <input
-                    id="detail-date-from"
-                    type="date"
-                    className="input py-1.5 text-xs w-[9.5rem]"
-                    value={dateFrom}
-                    onChange={(e) => setDateFrom(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="label" htmlFor="detail-date-to">To</label>
-                  <input
-                    id="detail-date-to"
-                    type="date"
-                    className="input py-1.5 text-xs w-[9.5rem]"
-                    value={dateTo}
-                    onChange={(e) => setDateTo(e.target.value)}
-                  />
-                </div>
-                <button
-                  type="button"
-                  className="btn-secondary text-xs"
-                  onClick={handleDownloadAll}
-                  disabled={downloading || !selectedDeviceId}
-                >
-                  <Download size={13} /> Download All
-                </button>
-                <button
-                  type="button"
-                  className="btn-primary text-xs"
-                  onClick={handleDownloadData}
-                  disabled={downloading || !selectedDeviceId}
-                >
-                  <Download size={13} /> Download Data
-                </button>
-              </div>
-            </div>
-
-            {chartError ? (
-              <div className="text-xs text-danger-600 py-2">{chartError}</div>
-            ) : null}
-
-            <div className="relative">
-              {chartLoading ? (
-                <div className="flex flex-col items-center justify-center h-72 text-surface-500">
-                  <Loader2 className="animate-spin mb-2" size={24} />
-                  <p className="text-xs">Loading {selected?.label}…</p>
-                </div>
-              ) : chartData.length === 0 ? (
-                <ChartEmpty height={288} message={`No history for ${selected?.label || 'this variable'} in the selected range`} />
-              ) : (
-                <ResponsiveContainer width="100%" height={288}>
-                  <AreaChart data={chartData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="detailVarFill" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#2563EB" stopOpacity={0.35} />
-                        <stop offset="100%" stopColor="#2563EB" stopOpacity={0.02} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.35} />
-                    <XAxis dataKey="time" tick={{ fontSize: 10, fill: '#9AA09A' }} stroke="#4B5563" minTickGap={28} />
-                    <YAxis
-                      tick={{ fontSize: 10, fill: '#9AA09A' }}
-                      stroke="#4B5563"
-                      width={48}
-                      unit={selected?.unit ? ` ${selected.unit}` : undefined}
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        background: '#141828',
-                        border: '1px solid #374151',
-                        borderRadius: 8,
-                        fontSize: 12,
-                        color: '#FEFEF8',
-                      }}
-                      formatter={(v) => [`${fmtNum(v)}${selected?.unit ? ` ${selected.unit}` : ''}`, selected?.label]}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="value"
-                      name={selected?.label}
-                      stroke="#2563EB"
-                      strokeWidth={2}
-                      fill="url(#detailVarFill)"
-                      dot={false}
-                      activeDot={{ r: 4 }}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              )}
-            </div>
-          </div>
-        </div>
-
+    <div className="space-y-5">
+      <div className="page-header">
         <div>
-          <p className="text-[10px] font-bold text-surface-500 uppercase tracking-widest mb-3">Energy Savings Comparison</p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            {savings.map((s) => {
-              const TrendIcon = s.trend === 'up' ? TrendingUp : s.trend === 'down' ? TrendingDown : Minus
-              const barColor  = s.trend === 'up' ? 'bg-success-600' : s.trend === 'down' ? 'bg-danger-600' : 'bg-surface-300'
-              const textColor = s.trend === 'up' ? 'text-success-600' : s.trend === 'down' ? 'text-danger-600' : 'text-surface-400'
-              const bg        = s.trend === 'up' ? 'bg-success-100/50 text-success-700' : s.trend === 'down' ? 'bg-danger-100/50 text-danger-700' : 'bg-surface-100 text-surface-500'
-              return (
-                <div key={s.label} className="card p-4 text-center relative overflow-hidden">
-                  <div className={`absolute top-0 left-0 right-0 h-1 ${barColor}`} />
-                  <div className={`w-8 h-8 rounded-full mx-auto flex items-center justify-center mb-2 ${bg}`}>
-                    <TrendIcon size={15} />
-                  </div>
-                  <p className="text-xs text-surface-400 font-semibold">{s.label}</p>
-                  <p className={`text-lg font-bold mt-1 ${textColor}`}>{s.pct > 0 ? '+' : ''}{Number(s.pct).toFixed(1)}%</p>
-                  <p className="text-[10px] text-surface-400 mt-1">{s.sub}</p>
-                </div>
-              )
-            })}
-          </div>
+          <h2 className="page-title">Dashboard Detail</h2>
+          <p className="breadcrumb">Manage Dashboard / Detail</p>
         </div>
       </div>
-    </PageState>
+
+      <DeviceSlaveSelector />
+
+      <PageState loading={contentLoading} error={error} onRetry={reload}>
+        <div className={`space-y-5 ${loading ? 'opacity-70 pointer-events-none' : ''}`}>
+          <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
+            {/* Left: selectable metric cards */}
+            <div className="xl:col-span-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {readouts.map((row) => {
+                const Icon = readoutIcon(row)
+                const active = row.key === selected.key
+                return (
+                  <button
+                    key={row.key}
+                    type="button"
+                    onClick={() => setSelectedKey(row.key)}
+                    className={`card p-4 text-left transition-all duration-150 border-2 ${
+                      active
+                        ? 'border-info-600 shadow-elevated ring-1 ring-info-600/30'
+                        : 'border-transparent hover:border-surface-300 dark:hover:border-surface-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 text-xs font-semibold text-surface-700 dark:text-surface-300 mb-2">
+                      <Icon size={13} className={`flex-shrink-0 ${active ? 'text-info-600' : 'text-primary-600'}`} />
+                      <span>{row.label}</span>
+                    </div>
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-xl font-bold text-surface-900 dark:text-surface-100">{row.value}</span>
+                      {row.unit ? <span className="text-xs font-semibold text-surface-400">{row.unit}</span> : null}
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* Right: selected variable chart panel */}
+            <div className="xl:col-span-7 card p-4 sm:p-5 space-y-4 min-h-[28rem]">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-base font-bold text-surface-900 dark:text-surface-100">
+                    {selected?.label || 'Select a variable'}
+                  </h3>
+                  <p className="text-xs text-surface-400 mt-0.5">
+                    {selected?.value ?? '—'}{selected?.unit ? ` ${selected.unit}` : ''} · live reading
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-end gap-2">
+                  <div>
+                    <label className="label" htmlFor="detail-date-from">From</label>
+                    <input
+                      id="detail-date-from"
+                      type="date"
+                      className="input py-1.5 text-xs w-[9.5rem]"
+                      value={dateFrom}
+                      onChange={(e) => setDateFrom(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="label" htmlFor="detail-date-to">To</label>
+                    <input
+                      id="detail-date-to"
+                      type="date"
+                      className="input py-1.5 text-xs w-[9.5rem]"
+                      value={dateTo}
+                      onChange={(e) => setDateTo(e.target.value)}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-secondary text-xs"
+                    onClick={handleDownloadAll}
+                    disabled={downloading || !selectedDeviceId}
+                  >
+                    <Download size={13} /> Download All
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-primary text-xs"
+                    onClick={handleDownloadData}
+                    disabled={downloading || !selectedDeviceId}
+                  >
+                    <Download size={13} /> Download Data
+                  </button>
+                </div>
+              </div>
+
+              {chartError ? (
+                <div className="text-xs text-danger-600 py-2">{chartError}</div>
+              ) : null}
+
+              <div className="relative">
+                {chartLoading ? (
+                  <div className="flex flex-col items-center justify-center h-72 text-surface-500">
+                    <Loader2 className="animate-spin mb-2" size={24} />
+                    <p className="text-xs">Loading {selected?.label}…</p>
+                  </div>
+                ) : chartData.length === 0 ? (
+                  <ChartEmpty height={288} message={`No history for ${selected?.label || 'this variable'} in the selected range`} />
+                ) : (
+                  <ResponsiveContainer width="100%" height={288}>
+                    <AreaChart data={chartData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="detailVarFill" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#2563EB" stopOpacity={0.35} />
+                          <stop offset="100%" stopColor="#2563EB" stopOpacity={0.02} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.35} />
+                      <XAxis dataKey="time" tick={{ fontSize: 10, fill: '#9AA09A' }} stroke="#4B5563" minTickGap={28} />
+                      <YAxis
+                        tick={{ fontSize: 10, fill: '#9AA09A' }}
+                        stroke="#4B5563"
+                        width={48}
+                        unit={selected?.unit ? ` ${selected.unit}` : undefined}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          background: '#141828',
+                          border: '1px solid #374151',
+                          borderRadius: 8,
+                          fontSize: 12,
+                          color: '#FEFEF8',
+                        }}
+                        formatter={(v) => [`${fmtNum(v)}${selected?.unit ? ` ${selected.unit}` : ''}`, selected?.label]}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="value"
+                        name={selected?.label}
+                        stroke="#2563EB"
+                        strokeWidth={2}
+                        fill="url(#detailVarFill)"
+                        dot={false}
+                        activeDot={{ r: 4 }}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <p className="text-[10px] font-bold text-surface-500 uppercase tracking-widest mb-3">Energy Savings Comparison</p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {savings.map((s) => {
+                const TrendIcon = s.trend === 'up' ? TrendingUp : s.trend === 'down' ? TrendingDown : Minus
+                const barColor  = s.trend === 'up' ? 'bg-success-600' : s.trend === 'down' ? 'bg-danger-600' : 'bg-surface-300'
+                const textColor = s.trend === 'up' ? 'text-success-600' : s.trend === 'down' ? 'text-danger-600' : 'text-surface-400'
+                const bg        = s.trend === 'up' ? 'bg-success-100/50 text-success-700' : s.trend === 'down' ? 'bg-danger-100/50 text-danger-700' : 'bg-surface-100 text-surface-500'
+                return (
+                  <div key={s.label} className="card p-4 text-center relative overflow-hidden">
+                    <div className={`absolute top-0 left-0 right-0 h-1 ${barColor}`} />
+                    <div className={`w-8 h-8 rounded-full mx-auto flex items-center justify-center mb-2 ${bg}`}>
+                      <TrendIcon size={15} />
+                    </div>
+                    <p className="text-xs text-surface-400 font-semibold">{s.label}</p>
+                    <p className={`text-lg font-bold mt-1 ${textColor}`}>{s.pct > 0 ? '+' : ''}{Number(s.pct).toFixed(1)}%</p>
+                    <p className="text-[10px] text-surface-400 mt-1">{s.sub}</p>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      </PageState>
+    </div>
   )
 }

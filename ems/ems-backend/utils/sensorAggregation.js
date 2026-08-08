@@ -177,16 +177,21 @@ const deltaVariable = async (prisma, { deviceId, slaveId, variableName, startDat
   return parseFloat((last - first).toFixed(4))
 }
 
+/** Common cumulative / energy meter names seen across MQTT templates. */
+const ENERGY_DELTA_VARS = [
+  'Energy', 'PowerConsumption', 'TotalEnergy', 'ImportEnergy',
+  'ActiveEnergy', 'kWh', 'KWH', 'Units', 'EnergyImport',
+]
+
 /**
- * Best-effort kWh for a window. Prefers cumulative Energy / PowerConsumption deltas,
+ * Best-effort kWh for a window. Prefers cumulative energy deltas,
  * then PowerConsumption sum, then ActivePower (W) sum converted to kW·samples proxy.
  */
 const periodEnergyKwh = async (prisma, opts) => {
-  const energyDelta = await deltaVariable(prisma, { ...opts, variableName: 'Energy' })
-  if (energyDelta > 0) return energyDelta
-
-  const pcDelta = await deltaVariable(prisma, { ...opts, variableName: 'PowerConsumption' })
-  if (pcDelta > 0) return pcDelta
+  for (const variableName of ENERGY_DELTA_VARS) {
+    const delta = await deltaVariable(prisma, { ...opts, variableName })
+    if (delta > 0) return delta
+  }
 
   const pcSum = await sumVariable(prisma, { ...opts, variableName: 'PowerConsumption' })
   if (pcSum > 0) return pcSum
