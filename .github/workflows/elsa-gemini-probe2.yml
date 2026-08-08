@@ -1,0 +1,73 @@
+name: Elsa Gemini Probe2 (one-shot)
+on:
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: webfactory/ssh-agent@v0.9.1
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+      - env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          DEPLOY_SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
+        run: |
+          set -euo pipefail
+          SSH_PORT="${DEPLOY_SSH_PORT:-22}"
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          ssh-keyscan -p "$SSH_PORT" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/div/null || ssh-keyscan -p "$SSH_PORT" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -p "$SSH_PORT" "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "DEPLOY_PATH='$DEPLOY_PATH' bash -s" <<'EOS'
+          set -euo pipefail
+          KEY=$(python3 - <<'PY'
+          import os
+          path=os.environ["DEPLOY_PATH"]+"/.env"
+          for line in open(path,encoding="utf-8",errors="replace"):
+            if line.startswith("GEMINI_API_KEY="):
+              print(line.split("=",1)[1].strip().strip('"').strip("'")); break
+          PY
+          )
+          # Full detail on one known 429 model
+          BODY='{"contents":[{"parts":[{"text":"OK"}]}]}'
+          curl -sS -o /tmp/gc.json -w "HTTP=%{http_code}\n" \
+            -H "Content-Type: application/json" -d "$BODY" \
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${KEY}" || true
+          echo "=== FULL 429 BODY ==="
+          python3 - <<'PY'
+          import json
+          d=json.load(open("/tmp/gc.json",encoding="utf-8"))
+          print(json.dumps(d, indent=2)[:2500])
+          PY
+          # Remaining candidates not tried yet
+          MODELS="gemini-2.0-flash-001 gemini-2.0-flash-lite-001 gemini-pro-latest gemini-3.6-flash gemini-3.5-flash gemini-3-flash-preview"
+          WORKING=""
+          for M in $MODELS; do
+            CODE=$(curl -sS -o /tmp/gc.json -w "%{http_code}" -H "Content-Type: application/json" -d "$BODY" \
+              "https://generativelanguage.googleapis.com/v1beta/models/${M}:generateContent?key=${KEY}" || echo 000)
+            MSG=$(python3 - <<'PY'
+          import json
+          d=json.load(open("/tmp/gc.json",encoding="utf-8"))
+          if "error" in d:
+            e=d["error"]; msg=e.get("message","")[:200]
+            # extract quota id if present
+            q=""
+            for det in e.get("details") or []:
+              if det.get("@type","").endswith("QuotaFailure"):
+                for v in det.get("violations") or []:
+                  q += f" quotaId={v.get('quotaId')} limit={v.get('quotaValue')}"
+              if "RetryInfo" in det.get("@type",""):
+                q += f" retry={det.get('retryDelay')}"
+            print(f"{e.get('status')}: {msg}{q}")
+          else:
+            t=d.get("candidates",[{}])[0].get("content",{}).get("parts",[{}])[0].get("text","")
+            print("OK_TEXT="+t.replace("\n"," ")[:100])
+          PY
+          )
+            echo "PROBE $M => http=$CODE | $MSG"
+            if echo "$MSG" | grep -q '^OK_TEXT='; then WORKING=$M; echo FIRST_WORKING=$M; break; fi
+            sleep 1
+          done
+          [ -n "$WORKING" ] && echo WORKING_MODEL=$WORKING || echo NO_WORKING_MODEL
+          EOS
