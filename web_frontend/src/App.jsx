@@ -37,9 +37,6 @@ import AdminSettings          from './pages/admin/AdminSettings'
 // Org
 import OrgDashboard        from './pages/org/OrgDashboard'
 import OrgDevices          from './pages/org/OrgDevices'
-import OrgGateways            from './pages/org/OrgGateways'
-import OrgDeviceTemplates     from './pages/org/OrgDeviceTemplates'
-import OrgDeviceTemplateSlaves from './pages/org/OrgDeviceTemplateSlaves'
 import OrgHistoricalData      from './pages/org/OrgHistoricalData'
 import OrgTemplateTriggers    from './pages/org/OrgTemplateTriggers'
 import OrgAlarmSettings       from './pages/org/OrgAlarmSettings'
@@ -167,11 +164,11 @@ function AppRoutes() {
         <Route path="devices/:deviceId" element={<DeviceDetailPage basePath="/org" />} />
         <Route path="access-groups"     element={<OrgAccessGroups />} />
         <Route path="device-groups"     element={<OrgDeviceGroups />} />
-        <Route path="gateways"          element={<OrgGateways />} />
-        <Route path="mqtt-bridges"      element={<AdminMqttBridges basePath="/org" readOnly />} />
-        <Route path="device-templates"  element={<OrgDeviceTemplates />} />
-        <Route path="device-templates/:templateId/slaves" element={<OrgDeviceTemplateSlaves />} />
-        <Route path="device-templates/:templateId" element={<RedirectTemplateToSlaves basePath="/org" />} />
+        <Route path="gateways"          element={<Navigate to="/org" replace />} />
+        <Route path="mqtt-bridges"      element={<Navigate to="/org" replace />} />
+        <Route path="device-templates"  element={<Navigate to="/org" replace />} />
+        <Route path="device-templates/:templateId/slaves" element={<Navigate to="/org" replace />} />
+        <Route path="device-templates/:templateId" element={<Navigate to="/org" replace />} />
         <Route path="ev-chargers/live-session" element={<EvLiveSession />} />
         <Route path="ev-chargers/analytics"    element={<EvAnalytics />} />
         <Route path="ev-chargers/energy-hub"   element={<EvEnergyHub />} />

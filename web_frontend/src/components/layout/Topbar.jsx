@@ -72,6 +72,10 @@ export default function Topbar({ title, onMenuClick }) {
     if (role === 'admin' || role === 'org') {
       jobs.push(
         emsApi.getDevices({ limit: 100 }).then((res) => list(res).map((d) => ({ title: `${d.name} (Device)`, path: `${base}/devices`, category: 'Devices' }))).catch(() => []),
+      )
+    }
+    if (role === 'admin') {
+      jobs.push(
         emsApi.getGateways({ limit: 100 }).then((res) => list(res).map((g) => ({ title: `${g.name} (Gateway)`, path: `${base}/gateways`, category: 'Gateways' }))).catch(() => []),
       )
     }
@@ -224,8 +228,6 @@ export default function Topbar({ title, onMenuClick }) {
         { title: 'My Devices', path: '/org/devices', category: 'Pages' },
         { title: 'Access Groups', path: '/org/access-groups', category: 'Pages' },
         { title: 'Device Groups', path: '/org/device-groups', category: 'Pages' },
-        { title: 'My Gateways', path: '/org/gateways', category: 'Pages' },
-        { title: 'Device Templates', path: '/org/device-templates', category: 'Pages' },
         { title: 'Voltage Imbalance', path: '/org/ai-analytics/voltage-imbalance', category: 'Pages' },
         { title: 'Current Imbalance', path: '/org/ai-analytics/current-imbalance', category: 'Pages' },
         { title: 'Power Factor', path: '/org/ai-analytics/power-factor', category: 'Pages' },
@@ -267,7 +269,8 @@ export default function Topbar({ title, onMenuClick }) {
   const SEARCH_TABS = useMemo(() => {
     const tabs = ['All', 'Pages']
     if (user?.role === 'admin') { tabs.push('Organizations', 'Users') }
-    if (user?.role === 'admin' || user?.role === 'org') { tabs.push('Devices', 'Gateways') }
+    if (user?.role === 'admin' || user?.role === 'org') { tabs.push('Devices') }
+    if (user?.role === 'admin') { tabs.push('Gateways') }
     return tabs
   }, [user?.role])
 

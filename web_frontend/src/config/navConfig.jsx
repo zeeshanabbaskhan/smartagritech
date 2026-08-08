@@ -51,9 +51,6 @@ export const orgNav = [
   { to: '/org/devices',            label: 'My Devices',      icon: Cpu },
   { to: '/org/access-groups',      label: 'Access Groups',   icon: ShieldCheck },
   { to: '/org/device-groups',      label: 'Device Groups',   icon: Boxes },
-  { to: '/org/gateways',           label: 'Gateways',        icon: Wifi },
-  { to: '/org/mqtt-bridges',       label: 'MQTT Bridges',    icon: Radio },
-  { to: '/org/device-templates',   label: 'Device Templates',icon: FileCode2 },
   {
     label: 'EV Chargers',
     icon: PlugZap,
