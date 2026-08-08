@@ -40,7 +40,7 @@ function formatTileValue(value, name) {
 
 /**
  * Shared KPI + Master Device Control panel.
- * @param {'group'|'org'} filterMode — admin uses `org`; org dashboard uses access `group`
+ * @param {'group'|'org'|'device'} filterMode — admin uses `org`; access groups use `group`; org dashboard uses `device`
  * @param {React.ReactNode} between — rendered between KPI cards and telemetry (e.g. StatCards)
  */
 export default function DashboardTelemetry({
@@ -71,6 +71,7 @@ export default function DashboardTelemetry({
   const showKpis = sections === 'all' || sections === 'kpis'
   const showTelemetry = sections === 'all' || sections === 'telemetry'
   const isOrgMode = filterMode === 'org'
+  const isDeviceMode = filterMode === 'device'
 
   const loadDevices = () => {
     emsApi.getDevices({ limit: 100, withMetrics: true })
@@ -118,6 +119,7 @@ export default function DashboardTelemetry({
 
   useEffect(() => {
     if (!showAccessFilter) return
+    if (isDeviceMode) return
     if (isOrgMode) {
       emsApi.getOrganizations({ limit: 100 })
         .then((res) => setOrganizations(list(res).map(mapOrganization)))
@@ -132,7 +134,7 @@ export default function DashboardTelemetry({
         deviceIds: g.deviceIds ?? (g.devices || []).map((d) => d.id ?? d.deviceId).filter(Boolean),
       }))))
       .catch(() => {})
-  }, [showAccessFilter, isOrgMode])
+  }, [showAccessFilter, isOrgMode, isDeviceMode])
 
   useEffect(() => {
     if (!filterOpen) return
@@ -146,24 +148,34 @@ export default function DashboardTelemetry({
     return organizations.find((o) => o.id === groupFilter) || null
   }, [isOrgMode, groupFilter, organizations])
 
+  const selectedDevice = useMemo(() => {
+    if (!isDeviceMode || groupFilter === 'all') return null
+    return devices.find((d) => d.id === groupFilter) || null
+  }, [isDeviceMode, groupFilter, devices])
+
   const activeDevices = useMemo(() => {
     if (groupFilter === 'all') return devices
+    if (isDeviceMode) {
+      return devices.filter((d) => d.id === groupFilter)
+    }
     if (isOrgMode) {
       return devices.filter((d) => d.organizationId === groupFilter || d.org === selectedOrg?.name)
     }
     const group = groups.find((g) => g.id === groupFilter)
     if (!group) return devices
     return devices.filter((d) => group.deviceIds.includes(d.id))
-  }, [devices, groups, groupFilter, isOrgMode, selectedOrg])
+  }, [devices, groups, groupFilter, isOrgMode, isDeviceMode, selectedOrg])
 
   useEffect(() => {
     onScopeChangeRef.current?.({
       filterId: groupFilter,
       organizationId: isOrgMode && groupFilter !== 'all' ? groupFilter : null,
       organization: selectedOrg,
+      deviceId: isDeviceMode && groupFilter !== 'all' ? groupFilter : null,
+      device: selectedDevice,
       devices: activeDevices,
     })
-  }, [groupFilter, isOrgMode, selectedOrg, activeDevices])
+  }, [groupFilter, isOrgMode, isDeviceMode, selectedOrg, selectedDevice, activeDevices])
 
   const kpiState = useMemo(() => computeDynamicKpis(activeDevices), [activeDevices])
 
@@ -180,13 +192,26 @@ export default function DashboardTelemetry({
 
   const activeGroupLabel = useMemo(() => {
     if (groupFilter === 'all') return allDevicesLabel
+    if (isDeviceMode) return selectedDevice?.name || allDevicesLabel
     if (isOrgMode) return selectedOrg?.name || allDevicesLabel
     const g = groups.find((x) => x.id === groupFilter)
     return g ? `${g.name} (${g.org})` : allDevicesLabel
-  }, [groupFilter, groups, allDevicesLabel, isOrgMode, selectedOrg])
+  }, [groupFilter, groups, allDevicesLabel, isOrgMode, isDeviceMode, selectedOrg, selectedDevice])
+
+  const deviceFilterOptions = useMemo(() => (
+    [...devices].sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
+  ), [devices])
 
   const searchedOptions = useMemo(() => {
     const q = filterSearch.toLowerCase().trim()
+    if (isDeviceMode) {
+      if (!q) return deviceFilterOptions
+      return deviceFilterOptions.filter((d) =>
+        (d.name || '').toLowerCase().includes(q)
+        || (d.gateway || '').toLowerCase().includes(q)
+        || (d.status || '').toLowerCase().includes(q)
+      )
+    }
     if (isOrgMode) {
       if (!q) return organizations
       return organizations.filter((o) =>
@@ -195,7 +220,22 @@ export default function DashboardTelemetry({
     }
     if (!q) return groups
     return groups.filter((g) => g.name.toLowerCase().includes(q) || g.org.toLowerCase().includes(q))
-  }, [groups, organizations, filterSearch, isOrgMode])
+  }, [groups, organizations, deviceFilterOptions, filterSearch, isOrgMode, isDeviceMode])
+
+  const filterSearchPlaceholder = isDeviceMode
+    ? 'Search devices...'
+    : isOrgMode
+      ? 'Search organizations...'
+      : 'Search groups...'
+  const emptyFilterHint = isDeviceMode
+    ? (emptyGroupsHint === 'No groups found.' ? 'No devices found.' : emptyGroupsHint)
+    : emptyGroupsHint
+  const noMatchHint = isDeviceMode
+    ? 'No matching devices found.'
+    : isOrgMode
+      ? 'No matching organizations found.'
+      : 'No matching groups found.'
+  const optionList = isDeviceMode ? deviceFilterOptions : isOrgMode ? organizations : groups
 
   const filteredDevices = useMemo(() => {
     const q = deviceSearch.toLowerCase().trim()
@@ -267,7 +307,7 @@ export default function DashboardTelemetry({
                       <input
                         type="text"
                         className="w-full px-2 py-1 text-xs input"
-                        placeholder={isOrgMode ? 'Search organizations...' : 'Search groups...'}
+                        placeholder={filterSearchPlaceholder}
                         value={filterSearch}
                         onChange={(e) => setFilterSearch(e.target.value)}
                         autoFocus
@@ -281,12 +321,24 @@ export default function DashboardTelemetry({
                       >
                         {allDevicesLabel}
                       </button>
-                      {(isOrgMode ? organizations : groups).length === 0 ? (
-                        <p className="p-3 text-[10px] text-center text-surface-400 font-medium">{emptyGroupsHint}</p>
+                      {optionList.length === 0 ? (
+                        <p className="p-3 text-[10px] text-center text-surface-400 font-medium">{emptyFilterHint}</p>
                       ) : searchedOptions.length === 0 ? (
-                        <p className="p-3 text-xs text-center text-surface-400">
-                          {isOrgMode ? 'No matching organizations found.' : 'No matching groups found.'}
-                        </p>
+                        <p className="p-3 text-xs text-center text-surface-400">{noMatchHint}</p>
+                      ) : isDeviceMode ? (
+                        searchedOptions.map((d) => (
+                          <button
+                            key={d.id}
+                            type="button"
+                            onClick={() => { setGroupFilter(d.id); setFilterOpen(false); setFilterSearch('') }}
+                            className={`w-full text-left px-3 py-2 text-xs font-bold transition-colors hover:bg-surface-50 dark:hover:bg-surface-800 flex flex-col ${groupFilter === d.id ? 'text-primary-600 bg-primary-50 dark:bg-primary-950/20' : 'text-surface-700 dark:text-surface-300'}`}
+                          >
+                            <span>{d.name}</span>
+                            <span className="text-[9px] text-surface-400 font-normal">
+                              {d.gateway || '—'}{d.status ? ` · ${d.status}` : ''}
+                            </span>
+                          </button>
+                        ))
                       ) : isOrgMode ? (
                         searchedOptions.map((o) => (
                           <button

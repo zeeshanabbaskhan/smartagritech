@@ -496,13 +496,13 @@ export default function OrgDashboard() {
             </div>
           )}
 
-          {/* 2. KPI filter + clickable KPI cards (access-group scoped, portal parity) */}
+          {/* 2. KPI filter + clickable KPI cards (device-scoped) */}
           <DashboardTelemetry
             sections="kpis"
-            filterMode="group"
+            filterMode="device"
             allDevicesLabel="All Organization Devices"
             powerKpiLabel="Total Power Consumption"
-            emptyGroupsHint='No groups created yet. Go to "Access Groups" to create one.'
+            emptyGroupsHint="No devices found for this organization."
           />
 
           {/* 3. Stat cards */}
@@ -649,7 +649,7 @@ export default function OrgDashboard() {
             )}
           </div>
 
-          {/* 7. Device Telemetry (org-wide list + search; group filter applies to KPIs only — portal parity) */}
+          {/* 7. Device Telemetry (org-wide list + search; KPI device filter is separate) */}
           <DashboardTelemetry
             sections="telemetry"
             panelTitle="Device Telemetry"
