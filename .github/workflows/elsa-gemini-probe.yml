@@ -1,0 +1,70 @@
+name: Elsa Gemini Probe Models (one-shot)
+on:
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: webfactory/ssh-agent@v0.9.1
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+      - name: Probe generateContent per free model
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          DEPLOY_SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
+        run: |
+          set -euo pipefail
+          SSH_PORT="${DEPLOY_SSH_PORT:-22}"
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          ssh-keyscan -p "$SSH_PORT" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -p "$SSH_PORT" "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "DEPLOY_PATH='$DEPLOY_PATH' bash -s" <<'EOS'
+          set -euo pipefail
+          KEY=$(python3 - <<'PY'
+          import os
+          path=os.environ["DEPLOY_PATH"]+"/.env"
+          for line in open(path,encoding="utf-8",errors="replace"):
+            if line.startswith("GEMINI_API_KEY="):
+              print(line.split("=",1)[1].strip().strip('"').strip("'")); break
+          PY
+          )
+          # Prefer free/flash from ListModels; stop early if one works
+          MODELS="gemini-2.0-flash-lite gemini-2.0-flash gemini-flash-lite-latest gemini-flash-latest gemini-2.5-flash-lite gemini-2.5-flash gemini-3.1-flash-lite-preview gemini-3.5-flash-lite gemma-3-4b-it gemma-4-26b-a4b-it"
+          WORKING=""
+          for M in $MODELS; do
+            BODY='{"contents":[{"parts":[{"text":"Reply with exactly: OK"}]}]}'
+            CODE=$(curl -sS -o /tmp/gc.json -w "%{http_code}" \
+              -H "Content-Type: application/json" \
+              -d "$BODY" \
+              "https://generativelanguage.googleapis.com/v1beta/models/${M}:generateContent?key=${KEY}" || echo "000")
+            MSG=$(python3 - <<'PY'
+          import json
+          try:
+            d=json.load(open("/tmp/gc.json",encoding="utf-8"))
+          except Exception as e:
+            print("parse:"+str(e)); raise SystemExit
+          if "error" in d:
+            e=d["error"]
+            print((e.get("status") or str(e.get("code")))+": "+(e.get("message") or "")[:220])
+          else:
+            t=""
+            try:
+              t=d["candidates"][0]["content"]["parts"][0].get("text","")
+            except Exception:
+              t=str(d)[:180]
+            print("OK_TEXT="+t.replace("\n"," ")[:120])
+          PY
+          )
+            echo "PROBE $M => http=$CODE | $MSG"
+            if echo "$MSG" | grep -q '^OK_TEXT='; then
+              WORKING="$M"
+              echo "FIRST_WORKING=$M"
+              break
+            fi
+            # brief pause to avoid hammering quota
+            sleep 1
+          done
+          if [ -z "$WORKING" ]; then echo "NO_WORKING_MODEL"; else echo "WORKING_MODEL=$WORKING"; fi
+          EOS
