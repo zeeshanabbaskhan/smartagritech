@@ -65,7 +65,7 @@ const getDevices = async (req, res, next) => {
     const { page, limit, skip }    = paginate(req.query)
     const { search, status, gatewayId, withMetrics } = req.query
 
-    const where = deviceWhereForUser(req.user, { ...orgScope(req.user) })
+    const where = await deviceWhereForUser(req.user, { ...orgScope(req.user) })
     if (status)    where.status    = status
     if (gatewayId) where.gatewayId = gatewayId
     if (search)    where.name      = { contains: search, mode: 'insensitive' }
@@ -89,7 +89,7 @@ const getDevices = async (req, res, next) => {
 
 const getDevice = async (req, res, next) => {
   try {
-    const where = deviceWhereForUser(req.user, { id: req.params.id, ...orgScope(req.user) })
+    const where = await deviceWhereForUser(req.user, { id: req.params.id, ...orgScope(req.user) })
 
     const data = await prisma.device.findFirst({
       where,
