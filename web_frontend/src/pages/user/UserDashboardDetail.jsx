@@ -254,7 +254,8 @@ export default function UserDashboardDetail() {
   const [chartData, setChartData] = useState([])
   const [chartLoading, setChartLoading] = useState(false)
   const [chartError, setChartError] = useState(null)
-  const [downloading, setDownloading] = useState(false)
+  /** `'all' | 'data' | null` — which download button is busy. */
+  const [downloading, setDownloading] = useState(null)
   /** Device:slave key whose cards+chart have fully settled (avoids flash of stale/empty). */
   const [readySelectionKey, setReadySelectionKey] = useState(null)
   const chartGenRef = useRef(0)
@@ -438,16 +439,16 @@ export default function UserDashboardDetail() {
   })
 
   /**
-   * Wide-format CSV: one row per received time with all slave variables as columns.
-   * Matches the reference spreadsheet layout (Device/Slave/Received Time + metrics).
+   * Wide-format CSV: one row per received time; `cols` are the metric columns to include.
+   * mode: 'all' | 'data' — tracks which button shows the spinner.
    */
-  const handleWideDownload = async () => {
+  const runWideDownload = async (cols, mode, filenameSuffix) => {
     if (!selectedDeviceId) {
       showToast('Select a device first', 'warning')
       return
     }
-    if (!readouts.length) {
-      showToast('No variables for this slave', 'warning')
+    if (!cols.length) {
+      showToast('No variables to download', 'warning')
       return
     }
     if (!dateFrom || !dateTo) {
@@ -455,17 +456,11 @@ export default function UserDashboardDetail() {
       return
     }
 
-    const cols = buildExportColumns(readouts)
-    if (!cols.length) {
-      showToast('No variables to download', 'warning')
-      return
-    }
-
     const deviceName = selectedDevice?.name || selectedDevice?.deviceName || selectedDeviceId
     const slave = slaves.find((s) => String(s.id) === String(selectedSlaveId))
     const slaveName = slave?.name ?? slave?.slaveName ?? (selectedSlaveId || '')
 
-    setDownloading(true)
+    setDownloading(mode)
     try {
       const params = downloadParams()
       const byTime = new Map()
@@ -515,17 +510,41 @@ export default function UserDashboardDetail() {
         ])
 
       const safeDevice = String(deviceName).replace(/[^\w.-]+/g, '_') || 'device'
-      downloadCsv(`${safeDevice}_sensor_data.csv`, header, rows)
+      downloadCsv(`${safeDevice}_${filenameSuffix}.csv`, header, rows)
       showToast('Download started', 'success')
     } catch (e) {
       showToast(e.message || 'Download failed', 'error')
     } finally {
-      setDownloading(false)
+      setDownloading(null)
     }
   }
 
-  const handleDownloadData = handleWideDownload
-  const handleDownloadAll = handleWideDownload
+  const handleDownloadAll = () => {
+    if (!readouts.length) {
+      showToast('No variables for this slave', 'warning')
+      return
+    }
+    const cols = buildExportColumns(readouts)
+    return runWideDownload(cols, 'all', 'sensor_data_all')
+  }
+
+  const handleDownloadData = () => {
+    if (!selected) {
+      showToast('No variable selected', 'warning')
+      return
+    }
+    const apiName = selected.apiName || selected.key
+    if (!apiName) {
+      showToast('No variable to download', 'warning')
+      return
+    }
+    // Prefer reference spreadsheet header when this var is in the export plan.
+    const planned = buildExportColumns(readouts).find((c) =>
+      normName(c.apiName) === normName(apiName) || normName(c.apiName) === normName(selected.key),
+    )
+    const col = planned || { header: selected.label || apiName, apiName }
+    return runWideDownload([col], 'data', 'sensor_data')
+  }
 
   return (
     <div className="space-y-5">
@@ -634,17 +653,23 @@ export default function UserDashboardDetail() {
                           type="button"
                           className="btn-secondary text-xs"
                           onClick={handleDownloadAll}
-                          disabled={downloading || !selectedDeviceId || !readouts.length}
+                          disabled={Boolean(downloading) || !selectedDeviceId || !readouts.length}
                         >
-                          <Download size={13} /> Download All
+                          {downloading === 'all'
+                            ? <Loader2 size={13} className="animate-spin" />
+                            : <Download size={13} />}
+                          Download All
                         </button>
                         <button
                           type="button"
                           className="btn-primary text-xs"
                           onClick={handleDownloadData}
-                          disabled={downloading || !selectedDeviceId || !readouts.length}
+                          disabled={Boolean(downloading) || !selectedDeviceId || !selectedApiName}
                         >
-                          <Download size={13} /> Download Data
+                          {downloading === 'data'
+                            ? <Loader2 size={13} className="animate-spin" />
+                            : <Download size={13} />}
+                          Download Data
                         </button>
                       </div>
                     </div>
