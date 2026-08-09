@@ -1,4 +1,8 @@
 #!/bin/bash
+# Legacy one-shot truncate. Prefer:
+#   scripts/ops/wipe-sensor-data-all.sh --yes
+#   scripts/ops/wipe-sensor-data-until.sh --until '...' --yes
+# See docs/ops/wipe-sensor-data.md
 set -euo pipefail
 echo "=== BEFORE ==="
 df -h / | tail -1

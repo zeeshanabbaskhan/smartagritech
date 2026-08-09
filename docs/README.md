@@ -17,6 +17,21 @@ Energy & IoT Management System (EMS) for organizations that monitor field device
 | 9 | [CF features implementation](./09-cf-features-implementation.md) | Custom dashboards, access/device groups, facilities, power flow — frontend & backend detail |
 | 10 | [CF features E2E test guide](./10-cf-features-e2e-test-guide.md) | End-to-end manual QA checklist for all CF features |
 
+### Production ops
+
+| Doc | Description |
+|-----|-------------|
+| [ops/README.md](./ops/README.md) | Ops index — production host, ports, script install |
+| [ops/backend-down-troubleshooting.md](./ops/backend-down-troubleshooting.md) | Backend down checks & restart |
+| [ops/disk-space.md](./ops/disk-space.md) | Disk / Docker / sensor table growth |
+| [ops/wipe-sensor-data.md](./ops/wipe-sensor-data.md) | Wipe all / wipe-until runbook |
+| [ops/logs.md](./ops/logs.md) | Compose logs for backend & frontend |
+| [ops/database-access.md](./ops/database-access.md) | `psql` into EMS Postgres |
+| [ops/sql-queries.md](./ops/sql-queries.md) | Ready-to-run SQL catalog |
+| [ops/mqtt-live-data.md](./ops/mqtt-live-data.md) | Verify MQTT ingest & Redis latest |
+
+Wipe scripts: `scripts/ops/wipe-sensor-data-all.sh`, `scripts/ops/wipe-sensor-data-until.sh`.
+
 ## PDF exports
 
 Formatted PDFs (A4, headers/footers, Mermaid diagrams rendered) live in [`pdf/`](./pdf/):
