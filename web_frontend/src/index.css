@@ -2,22 +2,24 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Brand primary defaults (ThemeContext overwrites at runtime) */
+/* Brand primary defaults (ThemeContext overwrites at runtime).
+ * --color-primary-* are space-separated RGB for Tailwind opacity modifiers.
+ * --brand-primary / --elsa-* stay as hex for direct CSS use. */
 :root {
   --brand-primary: #F5A623;
-  --color-primary-50: #FFFDF0;
-  --color-primary-100: #FFF9D6;
-  --color-primary-200: #FFE97A;
-  --color-primary-300: #FFD84A;
-  --color-primary-400: #F5B830;
-  --color-primary-500: #F5A623;
-  --color-primary-600: #E8941A;
-  --color-primary-700: #CB7E12;
-  --color-primary-800: #8C510A;
-  --color-primary-900: #5A3206;
+  --color-primary-50: 255 253 240;
+  --color-primary-100: 255 249 214;
+  --color-primary-200: 255 233 122;
+  --color-primary-300: 255 216 74;
+  --color-primary-400: 245 184 48;
+  --color-primary-500: 245 166 35;
+  --color-primary-600: 232 148 26;
+  --color-primary-700: 203 126 18;
+  --color-primary-800: 140 81 10;
+  --color-primary-900: 90 50 6;
   --elsa-primary: var(--brand-primary);
-  --elsa-primary-light: var(--color-primary-400);
-  --elsa-primary-dark: var(--color-primary-700);
+  --elsa-primary-light: #F5B830;
+  --elsa-primary-dark: #CB7E12;
 }
 
 @layer base {
@@ -155,7 +157,10 @@
            dark:hover:bg-surface-700 dark:hover:border-surface-500;
   }
   .filter-chip-active {
-    @apply filter-chip text-surface-950 dark:text-surface-950;
+    /* Do not @apply filter-chip — its bg-white wins over later custom props in build */
+    @apply inline-flex items-center justify-center px-3 py-1.5 rounded-full text-xs font-bold
+           border transition-colors duration-150 cursor-pointer select-none
+           text-surface-950 dark:text-surface-950;
     background-color: var(--brand-primary, #F5A623);
     border-color: var(--brand-primary, #F5A623);
   }

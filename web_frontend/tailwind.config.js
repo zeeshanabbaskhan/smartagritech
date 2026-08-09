@@ -17,18 +17,19 @@ export default {
         mono: ['JetBrains Mono', 'monospace'],
       },
       colors: {
-        // Defaults match Elsa amber; ThemeContext overwrites --color-primary-* at runtime
+        // Space-separated RGB channels in --color-primary-* (see ThemeContext / :root)
+        // so Tailwind /opacity modifiers work (bg-primary-500/20).
         primary: {
-          50:  cssVarColor('--color-primary-50', '#FFFDF0'),
-          100: cssVarColor('--color-primary-100', '#FFF9D6'),
-          200: cssVarColor('--color-primary-200', '#FFE97A'),
-          300: cssVarColor('--color-primary-300', '#FFD84A'),
-          400: cssVarColor('--color-primary-400', '#F5B830'),
-          500: cssVarColor('--color-primary-500', '#F5A623'),
-          600: cssVarColor('--color-primary-600', '#E8941A'),
-          700: cssVarColor('--color-primary-700', '#CB7E12'),
-          800: cssVarColor('--color-primary-800', '#8C510A'),
-          900: cssVarColor('--color-primary-900', '#5A3206'),
+          50:  'rgb(var(--color-primary-50) / <alpha-value>)',
+          100: 'rgb(var(--color-primary-100) / <alpha-value>)',
+          200: 'rgb(var(--color-primary-200) / <alpha-value>)',
+          300: 'rgb(var(--color-primary-300) / <alpha-value>)',
+          400: 'rgb(var(--color-primary-400) / <alpha-value>)',
+          500: 'rgb(var(--color-primary-500) / <alpha-value>)',
+          600: 'rgb(var(--color-primary-600) / <alpha-value>)',
+          700: 'rgb(var(--color-primary-700) / <alpha-value>)',
+          800: 'rgb(var(--color-primary-800) / <alpha-value>)',
+          900: 'rgb(var(--color-primary-900) / <alpha-value>)',
         },
         surface: {
           50:  '#FEFEF8',   // ← lemon-white page background

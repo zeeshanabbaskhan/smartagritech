@@ -38,6 +38,12 @@ export function rgbToHex({ r, g, b }) {
   return `#${[r, g, b].map((x) => clampByte(x).toString(16).padStart(2, '0')).join('')}`
 }
 
+/** Space-separated RGB channels for Tailwind `rgb(var(--x) / <alpha-value>)`. */
+export function hexToRgbChannels(hex) {
+  const { r, g, b } = hexToRgb(hex)
+  return `${r} ${g} ${b}`
+}
+
 function mixRgb(a, b, t) {
   return {
     r: a.r + (b.r - a.r) * t,
@@ -81,9 +87,10 @@ export function applyPrimaryCssVars(hex, root = typeof document !== 'undefined' 
   const scale = buildPrimaryScale(hex || DEFAULT_PRIMARY_COLOR)
   root.style.setProperty('--brand-primary', scale[500])
   for (const shade of PRIMARY_SHADES) {
-    root.style.setProperty(`--color-primary-${shade}`, scale[shade])
+    // Tailwind primary-* expects space-separated RGB channels
+    root.style.setProperty(`--color-primary-${shade}`, hexToRgbChannels(scale[shade]))
   }
-  // Elsa chatbot accents track the same brand primary
+  // Elsa chatbot accents track the same brand primary (hex)
   root.style.setProperty('--elsa-primary', scale[500])
   root.style.setProperty('--elsa-primary-light', scale[400])
   root.style.setProperty('--elsa-primary-dark', scale[700])

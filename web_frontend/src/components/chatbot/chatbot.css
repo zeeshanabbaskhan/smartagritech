@@ -1,8 +1,6 @@
 /* Elsa chatbot widget styles (scoped fallbacks — inherit brand primary from :root) */
 .chatbot-fab, .chatbot-panel, .chatbot-backdrop {
-  --elsa-primary: var(--brand-primary, #F5A623);
-  --elsa-primary-light: var(--color-primary-400, #F5B830);
-  --elsa-primary-dark: var(--color-primary-700, #CB7E12);
+  /* --elsa-primary / -light / -dark set on :root by ThemeContext */
   --elsa-surface-950: #0B0F19;
   --elsa-surface-900: #141828;
   --elsa-surface-800: #1F2937;
