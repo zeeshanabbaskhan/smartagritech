@@ -7,7 +7,7 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
 import DeviceSlaveSelector from '../../components/shared/DeviceSlaveSelector'
-import { resolvePresetRange, toYmd } from '../../components/ui/DataCenterFilterBar'
+import { DateRangePicker, resolvePresetRange, toYmd } from '../../components/ui/DataCenterFilterBar'
 import PageState, { ChartEmpty, useFetch } from '../../components/ui/PageState'
 import { useDevices } from '../../context/DeviceContext'
 import { useToast } from '../../context/ToastContext'
@@ -466,26 +466,16 @@ export default function UserDashboardDetail() {
                         </p>
                       </div>
                       <div className="flex flex-wrap items-end gap-2">
-                        <div>
-                          <label className="label" htmlFor="detail-date-from">From</label>
-                          <input
-                            id="detail-date-from"
-                            type="date"
-                            className="input py-1.5 text-xs w-[9.5rem]"
-                            value={dateFrom}
-                            onChange={(e) => setDateFrom(e.target.value)}
-                          />
-                        </div>
-                        <div>
-                          <label className="label" htmlFor="detail-date-to">To</label>
-                          <input
-                            id="detail-date-to"
-                            type="date"
-                            className="input py-1.5 text-xs w-[9.5rem]"
-                            value={dateTo}
-                            onChange={(e) => setDateTo(e.target.value)}
-                          />
-                        </div>
+                        <DateRangePicker
+                          label="From / To"
+                          className="w-56"
+                          dateFrom={dateFrom}
+                          dateTo={dateTo}
+                          onApply={(from, to) => {
+                            setDateFrom(from)
+                            setDateTo(to)
+                          }}
+                        />
                         <button
                           type="button"
                           className="btn-secondary text-xs"

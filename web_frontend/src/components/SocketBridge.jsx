@@ -5,7 +5,7 @@ import { useDevices } from '../context/DeviceContext'
 
 export default function SocketBridge({ onAlarm }) {
   const { user } = useAuth()
-  const { loadDevices, selectedDeviceId, selectDevice } = useDevices()
+  const { loadDevices } = useDevices()
 
   useEffect(() => {
     if (!user || !isSocketEnabled()) {
@@ -14,8 +14,9 @@ export default function SocketBridge({ onAlarm }) {
     }
     connectSocket()
     const unsub = onSocketEvent((event, data) => {
+      // Silent refresh — never toggle DeviceContext.loading (that blinks the DEVICE select).
       if (event === 'reading:new' || event === 'device:switch' || event === 'device:status') {
-        loadDevices()
+        loadDevices({ silent: true })
       }
       if (event === 'alarm:new') onAlarm?.(data)
     })
@@ -24,10 +25,6 @@ export default function SocketBridge({ onAlarm }) {
       disconnectSocket()
     }
   }, [user?.id, loadDevices, onAlarm])
-
-  useEffect(() => {
-    if (selectedDeviceId) selectDevice(selectedDeviceId)
-  }, [selectedDeviceId, selectDevice])
 
   return null
 }
