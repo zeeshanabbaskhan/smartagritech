@@ -98,8 +98,9 @@ export default function DeviceSlaveSelector({
         className="min-w-[200px] flex-1"
         value={deviceValue}
         options={deviceOptions}
-        placeholder={devices.length ? 'Select device' : 'No devices'}
-        disabled={loading || !devices.length}
+        placeholder={devices.length ? 'Select device' : (loading ? 'Loading…' : 'No devices')}
+        // Only disable when empty — never on background refresh (avoids opacity blink).
+        disabled={!devices.length}
         clearable={false}
         onChange={handleDeviceChange}
       />

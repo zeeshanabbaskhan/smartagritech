@@ -53,9 +53,6 @@ export default function SensorHistoryPage({ title = 'Sensor History', breadcrumb
     if (!selectedDeviceId) return
     try {
       const q = { deviceId: selectedDeviceId, timeRange }
-      const vars = rows[0]?.variableName
-      if (vars) q.variableName = vars
-      else q.variableName = 'PowerConsumption'
       await emsApi.downloadSensorCsv(q)
       showToast('CSV download started', 'success')
     } catch (e) {

@@ -206,9 +206,12 @@ async function download(path, query, filename = 'export.csv') {
     throw new ApiError(err.message || `Download failed (${res.status})`, res.status)
   }
   const blob = await res.blob()
+  const cd = res.headers.get('Content-Disposition') || ''
+  const match = cd.match(/filename\*?=(?:UTF-8''|")?([^\";]+)/i)
+  const resolvedName = match ? decodeURIComponent(match[1].replace(/"/g, '').trim()) : filename
   const link = document.createElement('a')
   link.href = URL.createObjectURL(blob)
-  link.download = filename
+  link.download = resolvedName || filename
   link.click()
   URL.revokeObjectURL(link.href)
 }

@@ -267,7 +267,7 @@ const emsApi = {
   getPowerFlow: (params) => api.get('/custom-dashboards/power-flow', params),
   updatePowerFlow: (body) => api.put('/custom-dashboards/power-flow', body),
 
-  downloadSensorCsv: (params) => api.download('/sensor-data/download', params, 'sensor-data.csv'),
+  downloadSensorCsv: (params) => api.download('/sensor-data/download', params, 'DeviceData.csv'),
 
   // ─── Elsa chatbot ─────────────────────────────────────────────────────────
   chatbotQuery: (messages, organizationId) =>

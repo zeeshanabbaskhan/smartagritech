@@ -11,7 +11,7 @@ import { Download, Trash2 } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
 import { mapDevice, mapGateway } from '../../utils/mappers'
 import { fetchDeviceVariables } from '../../utils/sensorReadings'
-import { downloadCsv } from '../../utils/csv'
+import { downloadDeviceDataCsv } from '../../utils/deviceDataExport'
 import { useToast } from '../../context/ToastContext'
 
 const CHART_COLORS = ['#F5A623', '#3B82F6', '#EF4444', '#10B981', '#06b6d4', '#8B5CF6']
@@ -208,15 +208,41 @@ export default function OrgHistoricalData() {
     ? (gateways.find((g) => g.id === sourceId)?.name ?? '')
     : (devices.find((d) => d.id === sourceId)?.name ?? '')
 
-  const handleExport = () => {
-    if (!tableRows.length || !chartData.length) {
-      showToast('No data to export', 'warning')
+  const handleExport = async () => {
+    if (!deviceId) {
+      showToast('Please select a device', 'warning')
       return
     }
-    const header = ['Time', ...selectedVars]
-    const rows = chartData.map((row) => [row.time, ...selectedVars.map((v) => row[v] ?? '')])
-    downloadCsv('org_historical_data.csv', header, rows)
-    showToast('Export started', 'success')
+    try {
+      await emsApi.downloadSensorCsv({
+        deviceId,
+        slaveId: slaveId || undefined,
+        startDate: dateFrom || undefined,
+        endDate: dateTo ? `${dateTo}T23:59:59.999` : undefined,
+      })
+      showToast('Download started', 'success')
+    } catch (e) {
+      if (!tableRows.length || !chartData.length) {
+        showToast(e.message || 'No data to export', 'warning')
+        return
+      }
+      const deviceName = sourceName || ''
+      const slaveName = slaves.find((s) => s.id === slaveId)?.name || ''
+      const wideRows = chartData.map((row) => {
+        const readings = selectedVars.map((v) => ({
+          variableName: v,
+          value: row[v] ?? '',
+        }))
+        return {
+          deviceName,
+          slaveName,
+          timestamp: row.time,
+          readings,
+        }
+      })
+      downloadDeviceDataCsv(wideRows, { deviceName, slaveName })
+      showToast('Export started', 'success')
+    }
   }
 
   const handleDeleteData = async () => {

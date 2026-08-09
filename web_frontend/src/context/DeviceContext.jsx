@@ -26,8 +26,10 @@ export function DeviceProvider({ children }) {
   const [loading, setLoading] = useState(false)
   const devicesRef = useRef(devices)
   const slavesRef = useRef(slaves)
+  const selectedDeviceIdRef = useRef(selectedDeviceId)
   devicesRef.current = devices
   slavesRef.current = slaves
+  selectedDeviceIdRef.current = selectedDeviceId
 
   const loadSlavesForDevice = useCallback(async (deviceId) => {
     if (!deviceId) {
@@ -49,9 +51,12 @@ export function DeviceProvider({ children }) {
     }
   }, [])
 
-  const loadDevices = useCallback(async () => {
+  const loadDevices = useCallback(async (opts = {}) => {
     if (!user) return []
-    setLoading(true)
+    const silent = Boolean(opts?.silent)
+    // Silent refresh (socket/poll) must not flip `loading` — that disables the
+    // device selector and causes a visible opacity blink on every reading.
+    if (!silent) setLoading(true)
     try {
       const res = await emsApi.getDevices({ limit: 100 })
       const mapped = list(res).map(mapDevice)
@@ -65,13 +70,17 @@ export function DeviceProvider({ children }) {
       setDevices([])
       return []
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [user])
 
   /** Select a device; empty/null falls back to the first available device. */
   const selectDevice = useCallback(async (deviceId) => {
     const next = deviceId || devicesRef.current[0]?.id || null
+    // No-op when already on this device with slaves loaded — avoids clear→reload flicker.
+    if (sameId(next, selectedDeviceIdRef.current) && slavesRef.current.length > 0) {
+      return
+    }
     // Clear slave immediately so consumers never fetch new device + old slave.
     setSelectedDeviceId(next)
     setSelectedSlaveId(null)

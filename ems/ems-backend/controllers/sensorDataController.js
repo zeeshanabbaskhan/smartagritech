@@ -9,6 +9,14 @@ const { bucketVariable, sumVariable, periodEnergyKwh } = require('../utils/senso
 const { cached } = require('../utils/responseCache')
 const { assertDeviceAccess } = require('../utils/deviceAccess')
 const { readLatest } = require('../utils/redisLatest')
+const {
+  PREFERRED_METRIC_COLUMNS,
+  IDENTITY_COLUMNS,
+  formatReceivedTime,
+  deviceDataFilename,
+  csvLine,
+  pivotReadingsArray,
+} = require('../utils/deviceDataExport')
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
@@ -377,18 +385,21 @@ const getReadingsBrowse = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
-// @desc  Stream sensor data as CSV (paginated 500-row cursor to avoid OOM)
+// @desc  Stream sensor data as wide DeviceData CSV (one row per timestamp)
 // @access SUPER_ADMIN | ORG_ADMIN | USER (own devices)
 const downloadCSV = async (req, res, next) => {
   try {
-    const { deviceId, slaveId, variableName, startDate, endDate } = req.query
-    if (!deviceId || !variableName) return next(new AppError('deviceId and variableName are required', 400))
+    const { deviceId, slaveId, startDate, endDate, timeRange } = req.query
+    if (!deviceId) return next(new AppError('deviceId is required', 400))
 
     const device = await authoriseDevice(deviceId, req.user)
+    const filename = deviceDataFilename()
+    const emptyHeader = csvLine([...IDENTITY_COLUMNS, ...PREFERRED_METRIC_COLUMNS])
+
     if (isSwitchOff(device)) {
-      res.setHeader('Content-Type', 'text/csv')
-      res.setHeader('Content-Disposition', 'attachment; filename=readings.csv')
-      return res.end('variableName,value,unit,timestamp\n')
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8')
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
+      return res.end(emptyHeader + '\n')
     }
 
     const where = { deviceId }
@@ -397,31 +408,68 @@ const downloadCSV = async (req, res, next) => {
       where.timestamp = {}
       if (startDate) where.timestamp.gte = parseDateBound(startDate, 'start')
       if (endDate)   where.timestamp.lte = parseDateBound(endDate, 'end')
+    } else if (timeRange && TIME_RANGE_MS[timeRange]) {
+      where.timestamp = { gte: new Date(Date.now() - TIME_RANGE_MS[timeRange]) }
     }
 
-    res.setHeader('Content-Type', 'text/csv')
-    res.setHeader('Content-Disposition', 'attachment; filename=readings.csv')
-    res.write('variableName,value,unit,timestamp\n')
-
+    // Collect batches so we can omit preferred columns that never appear (CF subset style).
+    const MAX_ROWS = 50_000
+    const collected = []
+    const usedPreferred = new Set()
+    const extraKeys = new Set()
     let skip = 0
     const BATCH = 500
-    while (true) {
+
+    while (collected.length < MAX_ROWS) {
+      const take = Math.min(BATCH, MAX_ROWS - collected.length)
       const rows = await prisma.sensorReading.findMany({
         where,
         orderBy: { timestamp: 'desc' },
-        skip, take: BATCH,
-        select:  { timestamp: true, readings: true },
+        skip,
+        take,
+        select: {
+          timestamp: true,
+          readings: true,
+          configSlave: { select: { name: true } },
+        },
       })
       if (!rows.length) break
       for (const row of rows) {
-        const arr   = Array.isArray(row.readings) ? row.readings : []
-        const entry = arr.find((r) => r.variableName === variableName)
-        if (entry) res.write(`${entry.variableName},${entry.value},${entry.unit || ''},${new Date(row.timestamp).toISOString()}\n`)
+        const { metrics, extras } = pivotReadingsArray(row.readings)
+        for (const [k, v] of Object.entries(metrics)) {
+          if (v !== undefined && v !== '') usedPreferred.add(k)
+        }
+        for (const [k, v] of Object.entries(extras)) {
+          if (v !== undefined && v !== '') extraKeys.add(k)
+        }
+        collected.push({
+          deviceName: device.name || '',
+          slaveName: row.configSlave?.name || '',
+          receivedTime: formatReceivedTime(row.timestamp),
+          metrics,
+          extras,
+        })
       }
-      if (rows.length < BATCH) break
-      skip += BATCH
+      if (rows.length < take) break
+      skip += rows.length
     }
 
+    const metricCols = PREFERRED_METRIC_COLUMNS.filter((c) => usedPreferred.has(c))
+    const extraCols = [...extraKeys].sort()
+    const header = [...IDENTITY_COLUMNS, ...metricCols, ...extraCols]
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8')
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
+    res.write(csvLine(header) + '\n')
+    for (const r of collected) {
+      res.write(csvLine([
+        r.deviceName,
+        r.slaveName,
+        r.receivedTime,
+        ...metricCols.map((c) => r.metrics[c] ?? ''),
+        ...extraCols.map((c) => r.extras[c] ?? ''),
+      ]) + '\n')
+    }
     res.end()
   } catch (err) { next(err) }
 }

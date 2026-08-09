@@ -13,7 +13,7 @@ import emsApi, { list } from '../../api/emsApi'
 import { mapOrganization, mapDevice } from '../../utils/mappers'
 import { useToast } from '../../context/ToastContext'
 import { fetchDeviceVariables } from '../../utils/sensorReadings'
-import { downloadCsv } from '../../utils/csv'
+import { downloadDeviceDataCsv, pivotLongRowsToWide } from '../../utils/deviceDataExport'
 
 const CHART_COLORS = ['#F5A623', '#3B82F6', '#EF4444', '#10B981', '#06b6d4', '#8B5CF6']
 
@@ -214,7 +214,7 @@ export default function AdminHistoricalData() {
     try {
       await emsApi.downloadSensorCsv({
         deviceId: deviceFilter,
-        variableName: selectedVars[0] || undefined,
+        slaveId: slaveId || undefined,
         startDate: dateFrom,
         endDate: dateTo ? `${dateTo}T23:59:59.999` : dateTo,
       })
@@ -224,9 +224,17 @@ export default function AdminHistoricalData() {
         showToast(e.message || 'Download failed', 'error')
         return
       }
-      const header = ['Variable Name', 'Display Name', 'Display Value', 'Received Time']
-      const rows = tableData.map((r) => [r.variable, r.displayName, r.value, r.time])
-      downloadCsv('historical_data.csv', header, rows)
+      const deviceName = filteredDevices.find((d) => d.id === deviceFilter)?.name || ''
+      const slaveName = slaves.find((s) => s.id === slaveId)?.name || ''
+      const longRows = tableData.map((r) => ({
+        variableName: r.variable,
+        value: r.value,
+        timestamp: r.time,
+        deviceName,
+        slaveName,
+      }))
+      downloadDeviceDataCsv(pivotLongRowsToWide(longRows, { deviceName, slaveName }))
+      showToast('Download started', 'success')
     }
   }
 
