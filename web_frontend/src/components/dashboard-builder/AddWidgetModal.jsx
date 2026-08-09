@@ -3,6 +3,7 @@ import Modal from '../ui/Modal'
 import { WIDGET_TYPES, METRIC_OPTIONS, GROUP_BY_OPTIONS, COLOR_THEMES, widgetTypeMeta } from '../../data/widgetCatalog'
 import { Cpu } from 'lucide-react'
 import { fetchDeviceVariables } from '../../utils/sensorReadings'
+import { resolveBrandPrimary } from '../../utils/branding'
 
 const SYSTEM_METRICS = METRIC_OPTIONS.filter((m) =>
   ['devicesOnline', 'activeAlarms', '_none', 'cost', 'carbonEmissions'].includes(m.value)
@@ -167,7 +168,7 @@ export default function AddWidgetModal({ open, onClose, onAdd, devices = [], das
                 title={c.label}
                 onClick={() => setColor(c.value)}
                 className={`w-7 h-7 rounded-full border-2 ${color === c.value ? 'border-surface-900' : 'border-transparent'}`}
-                style={{ backgroundColor: c.hex }}
+                style={{ backgroundColor: c.value === 'primary' ? resolveBrandPrimary() : c.hex }}
               />
             ))}
           </div>

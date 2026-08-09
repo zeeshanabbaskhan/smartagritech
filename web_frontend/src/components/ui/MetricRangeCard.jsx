@@ -61,7 +61,7 @@ export default function MetricRangeCard({
               <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" vertical={false} />
               <XAxis dataKey="t" tick={{ fontSize: 9, fill: '#9AA09A' }} stroke="#D1D5C8" />
               <YAxis domain={[0, 'auto']} tick={{ fontSize: 9, fill: '#9AA09A' }} stroke="#D1D5C8" width={20} />
-              <Line type="monotone" dataKey="v" stroke="#F5A623" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="v" stroke="var(--brand-primary, #F5A623)" strokeWidth={2} dot={false} />
             </LineChart>
           </ResponsiveContainer>
         </>

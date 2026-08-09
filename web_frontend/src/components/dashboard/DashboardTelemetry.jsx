@@ -13,9 +13,10 @@ import {
 import DrillDownModal from '../ui/DrillDownModal'
 import { useToast } from '../../context/ToastContext'
 import { onSocketEvent, isSocketEnabled } from '../../services/socketService'
+import { resolveBrandPrimary } from '../../utils/branding'
 
 const KPI_ICONS = [Zap, Activity, Gauge, TrendingUp]
-const KPI_COLORS = ['#F5A623', '#3B82F6', '#22C55E', '#8B5CF6']
+const kpiColors = () => [resolveBrandPrimary(), '#3B82F6', '#22C55E', '#8B5CF6']
 
 function highlightMatch(text, search) {
   if (!search || !text) return text
@@ -179,16 +180,17 @@ export default function DashboardTelemetry({
 
   const kpiState = useMemo(() => computeDynamicKpis(activeDevices), [activeDevices])
 
-  const KPI_CONFIG = useMemo(() => (
-    kpiState.cards.map((c, i) => ({
+  const KPI_CONFIG = useMemo(() => {
+    const colors = kpiColors()
+    return kpiState.cards.map((c, i) => ({
       ...c,
       Icon: KPI_ICONS[i % KPI_ICONS.length],
-      color: KPI_COLORS[i % KPI_COLORS.length],
+      color: colors[i % colors.length],
       label: powerKpiLabel && (c.key === 'power' || /activepower/i.test(c.key))
         ? powerKpiLabel
         : c.label,
     }))
-  ), [kpiState.cards, powerKpiLabel])
+  }, [kpiState.cards, powerKpiLabel])
 
   const activeGroupLabel = useMemo(() => {
     if (groupFilter === 'all') return allDevicesLabel

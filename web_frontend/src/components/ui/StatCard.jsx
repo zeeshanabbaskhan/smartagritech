@@ -87,7 +87,7 @@ export default function StatCard({
               <path
                 d={pathData}
                 fill="none"
-                stroke={color === 'danger' ? '#EF4444' : color === 'success' ? '#22C55E' : '#F5A623'}
+                stroke={color === 'danger' ? '#EF4444' : color === 'success' ? '#22C55E' : 'var(--brand-primary, #F5A623)'}
                 strokeWidth="2"
                 strokeLinecap="round"
                 strokeLinejoin="round"

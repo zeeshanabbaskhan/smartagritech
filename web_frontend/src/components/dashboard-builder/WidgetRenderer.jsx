@@ -6,6 +6,7 @@ import {
 import { TrendingUp, TrendingDown, AlertTriangle, Bell, Info, Loader2 } from 'lucide-react'
 import { METRICS } from '../../data/facilitiesHierarchy'
 import { COLOR_THEMES } from '../../data/widgetCatalog'
+import { resolveBrandPrimary } from '../../utils/branding'
 import { fetchWidgetLiveBundle, mergeMultiSeries, resolveDeviceId, resolveWidgetVariableName } from '../../utils/widgetLiveData'
 import { unitForVariable } from '../../utils/deviceMetrics'
 import { onSocketEvent, subscribeDevice, isSocketEnabled } from '../../services/socketService'
@@ -13,7 +14,8 @@ import { onSocketEvent, subscribeDevice, isSocketEnabled } from '../../services/
 const POLL_MS = 30_000
 
 function themeHex(color) {
-  return COLOR_THEMES.find(c => c.value === color)?.hex || '#F5A623'
+  if (!color || color === 'primary') return resolveBrandPrimary()
+  return COLOR_THEMES.find(c => c.value === color)?.hex || resolveBrandPrimary()
 }
 
 function renderMarkdown(raw) {
@@ -161,7 +163,7 @@ export default function WidgetRenderer({ widget, orgName, hierarchy, dashboardCo
     unit: widget.unit || catalog?.unit || unitForVariable(variableName || widget.metric),
     base: catalog?.base ?? 100,
     variance: catalog?.variance ?? 40,
-    color: catalog?.color || '#F5A623',
+    color: catalog?.color || resolveBrandPrimary(),
   }
   const color = themeHex(widget.color)
   const { bundle, loading } = useLiveBundle(widget, orgName, hierarchy, dashboardContext)
@@ -215,7 +217,7 @@ export default function WidgetRenderer({ widget, orgName, hierarchy, dashboardCo
     }
 
     if (widget.type === 'pie') {
-      const palette = ['#F5A623', '#2563EB', '#16A34A', '#DC2626', '#8C510A', '#6B7280']
+      const palette = [resolveBrandPrimary(), '#2563EB', '#16A34A', '#DC2626', '#8C510A', '#6B7280']
       return (
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
@@ -355,7 +357,7 @@ export default function WidgetRenderer({ widget, orgName, hierarchy, dashboardCo
   }
 
   if (widget.type === 'pie') {
-    const palette = ['#F5A623', '#2563EB', '#16A34A', '#DC2626', '#8C510A', '#6B7280']
+    const palette = [resolveBrandPrimary(), '#2563EB', '#16A34A', '#DC2626', '#8C510A', '#6B7280']
     const sample = series.length
       ? series.filter((_, i) => i % Math.max(1, Math.ceil(series.length / 6)) === 0).slice(0, 6)
       : comparison.slice(0, 6).map((c) => ({ label: c.name, value: c.value }))
@@ -424,7 +426,7 @@ export default function WidgetRenderer({ widget, orgName, hierarchy, dashboardCo
         ))}
         <div className="flex items-center gap-2 mt-1 pt-1 border-t border-surface-100">
           <span className="text-[9px] text-surface-400 font-bold">Low</span>
-          <div className="flex-1 h-2 rounded" style={{ background: 'linear-gradient(to right, #16A34A, #F5A623, #DC2626)' }} />
+          <div className="flex-1 h-2 rounded" style={{ background: `linear-gradient(to right, #16A34A, ${resolveBrandPrimary()}, #DC2626)` }} />
           <span className="text-[9px] text-surface-400 font-bold">High</span>
         </div>
       </div>
@@ -439,7 +441,7 @@ export default function WidgetRenderer({ widget, orgName, hierarchy, dashboardCo
       ? bundle.multiSeries[seriesList[0].key]
       : series
     const merged = mergeMultiSeries(primary, bundle.multiSeries || {}, seriesList)
-    const fallbackPalette = ['#2563EB', '#F5A623', '#16A34A', '#DC2626']
+    const fallbackPalette = ['#2563EB', resolveBrandPrimary(), '#16A34A', '#DC2626']
     if (!merged.length) return <EmptyCell />
 
     return (

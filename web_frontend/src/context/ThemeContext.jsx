@@ -5,6 +5,7 @@ import {
   DEFAULT_DISPLAY_NAME,
   DEFAULT_LOGO,
   DEFAULT_PRIMARY_COLOR,
+  applyPrimaryCssVars,
   themeDisplayName,
 } from '../utils/branding'
 
@@ -42,10 +43,7 @@ function mapApiTheme(t) {
 }
 
 function applyBrandingCss(branding) {
-  const root = document.documentElement
-  root.style.setProperty('--brand-primary', branding.primaryColor)
-  root.style.setProperty('--color-primary-500', branding.primaryColor)
-  root.style.setProperty('--color-primary-600', branding.primaryColor)
+  applyPrimaryCssVars(branding.primaryColor, document.documentElement)
 }
 
 export function ThemeProvider({ children }) {

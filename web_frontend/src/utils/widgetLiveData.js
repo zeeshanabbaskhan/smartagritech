@@ -7,6 +7,7 @@ import {
   METRICS, getScopeChildren, collectDeviceIdsFromNode, resolveScopeDeviceIds, findNodeInTree,
 } from '../data/facilitiesHierarchy'
 import { unitForVariable } from './deviceMetrics'
+import { resolveBrandPrimary } from './branding'
 
 export const WIDGET_TIME_TO_API = {
   today: '24h',
@@ -45,7 +46,7 @@ function metricMeta(widget) {
   return {
     label: variableName || metric,
     unit: widget?.unit || unitForVariable(variableName || metric),
-    color: '#F5A623',
+    color: resolveBrandPrimary(),
     variableName,
   }
 }

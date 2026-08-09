@@ -2,6 +2,24 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Brand primary defaults (ThemeContext overwrites at runtime) */
+:root {
+  --brand-primary: #F5A623;
+  --color-primary-50: #FFFDF0;
+  --color-primary-100: #FFF9D6;
+  --color-primary-200: #FFE97A;
+  --color-primary-300: #FFD84A;
+  --color-primary-400: #F5B830;
+  --color-primary-500: #F5A623;
+  --color-primary-600: #E8941A;
+  --color-primary-700: #CB7E12;
+  --color-primary-800: #8C510A;
+  --color-primary-900: #5A3206;
+  --elsa-primary: var(--brand-primary);
+  --elsa-primary-light: var(--color-primary-400);
+  --elsa-primary-dark: var(--color-primary-700);
+}
+
 @layer base {
   * { box-sizing: border-box; }
 
@@ -137,10 +155,12 @@
            dark:hover:bg-surface-700 dark:hover:border-surface-500;
   }
   .filter-chip-active {
-    @apply filter-chip bg-primary-500 text-surface-950 border-primary-500
-           hover:bg-primary-400 hover:border-primary-400
-           dark:bg-primary-500 dark:text-surface-950 dark:border-primary-500
-           dark:hover:bg-primary-400 dark:hover:border-primary-400;
+    @apply filter-chip text-surface-950 dark:text-surface-950;
+    background-color: var(--brand-primary, #F5A623);
+    border-color: var(--brand-primary, #F5A623);
+  }
+  .filter-chip-active:hover {
+    filter: brightness(1.08);
   }
 
   /* ── Divider ── */

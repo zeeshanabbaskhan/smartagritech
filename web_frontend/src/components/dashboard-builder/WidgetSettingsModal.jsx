@@ -4,6 +4,7 @@ import { WIDGET_TYPES, METRIC_OPTIONS, GROUP_BY_OPTIONS, COLOR_THEMES } from '..
 import { TIME_RANGES, findNodeInTree } from '../../data/facilitiesHierarchy'
 import { Network, Building, Layers, Folder, Cpu, Activity, HelpCircle } from 'lucide-react'
 import { fetchDeviceVariables } from '../../utils/sensorReadings'
+import { resolveBrandPrimary } from '../../utils/branding'
 
 function getNodeIcon(type) {
   switch (type) {
@@ -155,7 +156,9 @@ export default function WidgetSettingsModal({ open, onClose, widget, hierarchy, 
     onClose()
   }
 
-  const activeColorTheme = COLOR_THEMES.find((c) => c.value === form.color)?.hex || '#F5A623'
+  const activeColorTheme = form.color === 'primary'
+    ? resolveBrandPrimary()
+    : (COLOR_THEMES.find((c) => c.value === form.color)?.hex || resolveBrandPrimary())
 
   return (
     <Modal
@@ -313,7 +316,7 @@ export default function WidgetSettingsModal({ open, onClose, widget, hierarchy, 
                   title={c.label}
                   onClick={() => setForm((f) => ({ ...f, color: c.value }))}
                   className={`w-7 h-7 rounded-full border-2 ${form.color === c.value ? 'border-surface-900' : 'border-transparent'}`}
-                  style={{ backgroundColor: c.hex }}
+                  style={{ backgroundColor: c.value === 'primary' ? resolveBrandPrimary() : c.hex }}
                 />
               ))}
             </div>
@@ -363,7 +366,7 @@ export default function WidgetSettingsModal({ open, onClose, widget, hierarchy, 
                   ...f,
                   thresholds: [
                     ...(f.thresholds || []),
-                    { value: (f.thresholds?.length ? f.thresholds[f.thresholds.length - 1].value + 20 : 80), color: '#F5A623' },
+                    { value: (f.thresholds?.length ? f.thresholds[f.thresholds.length - 1].value + 20 : 80), color: resolveBrandPrimary() },
                   ].sort((a, b) => a.value - b.value),
                 }))}
               >

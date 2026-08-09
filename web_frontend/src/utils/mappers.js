@@ -1,6 +1,6 @@
 /** Map API entities to UI table/card shapes used across pages */
 import { apiRoleToLabel } from './roles'
-import { themeDisplayName } from './branding'
+import { themeDisplayName, DEFAULT_PRIMARY_COLOR } from './branding'
 
 const fmtDate = (d) => {
   if (!d) return '—'
@@ -508,7 +508,7 @@ export const mapTheme = (t) => ({
   id: t.id,
   name: t.name,
   displayName: themeDisplayName(t.name),
-  primary: t.headerBgColor ?? t.primaryColor ?? '#F5A623',
+  primary: t.headerBgColor ?? t.primaryColor ?? DEFAULT_PRIMARY_COLOR,
   secondary: t.bodyBgColor ?? t.secondaryColor ?? '#0ea5e9',
   headerFontColor: t.headerFontColor,
   headerBgColor: t.headerBgColor,

@@ -1,8 +1,8 @@
-/* Elsa chatbot widget styles (scoped fallbacks) */
+/* Elsa chatbot widget styles (scoped fallbacks — inherit brand primary from :root) */
 .chatbot-fab, .chatbot-panel, .chatbot-backdrop {
-  --elsa-primary: #F59E0B;
-  --elsa-primary-light: #FBBF24;
-  --elsa-primary-dark: #D97706;
+  --elsa-primary: var(--brand-primary, #F5A623);
+  --elsa-primary-light: var(--color-primary-400, #F5B830);
+  --elsa-primary-dark: var(--color-primary-700, #CB7E12);
   --elsa-surface-950: #0B0F19;
   --elsa-surface-900: #141828;
   --elsa-surface-800: #1F2937;
@@ -33,16 +33,16 @@
   border: none;
   cursor: pointer;
   z-index: 1000;
-  background: linear-gradient(135deg, var(--elsa-primary-light, #FBBF24), var(--elsa-primary, #F59E0B), var(--elsa-primary-dark, #D97706));
+  background: linear-gradient(135deg, var(--elsa-primary-light), var(--elsa-primary), var(--elsa-primary-dark));
   color: var(--elsa-surface-950, #0B0F19);
   display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 8px 32px rgba(245, 166, 35, 0.45), 0 2px 8px rgba(0,0,0,0.3);
+  box-shadow: 0 8px 32px color-mix(in srgb, var(--elsa-primary) 45%, transparent), 0 2px 8px rgba(0,0,0,0.3);
   transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s;
   outline: none;
 }
 .chatbot-fab:hover {
   transform: scale(1.1);
-  box-shadow: 0 12px 40px rgba(245, 166, 35, 0.55), 0 4px 12px rgba(0,0,0,0.3);
+  box-shadow: 0 12px 40px color-mix(in srgb, var(--elsa-primary) 55%, transparent), 0 4px 12px rgba(0,0,0,0.3);
 }
 .chatbot-fab:active { transform: scale(0.96); }
 .chatbot-fab-open {
@@ -56,7 +56,7 @@
   position: absolute;
   inset: -4px;
   border-radius: 50%;
-  border: 2px solid rgba(245, 166, 35, 0.4);
+  border: 2px solid color-mix(in srgb, var(--elsa-primary) 40%, transparent);
   animation: fabPulse 2.5s ease-out infinite;
   pointer-events: none;
 }
@@ -102,7 +102,7 @@
   box-shadow:
     0 32px 80px rgba(0,0,0,0.6),
     0 8px 24px rgba(0,0,0,0.4),
-    0 0 0 1px rgba(245,166,35,0.06);
+    0 0 0 1px color-mix(in srgb, var(--elsa-primary) 6%, transparent);
   z-index: 999;
   display: flex;
   flex-direction: column;
@@ -130,7 +130,7 @@
   justify-content: space-between;
   padding: 14px 16px 12px;
   border-bottom: 1px solid rgba(255,255,255,0.07);
-  background: linear-gradient(135deg, rgba(245,166,35,0.06), rgba(0,0,0,0));
+  background: linear-gradient(135deg, color-mix(in srgb, var(--elsa-primary) 6%, transparent), rgba(0,0,0,0));
   flex-shrink: 0;
 }
 .chatbot-header-left { display: flex; align-items: center; gap: 10px; }
@@ -141,7 +141,7 @@
   border: 1px solid rgba(245,158,11,0.25);
   border-radius: 8px;
   display: flex; align-items: center; justify-content: center;
-  color: var(--elsa-primary, #F59E0B);
+  color: var(--elsa-primary);
   flex-shrink: 0;
   overflow: hidden;
 }
@@ -197,7 +197,7 @@
   transition: background 0.15s, color 0.15s;
 }
 .chatbot-icon-btn:hover { background: rgba(255,255,255,0.1); color: var(--elsa-surface-100, #F8FAFC); }
-.icon-btn-active { background: rgba(245,166,35,0.15) !important; color: var(--elsa-primary, #F59E0B) !important; }
+.icon-btn-active { background: color-mix(in srgb, var(--elsa-primary) 15%, transparent) !important; color: var(--elsa-primary) !important; }
 
 /* â”€â”€ Warning bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .chatbot-warning {
@@ -217,7 +217,7 @@
   background: rgba(255,255,255,0.08);
   padding: 1px 5px;
   border-radius: 3px;
-  color: var(--elsa-primary, #F59E0B);
+  color: var(--elsa-primary);
 }
 
 /* â”€â”€ Messages body â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
@@ -254,9 +254,9 @@
   font-size: 0.6rem;
 }
 .bot-avatar {
-  background: rgba(245,166,35,0.15);
-  color: var(--elsa-primary, #F59E0B);
-  border: 1px solid rgba(245,166,35,0.2);
+  background: color-mix(in srgb, var(--elsa-primary) 15%, transparent);
+  color: var(--elsa-primary);
+  border: 1px solid color-mix(in srgb, var(--elsa-primary) 20%, transparent);
 }
 .user-avatar {
   background: rgba(37, 99, 235, 0.2);
@@ -279,8 +279,8 @@
   color: var(--elsa-surface-200, #E5E7EB);
 }
 .msg-user .msg-bubble {
-  background: linear-gradient(135deg, rgba(245,166,35,0.25), rgba(245,166,35,0.15));
-  border: 1px solid rgba(245,166,35,0.2);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--elsa-primary) 25%, transparent), color-mix(in srgb, var(--elsa-primary) 15%, transparent));
+  border: 1px solid color-mix(in srgb, var(--elsa-primary) 20%, transparent);
   border-bottom-right-radius: 4px;
   color: var(--elsa-surface-100, #F8FAFC);
 }
@@ -313,7 +313,7 @@
   border-radius: 4px;
   font-size: 0.75rem;
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  color: var(--elsa-primary, #F59E0B);
+  color: var(--elsa-primary);
 }
 
 /* â”€â”€ Typing indicator â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
@@ -334,7 +334,7 @@
 .typing-dot:nth-child(3) { animation-delay: 0.4s; }
 @keyframes typingBounce {
   0%, 100% { transform: translateY(0); background: var(--elsa-surface-600, #4B5563); }
-  40%       { transform: translateY(-6px); background: var(--elsa-primary, #F59E0B); }
+  40%       { transform: translateY(-6px); background: var(--elsa-primary); }
 }
 
 /* â”€â”€ Suggested questions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
@@ -352,7 +352,7 @@
   font-weight: 600;
   margin-bottom: 8px;
 }
-.suggestions-label svg { color: var(--elsa-primary, #F59E0B); }
+.suggestions-label svg { color: var(--elsa-primary); }
 .suggestions-grid {
   display: flex;
   flex-wrap: wrap;
@@ -361,8 +361,8 @@
 .suggestion-chip {
   padding: 5px 11px;
   border-radius: 999px;
-  border: 1px solid rgba(245,166,35,0.2);
-  background: rgba(245,166,35,0.06);
+  border: 1px solid color-mix(in srgb, var(--elsa-primary) 20%, transparent);
+  background: color-mix(in srgb, var(--elsa-primary) 6%, transparent);
   color: var(--elsa-surface-300, #D1D5DB);
   font-size: 0.72rem;
   cursor: pointer;
@@ -370,9 +370,9 @@
   text-align: left;
 }
 .suggestion-chip:hover {
-  background: rgba(245,166,35,0.15);
-  border-color: rgba(245,166,35,0.4);
-  color: var(--elsa-primary, #F59E0B);
+  background: color-mix(in srgb, var(--elsa-primary) 15%, transparent);
+  border-color: color-mix(in srgb, var(--elsa-primary) 40%, transparent);
+  color: var(--elsa-primary);
   transform: translateY(-1px);
 }
 
@@ -464,8 +464,8 @@
   transition: border-color 0.2s, box-shadow 0.2s;
 }
 .chatbot-input-row:focus-within {
-  border-color: rgba(245,166,35,0.35);
-  box-shadow: 0 0 0 3px rgba(245,166,35,0.08);
+  border-color: color-mix(in srgb, var(--elsa-primary) 35%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--elsa-primary) 8%, transparent);
 }
 .input-listening {
   border-color: rgba(220,38,38,0.4) !important;
@@ -524,13 +524,13 @@
 }
 
 .send-btn {
-  background: linear-gradient(135deg, var(--elsa-primary, #F59E0B), var(--elsa-primary-dark, #D97706));
+  background: linear-gradient(135deg, var(--elsa-primary), var(--elsa-primary-dark));
   color: var(--elsa-surface-950, #0B0F19);
-  box-shadow: 0 2px 8px rgba(245,166,35,0.3);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--elsa-primary) 30%, transparent);
 }
 .send-btn:hover:not(:disabled) {
-  background: linear-gradient(135deg, var(--elsa-primary-light, #FBBF24), var(--elsa-primary, #F59E0B));
-  box-shadow: 0 4px 16px rgba(245,166,35,0.45);
+  background: linear-gradient(135deg, var(--elsa-primary-light), var(--elsa-primary));
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--elsa-primary) 45%, transparent);
   transform: scale(1.05);
 }
 .send-btn:disabled {
@@ -548,7 +548,7 @@
   margin-top: 7px;
   justify-content: center;
 }
-.chatbot-footer-note svg { color: var(--elsa-primary, #F59E0B); opacity: 0.7; }
+.chatbot-footer-note svg { color: var(--elsa-primary); opacity: 0.7; }
 
 /* â”€â”€ Spin animation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .spin { animation: spin 1s linear infinite; }

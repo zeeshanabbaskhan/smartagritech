@@ -40,7 +40,7 @@ export const GROUP_BY_OPTIONS = [
 ]
 
 export const COLOR_THEMES = [
-  { value: 'primary', label: 'Amber',  hex: '#F5A623' },
+  { value: 'primary', label: 'Brand',  hex: '#F5A623' }, // hex resolved live via resolveBrandPrimary()
   { value: 'info',    label: 'Blue',   hex: '#2563EB' },
   { value: 'success', label: 'Green',  hex: '#16A34A' },
   { value: 'danger',  label: 'Red',    hex: '#DC2626' },
