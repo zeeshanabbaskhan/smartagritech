@@ -159,6 +159,50 @@ function formatChartTime(ts) {
   })
 }
 
+/** Excel-friendly local datetime for wide CSV exports. */
+function formatExportTime(ts) {
+  const d = new Date(ts)
+  if (Number.isNaN(d.getTime())) return String(ts ?? '')
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+
+function matchesExportKey(name, matchKeys) {
+  const n = normName(name)
+  return matchKeys.some((k) => normName(k) === n)
+}
+
+/**
+ * Column plan for wide export: reference headers for vars present on the slave,
+ * then any remaining slave vars (by readout order). Never invent missing metrics.
+ */
+function buildExportColumns(readouts) {
+  const used = new Set()
+  const cols = []
+
+  for (const ref of EXPORT_REF_COLS) {
+    const hit = readouts.find((r) => (
+      matchesExportKey(r.apiName || r.key, ref.match)
+      || matchesExportKey(r.key, ref.match)
+    ))
+    if (!hit) continue
+    const apiName = hit.apiName || hit.key
+    used.add(normName(apiName))
+    used.add(normName(hit.key))
+    cols.push({ header: ref.header, apiName })
+  }
+
+  for (const r of readouts) {
+    const apiName = r.apiName || r.key
+    if (!apiName) continue
+    if (used.has(normName(apiName)) || used.has(normName(r.key))) continue
+    used.add(normName(apiName))
+    cols.push({ header: r.label || apiName, apiName })
+  }
+
+  return cols
+}
+
 function daysBetween(from, to) {
   const a = new Date(from).getTime()
   const b = new Date(to).getTime()
@@ -201,7 +245,7 @@ function emptySavings() {
 }
 
 export default function UserDashboardDetail() {
-  const { selectedDeviceId, selectedSlaveId, slaves, loading: devicesLoading } = useDevices()
+  const { selectedDeviceId, selectedSlaveId, slaves, selectedDevice, loading: devicesLoading } = useDevices()
   const { showToast } = useToast()
 
   const [selectedKey, setSelectedKey] = useState(null)
@@ -393,39 +437,11 @@ export default function UserDashboardDetail() {
     endDate: dateTo ? `${dateTo}T23:59:59.999` : undefined,
   })
 
-  const handleDownloadData = async () => {
-    if (!selectedDeviceId) {
-      showToast('Select a device first', 'warning')
-      return
-    }
-    if (!selectedApiName) {
-      showToast('No variable to download', 'warning')
-      return
-    }
-    setDownloading(true)
-    try {
-      await emsApi.downloadSensorCsv({
-        ...downloadParams(),
-        variableName: selectedApiName,
-      })
-      showToast('Download started', 'success')
-    } catch (e) {
-      if (chartData.length) {
-        downloadCsv(
-          `${selectedApiName}_data.csv`,
-          ['Time', selectedApiName],
-          chartData.map((r) => [r.time, r.value]),
-        )
-        showToast('Exported chart data', 'success')
-      } else {
-        showToast(e.message || 'Download failed', 'error')
-      }
-    } finally {
-      setDownloading(false)
-    }
-  }
-
-  const handleDownloadAll = async () => {
+  /**
+   * Wide-format CSV: one row per received time with all slave variables as columns.
+   * Matches the reference spreadsheet layout (Device/Slave/Received Time + metrics).
+   */
+  const handleWideDownload = async () => {
     if (!selectedDeviceId) {
       showToast('Select a device first', 'warning')
       return
@@ -434,38 +450,72 @@ export default function UserDashboardDetail() {
       showToast('No variables for this slave', 'warning')
       return
     }
+    if (!dateFrom || !dateTo) {
+      showToast('Select a date range', 'warning')
+      return
+    }
+
+    const cols = buildExportColumns(readouts)
+    if (!cols.length) {
+      showToast('No variables to download', 'warning')
+      return
+    }
+
+    const deviceName = selectedDevice?.name || selectedDevice?.deviceName || selectedDeviceId
+    const slave = slaves.find((s) => String(s.id) === String(selectedSlaveId))
+    const slaveName = slave?.name ?? slave?.slaveName ?? (selectedSlaveId || '')
+
     setDownloading(true)
     try {
-      const vars = readouts.map((r) => r.apiName || r.key)
-      const rows = []
-      for (const variableName of vars) {
+      const params = downloadParams()
+      const byTime = new Map()
+
+      await Promise.all(cols.map(async ({ apiName }) => {
         try {
           const res = await emsApi.getSensorHistory({
-            deviceId: selectedDeviceId,
-            slaveId: selectedSlaveId || undefined,
-            variableName,
-            startDate: dateFrom,
-            endDate: dateTo ? `${dateTo}T23:59:59.999` : undefined,
+            deviceId: params.deviceId,
+            slaveId: params.slaveId,
+            variableName: apiName,
+            startDate: params.startDate,
+            endDate: params.endDate,
             limit: 100,
           })
           const points = Array.isArray(res?.data) ? res.data : list(res)
           for (const p of points) {
-            rows.push([
-              variableName,
-              p.value,
-              p.unit || '',
-              p.receivedTime ?? p.timestamp ?? '',
-            ])
+            const raw = p.receivedTime ?? p.timestamp
+            const t = new Date(raw).getTime()
+            if (Number.isNaN(t)) continue
+            if (!byTime.has(t)) {
+              byTime.set(t, {
+                receivedTime: formatExportTime(raw),
+                values: {},
+              })
+            }
+            const v = p.value
+            byTime.get(t).values[apiName] = v == null ? '' : v
           }
         } catch {
-          // skip variables with no history
+          // Skip variables with no history for this range
         }
-      }
-      if (!rows.length) {
+      }))
+
+      if (!byTime.size) {
         showToast('No data to download for this range', 'warning')
         return
       }
-      downloadCsv('all_sensor_data.csv', ['variableName', 'value', 'unit', 'timestamp'], rows)
+
+      const header = ['Device Name', 'Slave Name', 'Received Time', ...cols.map((c) => c.header)]
+      const rows = Array.from(byTime.entries())
+        .sort((a, b) => a[0] - b[0])
+        .map(([, row]) => [
+          deviceName,
+          slaveName,
+          row.receivedTime,
+          ...cols.map((c) => row.values[c.apiName] ?? ''),
+        ])
+
+      const safeDevice = String(deviceName).replace(/[^\w.-]+/g, '_') || 'device'
+      downloadCsv(`${safeDevice}_sensor_data.csv`, header, rows)
       showToast('Download started', 'success')
     } catch (e) {
       showToast(e.message || 'Download failed', 'error')
@@ -473,6 +523,9 @@ export default function UserDashboardDetail() {
       setDownloading(false)
     }
   }
+
+  const handleDownloadData = handleWideDownload
+  const handleDownloadAll = handleWideDownload
 
   return (
     <div className="space-y-5">
@@ -589,7 +642,7 @@ export default function UserDashboardDetail() {
                           type="button"
                           className="btn-primary text-xs"
                           onClick={handleDownloadData}
-                          disabled={downloading || !selectedDeviceId || !selectedApiName}
+                          disabled={downloading || !selectedDeviceId || !readouts.length}
                         >
                           <Download size={13} /> Download Data
                         </button>
