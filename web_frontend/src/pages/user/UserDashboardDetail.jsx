@@ -159,12 +159,17 @@ function formatChartTime(ts) {
   })
 }
 
-/** Excel-friendly local datetime for wide CSV exports. */
+/**
+ * Excel-friendly local datetime for wide CSV exports.
+ * Uses YYYY-MM-DD HH:mm:ss (no ISO T/Z). Wrapped as an Excel text formula so
+ * Excel keeps the literal string instead of a date serial (########).
+ */
 function formatExportTime(ts) {
   const d = new Date(ts)
   if (Number.isNaN(d.getTime())) return String(ts ?? '')
   const pad = (n) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+  const formatted = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+  return `="${formatted}"`
 }
 
 function matchesExportKey(name, matchKeys) {

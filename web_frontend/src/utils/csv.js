@@ -6,8 +6,9 @@ export function toCsv(header, rows) {
 }
 
 export function downloadCsv(filename, header, rows) {
-  const csv = toCsv(header, rows)
-  const blob = new Blob([csv], { type: 'text/csv' })
+  // UTF-8 BOM helps Excel open the file with the correct encoding.
+  const csv = `\uFEFF${toCsv(header, rows)}`
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
