@@ -1,7 +1,9 @@
 // ─── Theme controller ─────────────────────────────────────────────────────────
-// Themes define branding + colour palette. SUPER_ADMIN manages themes;
-// any authenticated user can fetch the active theme for their org / platform.
-// Deploy note: keep getActiveTheme registered before SUPER_ADMIN-only routes.
+// Themes define branding + colour palette. SUPER_ADMIN manages themes.
+// Platform branding is global: every role (and the public login page) sees the
+// same ACTIVE theme. Org themeId is legacy linkage only — it must not fork
+// primary/logo tokens per portal.
+// Deploy note: keep public branding + getActiveTheme before SUPER_ADMIN-only routes.
 const prisma      = require('../config/database')
 const { AppError } = require('../middleware/errorHandler')
 const { paginate } = require('../utils/helpers')
@@ -24,6 +26,14 @@ const THEME_SELECT = {
   createdAt: true,
   updatedAt: true,
 }
+
+/** Canonical platform theme: most recently updated ACTIVE record. */
+const findPlatformTheme = () =>
+  prisma.theme.findFirst({
+    where: { status: 'ACTIVE' },
+    orderBy: { updatedAt: 'desc' },
+    select: THEME_SELECT,
+  })
 
 const parseBool = (v, fallback) => {
   if (v === undefined || v === null || v === '') return fallback
@@ -59,25 +69,20 @@ const themeBodyFromReq = (req, existing = {}) => {
   }
 }
 
-// @desc  Active theme for current user (org theme, else first ACTIVE platform theme)
+// @desc  Public platform branding (login / unauthenticated chrome)
+// @access public
+const getPublicBranding = async (req, res, next) => {
+  try {
+    const theme = await findPlatformTheme()
+    res.json({ success: true, data: theme })
+  } catch (err) { next(err) }
+}
+
+// @desc  Active platform theme for any authenticated role (admin / org / user)
 // @access any authenticated role
 const getActiveTheme = async (req, res, next) => {
   try {
-    let theme = null
-    if (req.user.organizationId) {
-      const org = await prisma.organization.findUnique({
-        where: { id: req.user.organizationId },
-        select: { theme: { select: THEME_SELECT }, logoUrl: true, name: true },
-      })
-      if (org?.theme) theme = org.theme
-    }
-    if (!theme) {
-      theme = await prisma.theme.findFirst({
-        where: { status: 'ACTIVE' },
-        orderBy: { updatedAt: 'desc' },
-        select: THEME_SELECT,
-      })
-    }
+    const theme = await findPlatformTheme()
     res.json({ success: true, data: theme })
   } catch (err) { next(err) }
 }
@@ -115,6 +120,9 @@ const createTheme = async (req, res, next) => {
       data: { ...fields, createdBy: req.user.id },
       select: THEME_SELECT,
     })
+    if (data.status === 'ACTIVE') {
+      await prisma.organization.updateMany({ data: { themeId: data.id } })
+    }
     res.status(201).json({ success: true, data })
   } catch (err) { next(err) }
 }
@@ -132,6 +140,11 @@ const updateTheme = async (req, res, next) => {
       data: fields,
       select: THEME_SELECT,
     })
+    // Align org.themeId with the theme admin just saved so legacy pointers
+    // and Theme Settings "assigned org" UI stay consistent with platform branding.
+    if (data.status === 'ACTIVE') {
+      await prisma.organization.updateMany({ data: { themeId: data.id } })
+    }
     res.json({ success: true, data })
   } catch (err) { next(err) }
 }
@@ -148,7 +161,7 @@ const deleteTheme = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
-// @desc  Assign a theme to an organisation
+// @desc  Assign a theme to an organisation (legacy; portal branding is platform-wide)
 // @access SUPER_ADMIN
 const assignTheme = async (req, res, next) => {
   try {
@@ -168,6 +181,6 @@ const assignTheme = async (req, res, next) => {
 }
 
 module.exports = {
-  getActiveTheme, getThemes, createTheme, updateTheme, deleteTheme, assignTheme,
+  getPublicBranding, getActiveTheme, getThemes, createTheme, updateTheme, deleteTheme, assignTheme,
 }
 

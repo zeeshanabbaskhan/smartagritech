@@ -207,6 +207,9 @@ const emsApi = {
   deleteListItem: (listTypeId, itemId) => api.delete(`/list-types/${listTypeId}/items/${itemId}`),
 
   getThemes: (params) => api.get('/themes', q(params)),
+  /** Public platform branding (login / no session). */
+  getPublicBranding: () => api.get('/themes/branding'),
+  /** Authenticated platform theme — same for admin, org, and user. */
   getActiveTheme: () => api.get('/themes/active'),
   createTheme: (body) => (
     body instanceof FormData ? api.upload('POST', '/themes', body) : api.post('/themes', body)

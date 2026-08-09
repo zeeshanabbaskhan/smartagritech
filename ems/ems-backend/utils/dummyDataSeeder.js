@@ -871,9 +871,11 @@ const ensureTestCredentials = async () => {
   const DEFAULT_THEME_NAME = 'Elsa'
   const DEFAULT_PRIMARY = '#F5A623'
 
+  // Prefer the most recently updated Elsa/Default theme so seed does not
+  // recreate a second "Elsa" that forks org branding from Theme Settings.
   let theme = await prisma.theme.findFirst({
-    where: { name: { in: [DEFAULT_THEME_NAME, 'Default'] } },
-    orderBy: { createdAt: 'asc' },
+    where: { name: { in: [DEFAULT_THEME_NAME, 'Default'] }, status: 'ACTIVE' },
+    orderBy: { updatedAt: 'desc' },
   })
 
   if (theme?.name === 'Default') {
@@ -881,7 +883,7 @@ const ensureTestCredentials = async () => {
       where: { id: theme.id },
       data: {
         name: DEFAULT_THEME_NAME,
-        headerBgColor: DEFAULT_PRIMARY,
+        headerBgColor: theme.headerBgColor || DEFAULT_PRIMARY,
         darkModeDefault: true,
         showLogoInSidebar: true,
       },
@@ -921,6 +923,9 @@ const ensureTestCredentials = async () => {
       },
     })
   }
+
+  // Point every org at the canonical platform theme (avoids stale org.themeId forks)
+  await prisma.organization.updateMany({ data: { themeId: theme.id } })
 
   const org = await findOrCreate(
     'organization',

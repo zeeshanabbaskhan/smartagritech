@@ -1,6 +1,6 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
 import emsApi from '../api/emsApi'
-import { tokenStore, resolveMediaUrl } from '../api/client'
+import { tokenStore, resolveMediaUrl, ensureFreshAccessToken } from '../api/client'
 import {
   DEFAULT_DISPLAY_NAME,
   DEFAULT_LOGO,
@@ -54,6 +54,8 @@ export function ThemeProvider({ children }) {
     return branding.darkModeDefault ? 'dark' : 'light'
   })
   const [branding, setBranding] = useState(readCachedBranding)
+  const brandingRef = useRef(branding)
+  brandingRef.current = branding
 
   const applyMode = useCallback((mode) => {
     const root = window.document.documentElement
@@ -74,9 +76,14 @@ export function ThemeProvider({ children }) {
   }, [branding])
 
   const refreshBranding = useCallback(async () => {
-    if (!tokenStore.get() && !tokenStore.getRefresh()) return branding
     try {
-      const res = await emsApi.getActiveTheme()
+      let res
+      if (tokenStore.get() || tokenStore.getRefresh()) {
+        await ensureFreshAccessToken(0)
+        res = await emsApi.getActiveTheme()
+      } else {
+        res = await emsApi.getPublicBranding()
+      }
       const mapped = mapApiTheme(res?.data ?? res)
       if (mapped) {
         setBranding(mapped)
@@ -87,15 +94,15 @@ export function ThemeProvider({ children }) {
         return mapped
       }
     } catch (_) { /* keep cached branding */ }
-    return branding
-  }, [branding])
+    return brandingRef.current
+  }, [])
 
   useEffect(() => {
     refreshBranding()
     const onAuth = () => { refreshBranding() }
     window.addEventListener('ems:auth-changed', onAuth)
     return () => window.removeEventListener('ems:auth-changed', onAuth)
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [refreshBranding])
 
   const toggleTheme = () => {
     setTheme((prev) => (prev === 'light' ? 'dark' : 'light'))

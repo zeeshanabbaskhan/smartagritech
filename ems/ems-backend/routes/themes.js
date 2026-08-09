@@ -4,7 +4,7 @@ const { protect, authorize } = require('../middleware/auth');
 const { uploadThemeLogo } = require('../middleware/upload');
 const { AppError } = require('../middleware/errorHandler');
 const {
-  getActiveTheme, getThemes, createTheme, updateTheme, deleteTheme, assignTheme,
+  getPublicBranding, getActiveTheme, getThemes, createTheme, updateTheme, deleteTheme, assignTheme,
 } = require('../controllers/themeController');
 
 const handleUpload = (middleware) => (req, res, next) =>
@@ -13,8 +13,12 @@ const handleUpload = (middleware) => (req, res, next) =>
     next();
   });
 
+// Public platform branding for login / unauthenticated chrome
+router.get('/branding', getPublicBranding);
+
 router.use(protect);
 
+// Any authenticated role (SUPER_ADMIN, ORG_ADMIN, USER)
 router.get('/active', getActiveTheme);
 
 router.use(authorize('SUPER_ADMIN'));

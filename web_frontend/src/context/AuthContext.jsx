@@ -117,6 +117,8 @@ export function AuthProvider({ children }) {
             ? { active: true, adminName: meta.adminUser?.name, adminEmail: meta.adminUser?.email }
             : null
         )
+        // Let ThemeProvider (and others) reload platform branding after session revive
+        window.dispatchEvent(new Event('ems:auth-changed'))
       } catch (_) {
         clearSession()
       } finally {
