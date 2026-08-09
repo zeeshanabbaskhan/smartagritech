@@ -44,6 +44,24 @@ const READOUT_DEFS = [
   { key: 'TotalCost',     label: 'Total cost',       unit: 'PKR', icon: Package },
 ]
 
+/**
+ * Reference spreadsheet columns (wide format). Prefer these headers when the
+ * selected slave actually has a matching variable; otherwise omit / use extras.
+ */
+const EXPORT_REF_COLS = [
+  { match: ['VoltageA'], header: 'Voltage A' },
+  { match: ['VoltageB'], header: 'Voltage B' },
+  { match: ['VoltageC'], header: 'Voltage C' },
+  { match: ['CurrentA'], header: 'Current A' },
+  { match: ['CurrentB'], header: 'Current B' },
+  { match: ['CurrentC'], header: 'Current C' },
+  { match: ['ActivePower', 'OperatingPower', 'Operating'], header: 'Operating Power' },
+  { match: ['PowerFactor'], header: 'Power Factor' },
+  { match: ['Frequency'], header: 'Frequency' },
+  { match: ['PowerConsumption', 'Units'], header: 'Units' },
+  { match: ['Temperature'], header: 'Temperature' },
+]
+
 const defaultRange = resolvePresetRange('last7') || {
   from: toYmd(new Date(Date.now() - 6 * 86400000)),
   to: toYmd(new Date()),
@@ -485,8 +503,8 @@ export default function UserDashboardDetail() {
           >
             {isEmpty ? (
               <div className="card px-4 py-8 flex flex-col items-center justify-center gap-2 border border-surface-200 dark:border-surface-700 bg-surface-100/60 dark:bg-surface-800/40 text-center">
-                <AlertTriangle size={20} className="text-surface-500" />
-                <p className="text-sm font-semibold text-surface-700 dark:text-surface-200">Data is empty</p>
+                <AlertTriangle size={20} className="text-danger-600" />
+                <p className="text-sm font-semibold text-danger-600">Data is empty</p>
                 <p className="text-xs text-surface-500">
                   {!hasVariables
                     ? 'No variables configured for this device / slave.'
