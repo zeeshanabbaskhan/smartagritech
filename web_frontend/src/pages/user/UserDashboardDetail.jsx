@@ -88,6 +88,8 @@ function mapSeriesPoints(points = []) {
     .sort((a, b) => a.t - b.t)
 }
 
+const EMPTY_READOUTS = []
+
 function emptySavings() {
   return [
     { label: 'Daily', pct: 0, sub: 'No energy data', trend: 'flat' },
@@ -203,7 +205,7 @@ export default function UserDashboardDetail() {
     }
   }, [selectedDeviceId, selectedSlaveId, filtersReady])
 
-  const readouts = data?.readouts ?? []
+  const readouts = data?.readouts ?? EMPTY_READOUTS
   const savings = data?.savings?.length ? data.savings : emptySavings()
   const hasVariables = Boolean(data?.hasVariables)
   const hasLiveData = Boolean(data?.hasLiveData)
@@ -211,22 +213,23 @@ export default function UserDashboardDetail() {
 
   // Keep selected card in sync with the current slave's variable set.
   useEffect(() => {
-    if (!readouts.length) {
+    if (!data?.readouts?.length) {
       setSelectedKey(null)
       return
     }
+    const rows = data.readouts
     setSelectedKey((prev) => {
-      if (prev && readouts.some((r) => r.key === prev)) return prev
-      return readouts[0].key
+      if (prev && rows.some((r) => r.key === prev)) return prev
+      return rows[0].key
     })
-  }, [selectionKey, readouts])
+  }, [selectionKey, data])
 
   const selected = readouts.find((r) => r.key === selectedKey) || readouts[0] || null
   const selectedApiName = selected?.apiName || selected?.key || null
 
   const loadChart = useCallback(async () => {
     const gen = ++chartGenRef.current
-    if (!filtersReady || !selectedDeviceId || !selectedApiName) {
+    if (!filtersReady || !selectedDeviceId || !selectedApiName || !hasVariables) {
       setChartData([])
       setChartLoading(false)
       return
@@ -275,20 +278,19 @@ export default function UserDashboardDetail() {
     } finally {
       if (gen === chartGenRef.current) setChartLoading(false)
     }
-  }, [filtersReady, selectedDeviceId, selectedSlaveId, selectedApiName, dateFrom, dateTo])
+  }, [filtersReady, selectedDeviceId, selectedSlaveId, selectedApiName, dateFrom, dateTo, hasVariables])
 
   useEffect(() => { loadChart() }, [loadChart])
 
-  // Mark selection ready only after latest readings + chart (and savings via same fetch) settle.
-  // When there are no variables, skip waiting on chart (nothing to load).
+  // Mark selection ready only after readings settle; wait for chart when variables exist.
   useEffect(() => {
     if (!filtersReady || loading) return
-    if (hasVariables && selectedApiName && chartLoading) return
-    if (!hasVariables || !selectedApiName) {
+    if (!hasVariables) {
       setReadySelectionKey(selectionKey)
       return
     }
-    if (!chartLoading) setReadySelectionKey(selectionKey)
+    if (!selectedApiName || chartLoading) return
+    setReadySelectionKey(selectionKey)
   }, [filtersReady, loading, chartLoading, selectionKey, hasVariables, selectedApiName])
 
   const filtersLoading = !filtersReady || loading || readySelectionKey !== selectionKey
