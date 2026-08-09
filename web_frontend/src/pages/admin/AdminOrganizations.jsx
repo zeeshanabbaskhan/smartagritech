@@ -5,11 +5,12 @@ import CredentialsModal from '../../components/ui/CredentialsModal'
 import PageState, { useFetch } from '../../components/ui/PageState'
 import { TextInput, TextareaInput, SelectInput } from '../../components/ui/FormFields'
 import HierarchyEditor from '../../components/facility/HierarchyEditor'
-import { Plus, Pencil, Trash2, Eye, LogIn, ListTree, Building2, Sparkles } from 'lucide-react'
+import { Plus, Pencil, Trash2, Eye, LogIn, ListTree, Building2, Sparkles, KeyRound, UserMinus, Users } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
-import { mapOrganization } from '../../utils/mappers'
+import { mapOrganization, mapUser } from '../../utils/mappers'
 import { mapTreeFromApi, flattenTreeForApi } from '../../data/facilitiesHierarchy'
 import { uiStatusToApi } from '../../utils/apiForm'
+import { ROLE_UI_LABELS, apiRoleToLabel } from '../../utils/roles'
 import { useToast } from '../../context/ToastContext'
 import { useAuth } from '../../context/AuthContext'
 import { useNavigate } from 'react-router-dom'
@@ -22,6 +23,28 @@ const blank = {
   adminEmail: '',
   adminPassword: '',
   adminPhone: '',
+}
+
+const MEMBER_ROLE_OPTIONS = [ROLE_UI_LABELS.ORG_ADMIN, ROLE_UI_LABELS.USER]
+
+const blankMember = {
+  mode: 'create', // 'create' | 'assign'
+  fullName: '',
+  email: '',
+  password: '',
+  phone: '',
+  role: ROLE_UI_LABELS.USER,
+  existingUserId: '',
+}
+
+/** One-time temp password for sharing (never stored plaintext). */
+const genTempPassword = () => {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$'
+  let out = ''
+  const arr = new Uint32Array(12)
+  crypto.getRandomValues(arr)
+  for (let i = 0; i < arr.length; i++) out += chars[arr[i] % chars.length]
+  return out
 }
 
 export default function AdminOrganizations() {
@@ -44,10 +67,53 @@ export default function AdminOrganizations() {
   const [hierarchyTree, setHierarchyTree] = useState([])
   const [hierarchyLoading, setHierarchyLoading] = useState(false)
 
+  // Members (edit / view)
+  const [members, setMembers] = useState([])
+  const [membersLoading, setMembersLoading] = useState(false)
+  const [memberForm, setMemberForm] = useState(blankMember)
+  const [memberSaving, setMemberSaving] = useState(false)
+  const [assignCandidates, setAssignCandidates] = useState([])
+
+  const loadMembers = async (organizationId) => {
+    if (!organizationId) {
+      setMembers([])
+      return
+    }
+    setMembersLoading(true)
+    try {
+      const res = await emsApi.getUsers({ organizationId, limit: 200 })
+      setMembers(list(res).map((u) => mapUser(u)))
+    } catch (_) {
+      setMembers([])
+    } finally {
+      setMembersLoading(false)
+    }
+  }
+
+  const loadAssignCandidates = async (organizationId) => {
+    try {
+      const res = await emsApi.getUsers({ limit: 200 })
+      const all = list(res)
+      setAssignCandidates(
+        all
+          .filter((u) => {
+            const role = String(u.role || '').toUpperCase()
+            if (role === 'SUPER_ADMIN' || role === 'ADMIN') return false
+            return u.organizationId !== organizationId
+          })
+          .map((u) => mapUser(u))
+      )
+    } catch (_) {
+      setAssignCandidates([])
+    }
+  }
+
   const openAdd = () => {
     setForm(blank)
     setHierarchyMode('auto')
     setHierarchyTree([])
+    setMembers([])
+    setMemberForm(blankMember)
     setModal('add')
   }
   const openEdit = async (row) => {
@@ -55,8 +121,11 @@ export default function AdminOrganizations() {
     setForm({ ...blank, name: row.name, description: row.description, status: row.status })
     setHierarchyMode('auto')
     setHierarchyTree([])
+    setMemberForm({ ...blankMember, password: genTempPassword() })
     setModal('edit')
     setHierarchyLoading(true)
+    loadMembers(row.id)
+    loadAssignCandidates(row.id)
     try {
       const res = await emsApi.getFacilityTree({ organizationId: row.id })
       const tree = mapTreeFromApi(Array.isArray(res?.data) ? res.data : [])
@@ -68,8 +137,17 @@ export default function AdminOrganizations() {
       setHierarchyLoading(false)
     }
   }
-  const openView = (row) => { setSelected(row); setModal('view') }
-  const close = () => { setModal(null); setSelected(null) }
+  const openView = async (row) => {
+    setSelected(row)
+    setModal('view')
+    await loadMembers(row.id)
+  }
+  const close = () => {
+    setModal(null)
+    setSelected(null)
+    setMembers([])
+    setMemberForm(blankMember)
+  }
 
   const saveHierarchyFor = async (organizationId) => {
     if (!organizationId || hierarchyMode !== 'manual') return
@@ -151,12 +229,288 @@ export default function AdminOrganizations() {
     }
   }
 
+  const roleToApi = (label) => (
+    label === ROLE_UI_LABELS.ORG_ADMIN ? 'ORG_ADMIN' : 'USER'
+  )
+
+  const handleAddMember = async () => {
+    if (!selected?.id) return
+    setMemberSaving(true)
+    try {
+      if (memberForm.mode === 'assign') {
+        if (!memberForm.existingUserId) {
+          showToast('Select a user to assign', 'error')
+          return
+        }
+        await emsApi.updateUser(memberForm.existingUserId, {
+          organizationId: selected.id,
+          role: roleToApi(memberForm.role),
+        })
+        showToast('User assigned to organization', 'success')
+      } else {
+        if (!memberForm.email?.trim() || !memberForm.password || !memberForm.fullName?.trim()) {
+          showToast('Name, email, and password are required', 'error')
+          return
+        }
+        if (memberForm.password.length < 8) {
+          showToast('Password must be at least 8 characters', 'error')
+          return
+        }
+        const res = await emsApi.createUser({
+          fullName: memberForm.fullName.trim(),
+          email: memberForm.email.trim(),
+          password: memberForm.password,
+          phone: memberForm.phone || undefined,
+          role: roleToApi(memberForm.role),
+          organizationId: selected.id,
+        })
+        setCredentials(
+          res?.credentials || {
+            email: memberForm.email.trim(),
+            password: memberForm.password,
+            role: roleToApi(memberForm.role),
+            organizationName: selected.name,
+          }
+        )
+        showToast('Member created — share login credentials', 'success')
+      }
+      setMemberForm({ ...blankMember, password: genTempPassword() })
+      await loadMembers(selected.id)
+      await loadAssignCandidates(selected.id)
+    } catch (e) {
+      showToast(e.message || 'Could not add member', 'error')
+    } finally {
+      setMemberSaving(false)
+    }
+  }
+
+  const handleChangeMemberRole = async (member, nextLabel) => {
+    try {
+      await emsApi.updateUser(member.id, { role: roleToApi(nextLabel) })
+      showToast(`Role updated to ${nextLabel}`, 'success')
+      await loadMembers(selected.id)
+    } catch (e) {
+      showToast(e.message || 'Role update failed', 'error')
+    }
+  }
+
+  const handleRemoveMember = async (member) => {
+    if (!confirm(`Remove "${member.name}" from this organization?`)) return
+    try {
+      await emsApi.updateUser(member.id, { organizationId: null })
+      showToast('Member removed from organization', 'success')
+      await loadMembers(selected.id)
+      await loadAssignCandidates(selected.id)
+    } catch (e) {
+      showToast(e.message || 'Remove failed', 'error')
+    }
+  }
+
+  const handleResetMemberPassword = async (member) => {
+    const next = window.prompt(
+      `New password for ${member.email} (min 8 chars).\nShown once after reset — leave blank to auto-generate.`,
+      genTempPassword()
+    )
+    if (next === null) return
+    const password = next.trim() || genTempPassword()
+    if (password.length < 8) {
+      showToast('Password must be at least 8 characters', 'error')
+      return
+    }
+    try {
+      const res = await emsApi.resetUserPassword(member.id, password)
+      setCredentials(
+        res?.credentials || {
+          email: member.email,
+          password,
+          role: member.roleRaw || roleToApi(member.role),
+          organizationName: selected?.name,
+        }
+      )
+      showToast('Password reset — share the new credentials', 'success')
+    } catch (e) {
+      showToast(e.message || 'Password reset failed', 'error')
+    }
+  }
+
   const columns = [
     { key: 'name', label: 'Organization Name' },
     { key: 'description', label: 'Description' },
     { key: 'status', label: 'Status', render: (v) => <span className={`badge ${v === 'Active' ? 'badge-success' : 'badge-neutral'}`}>{v}</span> },
     { key: 'createdAt', label: 'Created At' },
   ]
+
+  const membersPanel = (
+    <div className="pt-4 border-t border-surface-200 space-y-3">
+      <div className="flex items-center gap-2">
+        <Users size={14} className="text-primary-600" />
+        <h4 className="text-xs font-bold text-surface-800 uppercase tracking-wide">Organization members</h4>
+      </div>
+      <p className="text-[11px] text-surface-400">
+        Passwords are hashed and cannot be retrieved later. New or reset passwords are shown once in a credentials dialog.
+      </p>
+
+      {membersLoading ? (
+        <p className="text-xs text-surface-400">Loading members…</p>
+      ) : members.length === 0 ? (
+        <p className="text-xs text-surface-500">No members yet.</p>
+      ) : (
+        <div className="rounded-lg border border-surface-200 dark:border-surface-700 overflow-hidden">
+          <table className="w-full text-xs">
+            <thead className="bg-surface-50 dark:bg-surface-800/60 text-surface-500 uppercase tracking-wide">
+              <tr>
+                <th className="text-left font-bold px-3 py-2">Name</th>
+                <th className="text-left font-bold px-3 py-2">Email</th>
+                <th className="text-left font-bold px-3 py-2">Role</th>
+                {modal === 'edit' && <th className="text-right font-bold px-3 py-2">Actions</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {members.map((m) => (
+                <tr key={m.id} className="border-t border-surface-100 dark:border-surface-700">
+                  <td className="px-3 py-2 text-surface-800 dark:text-surface-200">{m.name}</td>
+                  <td className="px-3 py-2 font-mono text-surface-700 dark:text-surface-300">{m.email}</td>
+                  <td className="px-3 py-2">
+                    {modal === 'edit' ? (
+                      <select
+                        className="text-xs rounded border border-surface-200 dark:border-surface-600 bg-transparent px-1.5 py-1"
+                        value={m.role}
+                        onChange={(e) => handleChangeMemberRole(m, e.target.value)}
+                      >
+                        {MEMBER_ROLE_OPTIONS.map((opt) => (
+                          <option key={opt} value={opt}>{opt}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="badge badge-info">{m.role}</span>
+                    )}
+                  </td>
+                  {modal === 'edit' && (
+                    <td className="px-3 py-2">
+                      <div className="flex justify-end gap-0.5">
+                        <button
+                          type="button"
+                          className="btn-ghost p-1.5 text-primary-600"
+                          title="Reset password (shown once)"
+                          onClick={() => handleResetMemberPassword(m)}
+                        >
+                          <KeyRound size={13} />
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-ghost p-1.5 text-danger-600"
+                          title="Remove from organization"
+                          onClick={() => handleRemoveMember(m)}
+                        >
+                          <UserMinus size={13} />
+                        </button>
+                      </div>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {modal === 'edit' && (
+        <div className="space-y-3 p-3 rounded-lg border border-dashed border-surface-300 dark:border-surface-600">
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className={`flex-1 text-xs font-bold py-1.5 rounded-md border ${memberForm.mode === 'create' ? 'border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-950/30' : 'border-surface-200 text-surface-600'}`}
+              onClick={() => setMemberForm((f) => ({ ...blankMember, mode: 'create', password: f.password || genTempPassword() }))}
+            >
+              Create new user
+            </button>
+            <button
+              type="button"
+              className={`flex-1 text-xs font-bold py-1.5 rounded-md border ${memberForm.mode === 'assign' ? 'border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-950/30' : 'border-surface-200 text-surface-600'}`}
+              onClick={() => setMemberForm((f) => ({ ...f, mode: 'assign' }))}
+            >
+              Assign existing
+            </button>
+          </div>
+
+          {memberForm.mode === 'create' ? (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <TextInput
+                  label="Full name"
+                  required
+                  value={memberForm.fullName}
+                  onChange={(e) => setMemberForm((f) => ({ ...f, fullName: e.target.value }))}
+                  placeholder="e.g. Site Operator"
+                />
+                <TextInput
+                  label="Phone"
+                  value={memberForm.phone}
+                  onChange={(e) => setMemberForm((f) => ({ ...f, phone: e.target.value }))}
+                  placeholder="+92-300-0000000"
+                />
+              </div>
+              <TextInput
+                label="Email"
+                type="email"
+                required
+                value={memberForm.email}
+                onChange={(e) => setMemberForm((f) => ({ ...f, email: e.target.value }))}
+                placeholder="user@company.com"
+              />
+              <div className="flex gap-2 items-end">
+                <div className="flex-1">
+                  <TextInput
+                    label="Default password"
+                    type="text"
+                    required
+                    value={memberForm.password}
+                    onChange={(e) => setMemberForm((f) => ({ ...f, password: e.target.value }))}
+                    placeholder="Shown once after create"
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="btn-secondary mb-0.5"
+                  onClick={() => setMemberForm((f) => ({ ...f, password: genTempPassword() }))}
+                >
+                  Generate
+                </button>
+              </div>
+            </>
+          ) : (
+            <SelectInput
+              label="Existing user"
+              required
+              placeholder="Select user not in this org"
+              value={memberForm.existingUserId}
+              onChange={(e) => setMemberForm((f) => ({ ...f, existingUserId: e.target.value }))}
+              options={assignCandidates.map((u) => ({
+                value: u.id,
+                label: `${u.name} · ${u.email}${u.org && u.org !== '—' ? ` (${u.org})` : ''}`,
+              }))}
+            />
+          )}
+
+          <SelectInput
+            label="Role in this organization"
+            value={memberForm.role}
+            onChange={(e) => setMemberForm((f) => ({ ...f, role: e.target.value }))}
+            options={MEMBER_ROLE_OPTIONS}
+          />
+
+          <button
+            type="button"
+            className="btn-primary w-full"
+            disabled={memberSaving}
+            onClick={handleAddMember}
+          >
+            {memberSaving ? 'Saving…' : memberForm.mode === 'assign' ? 'Assign to organization' : 'Create & add member'}
+          </button>
+        </div>
+      )}
+    </div>
+  )
 
   return (
     <PageState loading={loading} error={error} onRetry={reload}>
@@ -258,13 +612,15 @@ export default function AdminOrganizations() {
               </div>
             )}
 
+            {modal === 'edit' && membersPanel}
+
             <div className="pt-4 border-t border-surface-200">
               <div className="flex items-center gap-2 mb-1.5">
                 <ListTree size={14} className="text-primary-600" />
                 <label className="text-xs font-bold text-surface-800 dark:text-surface-200 uppercase tracking-wide">Facility Structure</label>
               </div>
               <p className="text-xs text-surface-500 mb-3">
-                Set up buildings, floors, and departments so this organization's Custom Dashboards can drill down building-wise, floor-wise, and department-wise. Choose auto to leave the existing structure untouched.
+                Set up buildings, floors, and departments so this organization&apos;s Custom Dashboards can drill down building-wise, floor-wise, and department-wise. Choose auto to leave the existing structure untouched.
               </p>
 
               <div className="flex items-center gap-2 mb-3">
@@ -295,17 +651,18 @@ export default function AdminOrganizations() {
           </div>
         </Modal>
 
-        <Modal open={modal === 'view'} onClose={close} title="Organization Details">
+        <Modal open={modal === 'view'} onClose={close} title="Organization Details" size="lg">
           {selected && (
-            <div className="space-y-3">
+            <div className="space-y-3 max-h-[65vh] overflow-y-auto pr-1">
               {[['ID', selected.id], ['Name', selected.name], ['Description', selected.description], ['Status', selected.status], ['Theme', selected.theme], ['Created At', selected.createdAt]].map(([label, value]) => (
                 <div key={label} className="flex gap-4">
                   <span className="text-xs text-surface-500 w-28 flex-shrink-0">{label}</span>
                   <span className="text-xs text-surface-800">{value}</span>
                 </div>
               ))}
+              {membersPanel}
               <p className="text-[11px] text-surface-400 pt-2 border-t border-surface-100">
-                Org Admin passwords are only shown once at creation. Manage admins under Users if needed.
+                Passwords are never stored in plaintext. Use Edit → reset password to issue a new one-time credential.
               </p>
             </div>
           )}
@@ -314,13 +671,13 @@ export default function AdminOrganizations() {
         <CredentialsModal
           open={Boolean(credentials)}
           onClose={() => setCredentials(null)}
-          title="Organization admin credentials"
-          subtitle="Give these to the organization admin so they can access the Org portal."
+          title="Portal login credentials"
+          subtitle="Give these to the user so they can sign in. Copy now — the password is shown only once and cannot be retrieved later."
           email={credentials?.email}
           password={credentials?.password}
           extraFields={[
             ...(credentials?.organizationName ? [['Organization', credentials.organizationName]] : []),
-            ...(credentials?.role ? [['Role', credentials.role]] : []),
+            ...(credentials?.role ? [['Role', apiRoleToLabel(credentials.role) || credentials.role]] : []),
           ]}
         />
       </div>

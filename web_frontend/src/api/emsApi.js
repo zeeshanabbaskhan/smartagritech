@@ -59,7 +59,8 @@ const emsApi = {
   createUser: (body) => api.post('/users', body),
   updateUser: (id, body) => api.put(`/users/${id}`, body),
   updateUserStatus: (id, status) => api.patch(`/users/${id}/status`, { status }),
-  resetUserPassword: (id, password) => api.post(`/users/${id}/reset-password`, { password }),
+  resetUserPassword: (id, newPassword) =>
+    api.post(`/users/${id}/reset-password`, { newPassword }),
 
   // ─── Gateways ───────────────────────────────────────────────────────────
   getGateways: (params) => api.get('/gateways', q(params)),

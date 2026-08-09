@@ -89,6 +89,7 @@ const createUser = async (req, res, next) => {
 
 // @desc  Update a user's profile fields.
 //        ORG_ADMIN cannot escalate role beyond USER within their org.
+//        SUPER_ADMIN may reassign organizationId (incl. null to unassign).
 // @access SUPER_ADMIN | ORG_ADMIN
 const updateUser = async (req, res, next) => {
   try {
@@ -99,13 +100,36 @@ const updateUser = async (req, res, next) => {
       return next(new AppError('ORG_ADMIN can only assign USER role', 403))
     }
 
+    // ORG_ADMIN cannot move users across organizations
+    if (req.user.role === 'ORG_ADMIN' && organizationId !== undefined
+        && organizationId !== req.user.organizationId) {
+      return next(new AppError('ORG_ADMIN cannot reassign organization', 403))
+    }
+
+    if (role === 'SUPER_ADMIN' || role === 'ADMIN') {
+      return next(new AppError('Cannot assign SUPER_ADMIN via this endpoint', 400))
+    }
+
     const where    = { id: req.params.id, status: { not: 'DELETED' }, ...orgScope(req.user) }
     const existing = await prisma.user.findFirst({ where })
     if (!existing) return next(new AppError('User not found', 404))
 
+    if (existing.role === 'SUPER_ADMIN' || existing.role === 'ADMIN') {
+      return next(new AppError('Cannot modify SUPER_ADMIN accounts', 403))
+    }
+
+    const patch = {}
+    if (fullName !== undefined) patch.fullName = fullName
+    if (phone !== undefined) patch.phone = phone
+    if (role !== undefined) patch.role = role
+    if (status !== undefined) patch.status = status
+    if (organizationId !== undefined) {
+      patch.organizationId = organizationId // null unassigns from org
+    }
+
     const data = await prisma.user.update({
       where:  { id: req.params.id },
-      data:   { fullName, phone, role, status, organizationId },
+      data:   patch,
       select: USER_SELECT,
     })
     await userCache.invalidate(req.params.id)
@@ -134,10 +158,14 @@ const updateUserStatus = async (req, res, next) => {
 
 // @desc  Admin-force a password reset for a user (no OTP required)
 // @access SUPER_ADMIN | ORG_ADMIN
+// Password is hashed only — plaintext is echoed once in `credentials` for sharing.
 const adminResetPassword = async (req, res, next) => {
   try {
-    const { newPassword } = req.body
+    const newPassword = req.body.newPassword || req.body.password
     if (!newPassword) return next(new AppError('newPassword is required', 400))
+    if (String(newPassword).length < 8) {
+      return next(new AppError('newPassword must be at least 8 characters', 400))
+    }
 
     const where    = { id: req.params.id, status: { not: 'DELETED' }, ...orgScope(req.user) }
     const existing = await prisma.user.findFirst({ where })
@@ -145,6 +173,7 @@ const adminResetPassword = async (req, res, next) => {
 
     const passwordHash = await bcrypt.hash(newPassword, 12)
     await prisma.user.update({ where: { id: req.params.id }, data: { passwordHash } })
+    await userCache.invalidate(req.params.id)
     res.json({
       success: true,
       message: 'Password reset successfully',

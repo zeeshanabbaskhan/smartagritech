@@ -32,10 +32,14 @@ const getOrganization = async (req, res, next) => {
       where:   { id: req.params.id },
       include: {
         theme: { select: { id: true, name: true } },
+        // All active members (USER + ORG_ADMIN) for super-admin edit/detail
         users: {
-          where: { status: { not: 'DELETED' }, role: 'ORG_ADMIN' },
-          select: { id: true, fullName: true, email: true, role: true, status: true },
-          take: 5,
+          where: { status: { not: 'DELETED' } },
+          select: {
+            id: true, fullName: true, email: true, role: true,
+            status: true, phone: true, createdAt: true,
+          },
+          orderBy: [{ role: 'asc' }, { fullName: 'asc' }],
         },
       },
     })
