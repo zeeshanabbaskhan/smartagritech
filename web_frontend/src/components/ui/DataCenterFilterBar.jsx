@@ -565,7 +565,12 @@ export function DateRangePicker({ dateFrom, dateTo, onApply, className = 'w-56',
         onClick={() => setOpen((o) => !o)}
       >
         <span className="truncate">{formatDisplayRange(dateFrom, dateTo)}</span>
-        <Calendar size={14} className="text-surface-400 flex-shrink-0" />
+        <Calendar
+          size={16}
+          strokeWidth={2.25}
+          className="text-surface-600 dark:text-primary-400 flex-shrink-0"
+          aria-hidden
+        />
       </button>
 
       {open && (

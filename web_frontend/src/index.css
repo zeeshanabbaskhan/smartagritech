@@ -85,6 +85,30 @@
            focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20
            transition-all duration-150;
   }
+  /* Native date/time picker icons — high contrast in dark theme (FROM/TO on Detail, etc.) */
+  .dark .input[type="date"],
+  .dark .input[type="datetime-local"],
+  .dark .input[type="time"],
+  .dark .input[type="month"],
+  .dark .input[type="week"] {
+    color-scheme: dark;
+  }
+  .input[type="date"]::-webkit-calendar-picker-indicator,
+  .input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+  .input[type="time"]::-webkit-calendar-picker-indicator,
+  .input[type="month"]::-webkit-calendar-picker-indicator,
+  .input[type="week"]::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+    opacity: 0.75;
+  }
+  .dark .input[type="date"]::-webkit-calendar-picker-indicator,
+  .dark .input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+  .dark .input[type="time"]::-webkit-calendar-picker-indicator,
+  .dark .input[type="month"]::-webkit-calendar-picker-indicator,
+  .dark .input[type="week"]::-webkit-calendar-picker-indicator {
+    opacity: 1;
+    filter: invert(1) brightness(1.35) contrast(1.05);
+  }
   .select { @apply input appearance-none cursor-pointer; }
   .label  {
     @apply block text-xs font-semibold text-surface-600 dark:text-surface-300 mb-1.5 tracking-wide uppercase;
