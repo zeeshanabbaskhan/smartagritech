@@ -74,6 +74,11 @@ export default function AdminOrganizations() {
   const [memberSaving, setMemberSaving] = useState(false)
   const [assignCandidates, setAssignCandidates] = useState([])
 
+  // Password reset modal (replaces window.prompt)
+  const [passwordResetMember, setPasswordResetMember] = useState(null)
+  const [resetPassword, setResetPassword] = useState('')
+  const [resetSaving, setResetSaving] = useState(false)
+
   const loadMembers = async (organizationId) => {
     if (!organizationId) {
       setMembers([])
@@ -306,30 +311,42 @@ export default function AdminOrganizations() {
     }
   }
 
-  const handleResetMemberPassword = async (member) => {
-    const next = window.prompt(
-      `New password for ${member.email} (min 8 chars).\nShown once after reset — leave blank to auto-generate.`,
-      genTempPassword()
-    )
-    if (next === null) return
-    const password = next.trim() || genTempPassword()
+  const openResetMemberPassword = (member) => {
+    setPasswordResetMember(member)
+    setResetPassword(genTempPassword())
+  }
+
+  const closeResetMemberPassword = () => {
+    if (resetSaving) return
+    setPasswordResetMember(null)
+    setResetPassword('')
+  }
+
+  const submitResetMemberPassword = async () => {
+    if (!passwordResetMember) return
+    const password = resetPassword.trim() || genTempPassword()
     if (password.length < 8) {
       showToast('Password must be at least 8 characters', 'error')
       return
     }
+    setResetSaving(true)
     try {
-      const res = await emsApi.resetUserPassword(member.id, password)
+      const res = await emsApi.resetUserPassword(passwordResetMember.id, password)
+      setPasswordResetMember(null)
+      setResetPassword('')
       setCredentials(
         res?.credentials || {
-          email: member.email,
+          email: passwordResetMember.email,
           password,
-          role: member.roleRaw || roleToApi(member.role),
+          role: passwordResetMember.roleRaw || roleToApi(passwordResetMember.role),
           organizationName: selected?.name,
         }
       )
       showToast('Password reset — share the new credentials', 'success')
     } catch (e) {
       showToast(e.message || 'Password reset failed', 'error')
+    } finally {
+      setResetSaving(false)
     }
   }
 
@@ -392,7 +409,7 @@ export default function AdminOrganizations() {
                           type="button"
                           className="btn-ghost p-1.5 text-primary-600"
                           title="Reset password (shown once)"
-                          onClick={() => handleResetMemberPassword(m)}
+                          onClick={() => openResetMemberPassword(m)}
                         >
                           <KeyRound size={13} />
                         </button>
@@ -664,6 +681,64 @@ export default function AdminOrganizations() {
               <p className="text-[11px] text-surface-400 pt-2 border-t border-surface-100">
                 Passwords are never stored in plaintext. Use Edit → reset password to issue a new one-time credential.
               </p>
+            </div>
+          )}
+        </Modal>
+
+        <Modal
+          open={Boolean(passwordResetMember)}
+          onClose={closeResetMemberPassword}
+          title="Reset member password"
+          size="md"
+          footer={
+            <>
+              <button type="button" className="btn-secondary" onClick={closeResetMemberPassword} disabled={resetSaving}>
+                Cancel
+              </button>
+              <button type="button" className="btn-primary" onClick={submitResetMemberPassword} disabled={resetSaving}>
+                {resetSaving ? 'Resetting…' : 'Reset password'}
+              </button>
+            </>
+          }
+        >
+          {passwordResetMember && (
+            <div className="space-y-4">
+              <div className="flex items-start gap-2 p-3 rounded-lg bg-warning-50 border border-warning-200 text-warning-800 text-xs dark:bg-warning-950/30 dark:border-warning-800 dark:text-warning-200">
+                <KeyRound size={14} className="mt-0.5 flex-shrink-0" />
+                <p>
+                  Set a new password for <span className="font-semibold">{passwordResetMember.email}</span>.
+                  It will be shown once after reset so you can share it — leave blank to auto-generate.
+                </p>
+              </div>
+              <div className="space-y-1 text-xs">
+                <div className="flex gap-4">
+                  <span className="text-surface-500 w-20 flex-shrink-0">Name</span>
+                  <span className="text-surface-800 dark:text-surface-200">{passwordResetMember.name}</span>
+                </div>
+                <div className="flex gap-4">
+                  <span className="text-surface-500 w-20 flex-shrink-0">Role</span>
+                  <span className="text-surface-800 dark:text-surface-200">{passwordResetMember.role}</span>
+                </div>
+              </div>
+              <div className="flex gap-2 items-end">
+                <div className="flex-1">
+                  <TextInput
+                    label="New password"
+                    type="text"
+                    placeholder="Min 8 characters — or leave blank to generate"
+                    value={resetPassword}
+                    onChange={(e) => setResetPassword(e.target.value)}
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="btn-secondary mb-0.5"
+                  onClick={() => setResetPassword(genTempPassword())}
+                  disabled={resetSaving}
+                >
+                  Generate
+                </button>
+              </div>
             </div>
           )}
         </Modal>
