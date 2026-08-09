@@ -67,6 +67,81 @@ function findReading(readings, key) {
   }))
 }
 
+function normalizeVarKey(name) {
+  return String(name || '').replace(/\s+/g, '').toLowerCase()
+}
+
+/**
+ * Build Detail cards from variables that exist on the selected slave.
+ * READOUT_DEFS supply labels/order for known metrics; other named slave vars are appended.
+ * Raw register keys (R40067) are omitted unless no named vars exist.
+ */
+function buildReadouts(readings, summaryRes, energyRes) {
+  const known = []
+  const seen = new Set()
+
+  for (const def of READOUT_DEFS) {
+    const hit = findReading(readings, def.key)
+    // Only cards whose variable exists on this slave — never invent from other slaves.
+    if (!hit) continue
+
+    let value = hit.value
+    if (value == null && def.key === 'PowerConsumption') {
+      value = summaryRes?.data?.totalPowerConsumption?.value ?? energyRes?.data?.totalConsumption
+    }
+    if (value == null && def.key === 'ExportPower') {
+      value = summaryRes?.data?.totalExportPower?.value ?? energyRes?.data?.totalExport
+    }
+    if (value == null && def.key === 'PowerFactor') value = summaryRes?.data?.powerFactor?.value
+    if (value == null && def.key === 'Frequency') value = summaryRes?.data?.frequency?.value
+    if (value == null && def.key === 'ActivePower') value = summaryRes?.data?.totalActivePower?.value
+
+    const apiName = hit.variableName || def.key
+    seen.add(normalizeVarKey(apiName))
+    seen.add(normalizeVarKey(def.key))
+    known.push({
+      ...def,
+      value: fmtNum(value),
+      unit: hit.unit || def.unit,
+      apiName,
+    })
+  }
+
+  const extras = []
+  for (const r of readings) {
+    const name = r.variableName
+    if (!name || seen.has(normalizeVarKey(name))) continue
+    if (/^R\d+/i.test(name)) continue
+    seen.add(normalizeVarKey(name))
+    extras.push({
+      key: name,
+      label: name.replace(/([a-z])([A-Z])/g, '$1 $2'),
+      unit: r.unit || '',
+      value: fmtNum(r.value),
+      apiName: name,
+    })
+  }
+
+  // Slave with only register-named vars — show them so the page is not blank.
+  if (!known.length && !extras.length) {
+    for (const r of readings) {
+      const name = r.variableName
+      if (!name || seen.has(normalizeVarKey(name))) continue
+      seen.add(normalizeVarKey(name))
+      extras.push({
+        key: name,
+        label: name,
+        unit: r.unit || '',
+        value: fmtNum(r.value),
+        apiName: name,
+      })
+    }
+  }
+
+  const out = [...known, ...extras]
+  return out.length ? out : emptyReadouts()
+}
+
 function fmtNum(v) {
   if (v == null || v === '') return '—'
   const n = Number(v)
@@ -135,6 +210,8 @@ export default function UserDashboardDetail() {
   const [chartLoading, setChartLoading] = useState(false)
   const [chartError, setChartError] = useState(null)
   const [downloading, setDownloading] = useState(false)
+  /** Device:slave key whose cards+chart have fully settled (avoids flash of stale/empty). */
+  const [readySelectionKey, setReadySelectionKey] = useState(null)
   const chartGenRef = useRef(0)
 
   // Wait until device+slave selection settles (avoids new-device + old-slave races).
@@ -142,10 +219,17 @@ export default function UserDashboardDetail() {
     selectedDeviceId
     && (selectedSlaveId || (!devicesLoading && slaves.length === 0)),
   )
+  const selectionKey = `${selectedDeviceId || ''}:${selectedSlaveId || ''}`
+
+  // Clear chart immediately on device/slave change so we never paint the previous series.
+  useEffect(() => {
+    setChartData([])
+    setChartError(null)
+  }, [selectedDeviceId, selectedSlaveId])
 
   const { data, loading, error, reload } = useFetch(async () => {
     if (!selectedDeviceId) {
-      return { readouts: emptyReadouts(), savings: emptySavings() }
+      return { readouts: emptyReadouts(), savings: emptySavings(), hasLiveData: false }
     }
     // Soft-skip until slave selection settles after a device change.
     if (!filtersReady) return undefined
@@ -160,25 +244,7 @@ export default function UserDashboardDetail() {
       emsApi.getAiEnergy(q).catch(() => null),
     ])
     const readings = latestToReadings(latestRes)
-    const readouts = READOUT_DEFS.map((def) => {
-      const hit = findReading(readings, def.key)
-      let value = hit?.value
-      if (value == null && def.key === 'PowerConsumption') {
-        value = summaryRes?.data?.totalPowerConsumption?.value ?? energyRes?.data?.totalConsumption
-      }
-      if (value == null && def.key === 'ExportPower') {
-        value = summaryRes?.data?.totalExportPower?.value ?? energyRes?.data?.totalExport
-      }
-      if (value == null && def.key === 'PowerFactor') value = summaryRes?.data?.powerFactor?.value
-      if (value == null && def.key === 'Frequency') value = summaryRes?.data?.frequency?.value
-      if (value == null && def.key === 'ActivePower') value = summaryRes?.data?.totalActivePower?.value
-      return {
-        ...def,
-        value: fmtNum(value),
-        unit: hit?.unit || def.unit,
-        apiName: hit?.variableName || def.key,
-      }
-    })
+    const readouts = buildReadouts(readings, summaryRes, energyRes)
 
     // Prefer dashboard-summary energySavingsComparison (authoritative).
     const esc = summaryRes?.data?.energySavingsComparison || {}
@@ -203,6 +269,9 @@ export default function UserDashboardDetail() {
       }
     }
 
+    // Entire slave empty only when no live/summary values landed on any card.
+    const hasLiveData = readouts.some((r) => r.value !== '—')
+
     return {
       readouts,
       savings: [
@@ -210,11 +279,13 @@ export default function UserDashboardDetail() {
         toSaving('Weekly', weekly),
         toSaving('Monthly', monthly),
       ],
+      hasLiveData,
     }
   }, [selectedDeviceId, selectedSlaveId, filtersReady])
 
   const readouts = data?.readouts ?? emptyReadouts()
   const savings = data?.savings?.length ? data.savings : emptySavings()
+  const hasLiveData = Boolean(data?.hasLiveData)
 
   const selected = readouts.find((r) => r.key === selectedKey) || readouts[0]
   const selectedApiName = selected?.apiName || selected?.key || 'VoltageA'
@@ -223,11 +294,13 @@ export default function UserDashboardDetail() {
     const gen = ++chartGenRef.current
     if (!filtersReady || !selectedDeviceId || !selectedApiName) {
       setChartData([])
+      setChartLoading(false)
       return
     }
     if (!dateFrom || !dateTo) {
       setChartError('Select a date range')
       setChartData([])
+      setChartLoading(false)
       return
     }
     setChartLoading(true)
@@ -271,6 +344,15 @@ export default function UserDashboardDetail() {
   }, [filtersReady, selectedDeviceId, selectedSlaveId, selectedApiName, dateFrom, dateTo])
 
   useEffect(() => { loadChart() }, [loadChart])
+
+  // Mark selection ready only after latest readings + chart (and savings via same fetch) settle.
+  useEffect(() => {
+    if (filtersReady && !loading && !chartLoading) {
+      setReadySelectionKey(selectionKey)
+    }
+  }, [filtersReady, loading, chartLoading, selectionKey])
+
+  const filtersLoading = !filtersReady || loading || readySelectionKey !== selectionKey
 
   const downloadParams = () => ({
     deviceId: selectedDeviceId,
@@ -352,9 +434,6 @@ export default function UserDashboardDetail() {
     }
   }
 
-  // Keep filters mounted while content reloads (PageState would unmount the selector).
-  const contentLoading = loading && !data
-
   return (
     <div className="space-y-5">
       <div className="page-header">
@@ -366,165 +445,188 @@ export default function UserDashboardDetail() {
 
       <DeviceSlaveSelector />
 
-      <PageState loading={contentLoading} error={error} onRetry={reload}>
-        <div className={`space-y-5 ${loading ? 'opacity-70 pointer-events-none' : ''}`}>
-          <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
-            {/* Left: selectable metric cards */}
-            <div className="xl:col-span-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {readouts.map((row) => {
-                const Icon = readoutIcon(row)
-                const active = row.key === selected.key
-                return (
-                  <button
-                    key={row.key}
-                    type="button"
-                    onClick={() => setSelectedKey(row.key)}
-                    className={`card p-4 text-left transition-all duration-150 border-2 ${
-                      active
-                        ? 'border-info-600 shadow-elevated ring-1 ring-info-600/30'
-                        : 'border-transparent hover:border-surface-300 dark:hover:border-surface-700'
-                    }`}
-                  >
-                    <div className="flex items-center gap-1.5 text-xs font-semibold text-surface-700 dark:text-surface-300 mb-2">
-                      <Icon size={13} className={`flex-shrink-0 ${active ? 'text-info-600' : 'text-primary-600'}`} />
-                      <span>{row.label}</span>
-                    </div>
-                    <div className="flex items-baseline gap-1">
-                      <span className="text-xl font-bold text-surface-900 dark:text-surface-100">{row.value}</span>
-                      {row.unit ? <span className="text-xs font-semibold text-surface-400">{row.unit}</span> : null}
-                    </div>
-                  </button>
-                )
-              })}
+      {/* Keep selectors usable while metric grid / chart / savings reload. */}
+      <PageState loading={false} error={error} onRetry={reload}>
+        <div className="relative min-h-[28rem]">
+          {filtersLoading ? (
+            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center rounded-xl bg-surface-50/80 dark:bg-[#0B0F19]/85 backdrop-blur-[1px]">
+              <Loader2 className="animate-spin mb-3 text-surface-500" size={28} />
+              <p className="text-sm text-surface-500">Loading…</p>
             </div>
+          ) : null}
 
-            {/* Right: selected variable chart panel */}
-            <div className="xl:col-span-7 card p-4 sm:p-5 space-y-4 min-h-[28rem]">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h3 className="text-base font-bold text-surface-900 dark:text-surface-100">
-                    {selected?.label || 'Select a variable'}
-                  </h3>
-                  <p className="text-xs text-surface-400 mt-0.5">
-                    {selected?.value ?? '—'}{selected?.unit ? ` ${selected.unit}` : ''} · live reading
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-end gap-2">
-                  <div>
-                    <label className="label" htmlFor="detail-date-from">From</label>
-                    <input
-                      id="detail-date-from"
-                      type="date"
-                      className="input py-1.5 text-xs w-[9.5rem]"
-                      value={dateFrom}
-                      onChange={(e) => setDateFrom(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className="label" htmlFor="detail-date-to">To</label>
-                    <input
-                      id="detail-date-to"
-                      type="date"
-                      className="input py-1.5 text-xs w-[9.5rem]"
-                      value={dateTo}
-                      onChange={(e) => setDateTo(e.target.value)}
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    className="btn-secondary text-xs"
-                    onClick={handleDownloadAll}
-                    disabled={downloading || !selectedDeviceId}
-                  >
-                    <Download size={13} /> Download All
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-primary text-xs"
-                    onClick={handleDownloadData}
-                    disabled={downloading || !selectedDeviceId}
-                  >
-                    <Download size={13} /> Download Data
-                  </button>
-                </div>
+          <div
+            className={`space-y-5 transition-opacity duration-150 ${
+              filtersLoading ? 'invisible pointer-events-none' : ''
+            }`}
+            aria-hidden={filtersLoading}
+          >
+            {!hasLiveData ? (
+              <div className="card px-4 py-3 flex items-center gap-2 border border-surface-200 dark:border-surface-700 bg-surface-100/60 dark:bg-surface-800/40">
+                <AlertTriangle size={16} className="flex-shrink-0 text-surface-500" />
+                <p className="text-sm font-semibold text-surface-700 dark:text-surface-200">Data is empty</p>
+                <p className="text-xs text-surface-500">No live readings for this device / slave.</p>
+              </div>
+            ) : null}
+
+            <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
+              {/* Left: selectable metric cards */}
+              <div className="xl:col-span-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {readouts.map((row) => {
+                  const Icon = readoutIcon(row)
+                  const active = row.key === selected.key
+                  return (
+                    <button
+                      key={row.key}
+                      type="button"
+                      onClick={() => setSelectedKey(row.key)}
+                      className={`card p-4 text-left transition-all duration-150 border-2 ${
+                        active
+                          ? 'border-info-600 shadow-elevated ring-1 ring-info-600/30'
+                          : 'border-transparent hover:border-surface-300 dark:hover:border-surface-700'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 text-xs font-semibold text-surface-700 dark:text-surface-300 mb-2">
+                        <Icon size={13} className={`flex-shrink-0 ${active ? 'text-info-600' : 'text-primary-600'}`} />
+                        <span>{row.label}</span>
+                      </div>
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-xl font-bold text-surface-900 dark:text-surface-100">{row.value}</span>
+                        {row.unit ? <span className="text-xs font-semibold text-surface-400">{row.unit}</span> : null}
+                      </div>
+                    </button>
+                  )
+                })}
               </div>
 
-              {chartError ? (
-                <div className="text-xs text-danger-600 py-2">{chartError}</div>
-              ) : null}
-
-              <div className="relative">
-                {chartLoading ? (
-                  <div className="flex flex-col items-center justify-center h-72 text-surface-500">
-                    <Loader2 className="animate-spin mb-2" size={24} />
-                    <p className="text-xs">Loading {selected?.label}…</p>
+              {/* Right: selected variable chart panel */}
+              <div className="xl:col-span-7 card p-4 sm:p-5 space-y-4 min-h-[28rem]">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-base font-bold text-surface-900 dark:text-surface-100">
+                      {selected?.label || 'Select a variable'}
+                    </h3>
+                    <p className="text-xs text-surface-400 mt-0.5">
+                      {selected?.value ?? '—'}{selected?.unit ? ` ${selected.unit}` : ''} · live reading
+                    </p>
                   </div>
-                ) : chartData.length === 0 ? (
-                  <ChartEmpty height={288} message={`No history for ${selected?.label || 'this variable'} in the selected range`} />
-                ) : (
-                  <ResponsiveContainer width="100%" height={288}>
-                    <AreaChart data={chartData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id="detailVarFill" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#2563EB" stopOpacity={0.35} />
-                          <stop offset="100%" stopColor="#2563EB" stopOpacity={0.02} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.35} />
-                      <XAxis dataKey="time" tick={{ fontSize: 10, fill: '#9AA09A' }} stroke="#4B5563" minTickGap={28} />
-                      <YAxis
-                        tick={{ fontSize: 10, fill: '#9AA09A' }}
-                        stroke="#4B5563"
-                        width={48}
-                        unit={selected?.unit ? ` ${selected.unit}` : undefined}
+                  <div className="flex flex-wrap items-end gap-2">
+                    <div>
+                      <label className="label" htmlFor="detail-date-from">From</label>
+                      <input
+                        id="detail-date-from"
+                        type="date"
+                        className="input py-1.5 text-xs w-[9.5rem]"
+                        value={dateFrom}
+                        onChange={(e) => setDateFrom(e.target.value)}
                       />
-                      <Tooltip
-                        contentStyle={{
-                          background: '#141828',
-                          border: '1px solid #374151',
-                          borderRadius: 8,
-                          fontSize: 12,
-                          color: '#FEFEF8',
-                        }}
-                        formatter={(v) => [`${fmtNum(v)}${selected?.unit ? ` ${selected.unit}` : ''}`, selected?.label]}
+                    </div>
+                    <div>
+                      <label className="label" htmlFor="detail-date-to">To</label>
+                      <input
+                        id="detail-date-to"
+                        type="date"
+                        className="input py-1.5 text-xs w-[9.5rem]"
+                        value={dateTo}
+                        onChange={(e) => setDateTo(e.target.value)}
                       />
-                      <Area
-                        type="monotone"
-                        dataKey="value"
-                        name={selected?.label}
-                        stroke="#2563EB"
-                        strokeWidth={2}
-                        fill="url(#detailVarFill)"
-                        dot={false}
-                        activeDot={{ r: 4 }}
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                )}
+                    </div>
+                    <button
+                      type="button"
+                      className="btn-secondary text-xs"
+                      onClick={handleDownloadAll}
+                      disabled={downloading || !selectedDeviceId}
+                    >
+                      <Download size={13} /> Download All
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-primary text-xs"
+                      onClick={handleDownloadData}
+                      disabled={downloading || !selectedDeviceId}
+                    >
+                      <Download size={13} /> Download Data
+                    </button>
+                  </div>
+                </div>
+
+                {chartError ? (
+                  <div className="text-xs text-danger-600 py-2">{chartError}</div>
+                ) : null}
+
+                <div className="relative">
+                  {chartLoading ? (
+                    <div className="flex flex-col items-center justify-center h-72 text-surface-500">
+                      <Loader2 className="animate-spin mb-2" size={24} />
+                      <p className="text-xs">Loading {selected?.label}…</p>
+                    </div>
+                  ) : chartData.length === 0 ? (
+                    <ChartEmpty height={288} message={`No history for ${selected?.label || 'this variable'} in the selected range`} />
+                  ) : (
+                    <ResponsiveContainer width="100%" height={288}>
+                      <AreaChart data={chartData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="detailVarFill" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#2563EB" stopOpacity={0.35} />
+                            <stop offset="100%" stopColor="#2563EB" stopOpacity={0.02} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.35} />
+                        <XAxis dataKey="time" tick={{ fontSize: 10, fill: '#9AA09A' }} stroke="#4B5563" minTickGap={28} />
+                        <YAxis
+                          tick={{ fontSize: 10, fill: '#9AA09A' }}
+                          stroke="#4B5563"
+                          width={48}
+                          unit={selected?.unit ? ` ${selected.unit}` : undefined}
+                        />
+                        <Tooltip
+                          contentStyle={{
+                            background: '#141828',
+                            border: '1px solid #374151',
+                            borderRadius: 8,
+                            fontSize: 12,
+                            color: '#FEFEF8',
+                          }}
+                          formatter={(v) => [`${fmtNum(v)}${selected?.unit ? ` ${selected.unit}` : ''}`, selected?.label]}
+                        />
+                        <Area
+                          type="monotone"
+                          dataKey="value"
+                          name={selected?.label}
+                          stroke="#2563EB"
+                          strokeWidth={2}
+                          fill="url(#detailVarFill)"
+                          dot={false}
+                          activeDot={{ r: 4 }}
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
 
-          <div>
-            <p className="text-[10px] font-bold text-surface-500 uppercase tracking-widest mb-3">Energy Savings Comparison</p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              {savings.map((s) => {
-                const TrendIcon = s.trend === 'up' ? TrendingUp : s.trend === 'down' ? TrendingDown : Minus
-                const barColor  = s.trend === 'up' ? 'bg-success-600' : s.trend === 'down' ? 'bg-danger-600' : 'bg-surface-300'
-                const textColor = s.trend === 'up' ? 'text-success-600' : s.trend === 'down' ? 'text-danger-600' : 'text-surface-400'
-                const bg        = s.trend === 'up' ? 'bg-success-100/50 text-success-700' : s.trend === 'down' ? 'bg-danger-100/50 text-danger-700' : 'bg-surface-100 text-surface-500'
-                return (
-                  <div key={s.label} className="card p-4 text-center relative overflow-hidden">
-                    <div className={`absolute top-0 left-0 right-0 h-1 ${barColor}`} />
-                    <div className={`w-8 h-8 rounded-full mx-auto flex items-center justify-center mb-2 ${bg}`}>
-                      <TrendIcon size={15} />
+            <div>
+              <p className="text-[10px] font-bold text-surface-500 uppercase tracking-widest mb-3">Energy Savings Comparison</p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {savings.map((s) => {
+                  const TrendIcon = s.trend === 'up' ? TrendingUp : s.trend === 'down' ? TrendingDown : Minus
+                  const barColor  = s.trend === 'up' ? 'bg-success-600' : s.trend === 'down' ? 'bg-danger-600' : 'bg-surface-300'
+                  const textColor = s.trend === 'up' ? 'text-success-600' : s.trend === 'down' ? 'text-danger-600' : 'text-surface-400'
+                  const bg        = s.trend === 'up' ? 'bg-success-100/50 text-success-700' : s.trend === 'down' ? 'bg-danger-100/50 text-danger-700' : 'bg-surface-100 text-surface-500'
+                  return (
+                    <div key={s.label} className="card p-4 text-center relative overflow-hidden">
+                      <div className={`absolute top-0 left-0 right-0 h-1 ${barColor}`} />
+                      <div className={`w-8 h-8 rounded-full mx-auto flex items-center justify-center mb-2 ${bg}`}>
+                        <TrendIcon size={15} />
+                      </div>
+                      <p className="text-xs text-surface-400 font-semibold">{s.label}</p>
+                      <p className={`text-lg font-bold mt-1 ${textColor}`}>{s.pct > 0 ? '+' : ''}{Number(s.pct).toFixed(1)}%</p>
+                      <p className="text-[10px] text-surface-400 mt-1">{s.sub}</p>
                     </div>
-                    <p className="text-xs text-surface-400 font-semibold">{s.label}</p>
-                    <p className={`text-lg font-bold mt-1 ${textColor}`}>{s.pct > 0 ? '+' : ''}{Number(s.pct).toFixed(1)}%</p>
-                    <p className="text-[10px] text-surface-400 mt-1">{s.sub}</p>
-                  </div>
-                )
-              })}
+                  )
+                })}
+              </div>
             </div>
           </div>
         </div>
