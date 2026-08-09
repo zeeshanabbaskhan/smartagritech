@@ -313,7 +313,7 @@ export default function AdminOrganizations() {
 
   const openResetMemberPassword = (member) => {
     setPasswordResetMember(member)
-    setResetPassword(genTempPassword())
+    setResetPassword('')
   }
 
   const closeResetMemberPassword = () => {
@@ -688,7 +688,7 @@ export default function AdminOrganizations() {
         <Modal
           open={Boolean(passwordResetMember)}
           onClose={closeResetMemberPassword}
-          title="Reset member password"
+          title="Reset password"
           size="md"
           footer={
             <>
@@ -703,14 +703,11 @@ export default function AdminOrganizations() {
         >
           {passwordResetMember && (
             <div className="space-y-4">
-              <div className="flex items-start gap-2 p-3 rounded-lg bg-warning-50 border border-warning-200 text-warning-800 text-xs dark:bg-warning-950/30 dark:border-warning-800 dark:text-warning-200">
-                <KeyRound size={14} className="mt-0.5 flex-shrink-0" />
-                <p>
-                  Set a new password for <span className="font-semibold">{passwordResetMember.email}</span>.
-                  It will be shown once after reset so you can share it — leave blank to auto-generate.
-                </p>
-              </div>
               <div className="space-y-1 text-xs">
+                <div className="flex gap-4">
+                  <span className="text-surface-500 w-20 flex-shrink-0">Email</span>
+                  <span className="font-semibold text-surface-800 dark:text-surface-100">{passwordResetMember.email}</span>
+                </div>
                 <div className="flex gap-4">
                   <span className="text-surface-500 w-20 flex-shrink-0">Name</span>
                   <span className="text-surface-800 dark:text-surface-200">{passwordResetMember.name}</span>
@@ -723,11 +720,12 @@ export default function AdminOrganizations() {
               <div className="flex gap-2 items-end">
                 <div className="flex-1">
                   <TextInput
-                    label="New password"
+                    label="Password"
                     type="text"
-                    placeholder="Min 8 characters — or leave blank to generate"
+                    placeholder="leave blank to auto-generate"
                     value={resetPassword}
                     onChange={(e) => setResetPassword(e.target.value)}
+                    autoComplete="new-password"
                   />
                 </div>
                 <button
@@ -739,6 +737,9 @@ export default function AdminOrganizations() {
                   Generate
                 </button>
               </div>
+              <p className="text-[11px] text-surface-400">
+                If filled, password must be at least 8 characters. The new password is shown once after reset.
+              </p>
             </div>
           )}
         </Modal>
