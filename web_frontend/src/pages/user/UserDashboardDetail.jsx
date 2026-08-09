@@ -218,6 +218,17 @@ function rangeToTimeRange(from, to) {
   return '30d'
 }
 
+/** True when series spans a meaningful portion of the requested FROM–TO window. */
+function seriesCoversRange(series, fromMs, toMs) {
+  if (!series.length) return false
+  const span = toMs - fromMs
+  if (span <= 0) return true
+  // Single-day / short windows: any in-range points are fine.
+  if (span <= 36 * 3600_000) return true
+  const covered = series[series.length - 1].t - series[0].t
+  return covered >= span * 0.4
+}
+
 function mapSeriesPoints(points = []) {
   return [...points]
     .map((p) => {
@@ -232,6 +243,32 @@ function mapSeriesPoints(points = []) {
     })
     .filter(Boolean)
     .sort((a, b) => a.t - b.t)
+}
+
+/** Page through history for a date-bounded export (avoids “latest N minutes only”). */
+async function fetchHistoryForRange({ deviceId, slaveId, variableName, startDate, endDate }) {
+  const BATCH = 2000
+  const MAX_FETCHED = 50_000
+  const points = []
+  let skip = 0
+  while (skip < MAX_FETCHED) {
+    const res = await emsApi.getSensorHistory({
+      deviceId,
+      slaveId,
+      variableName,
+      startDate,
+      endDate,
+      limit: BATCH,
+      skip,
+    })
+    const batch = Array.isArray(res?.data) ? res.data : list(res)
+    const fetched = Number(res?.fetched)
+    points.push(...batch)
+    if (!Number.isFinite(fetched) || fetched <= 0) break
+    skip += fetched
+    if (fetched < BATCH) break
+  }
+  return points
 }
 
 const EMPTY_READOUTS = []
@@ -386,23 +423,41 @@ export default function UserDashboardDetail() {
       }
       const fromMs = new Date(`${dateFrom}T00:00:00`).getTime()
       const toMs = new Date(`${dateTo}T23:59:59.999`).getTime()
+      const endDate = `${dateTo}T23:59:59.999`
 
-      // Exact date-range history first so custom From/To always drives the chart.
-      const histRes = await emsApi.getSensorHistory({
+      // 1) Exact FROM–TO bucketed aggregate — spans the full selected interval for any device.
+      const aggRes = await emsApi.getSensorAggregate({
         ...base,
         startDate: dateFrom,
-        endDate: `${dateTo}T23:59:59.999`,
-        limit: 100,
+        endDate,
       }).catch(() => null)
-      let points = Array.isArray(histRes?.data) ? histRes.data : list(histRes)
+      let points = Array.isArray(aggRes?.data) ? aggRes.data : list(aggRes)
       let series = mapSeriesPoints(points).filter((p) => p.t >= fromMs && p.t <= toMs)
 
-      // Fall back to bucketed aggregates when history is sparse.
+      // 2) Raw history across the same bounds when aggregate is empty.
       if (!series.length) {
-        const timeRange = rangeToTimeRange(dateFrom, dateTo)
-        const aggRes = await emsApi.getSensorAggregate({ ...base, timeRange }).catch(() => null)
-        points = Array.isArray(aggRes?.data) ? aggRes.data : list(aggRes)
+        const histRes = await emsApi.getSensorHistory({
+          ...base,
+          startDate: dateFrom,
+          endDate,
+          limit: 5000,
+        }).catch(() => null)
+        points = Array.isArray(histRes?.data) ? histRes.data : list(histRes)
         series = mapSeriesPoints(points).filter((p) => p.t >= fromMs && p.t <= toMs)
+      }
+
+      // 3) Named timeRange aggregate if history still only covers a sliver / is empty.
+      if (!series.length || !seriesCoversRange(series, fromMs, toMs)) {
+        const timeRange = rangeToTimeRange(dateFrom, dateTo)
+        const namedRes = await emsApi.getSensorAggregate({ ...base, timeRange }).catch(() => null)
+        points = Array.isArray(namedRes?.data) ? namedRes.data : list(namedRes)
+        const namedSeries = mapSeriesPoints(points).filter((p) => p.t >= fromMs && p.t <= toMs)
+        if (namedSeries.length && (
+          !series.length
+          || seriesCoversRange(namedSeries, fromMs, toMs)
+        )) {
+          series = namedSeries
+        }
       }
 
       if (gen !== chartGenRef.current) return
@@ -467,15 +522,13 @@ export default function UserDashboardDetail() {
 
       await Promise.all(cols.map(async ({ apiName }) => {
         try {
-          const res = await emsApi.getSensorHistory({
+          const points = await fetchHistoryForRange({
             deviceId: params.deviceId,
             slaveId: params.slaveId,
             variableName: apiName,
             startDate: params.startDate,
             endDate: params.endDate,
-            limit: 100,
           })
-          const points = Array.isArray(res?.data) ? res.data : list(res)
           for (const p of points) {
             const raw = p.receivedTime ?? p.timestamp
             const t = new Date(raw).getTime()

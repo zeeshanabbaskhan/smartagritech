@@ -158,12 +158,12 @@ const getLatest = async (req, res, next) => {
 // @access SUPER_ADMIN | ORG_ADMIN | USER (own devices)
 const getHistory = async (req, res, next) => {
   try {
-    const { deviceId, slaveId, variableName, startDate, endDate, limit = 50 } = req.query
+    const { deviceId, slaveId, variableName, startDate, endDate, limit = 50, skip = 0 } = req.query
     if (!deviceId || !variableName) return next(new AppError('deviceId and variableName are required', 400))
 
     const device = await authoriseDevice(deviceId, req.user)
     if (isSwitchOff(device)) {
-      return res.json({ success: true, count: 0, data: [], switchOff: true })
+      return res.json({ success: true, count: 0, fetched: 0, data: [], switchOff: true })
     }
 
     const where = { deviceId }
@@ -174,10 +174,17 @@ const getHistory = async (req, res, next) => {
       if (endDate)   where.timestamp.lte = parseDateBound(endDate, 'end')
     }
 
+    // Date-bounded queries may page through a long interval; unbounded "latest" stays small.
+    const requested = Math.max(1, parseInt(limit, 10) || 50)
+    const maxTake   = (startDate || endDate) ? 5000 : 100
+    const take      = Math.min(maxTake, requested)
+    const skipN     = Math.max(0, parseInt(skip, 10) || 0)
+
     const rows = await prisma.sensorReading.findMany({
       where,
       orderBy: { timestamp: 'desc' },
-      take:    Math.min(100, Math.max(1, parseInt(limit, 10) || 50)),
+      skip:    skipN,
+      take,
       select:  { timestamp: true, readings: true },
     })
 
@@ -188,37 +195,67 @@ const getHistory = async (req, res, next) => {
       if (entry) data.push({ variableName: entry.variableName, value: entry.value, unit: entry.unit, receivedTime: row.timestamp })
     }
 
-    res.json({ success: true, count: data.length, data })
+    res.json({ success: true, count: data.length, fetched: rows.length, data })
   } catch (err) { next(err) }
 }
 
-// @desc  Time-bucketed aggregate for a single variable over a named time window
+/** Pick a chart-friendly bucket width for an arbitrary [start, end] span. */
+const bucketMsForSpan = (spanMs) => {
+  if (spanMs <= 2 * 3_600_000) return 60_000            // ≤2h → 1 min
+  if (spanMs <= 86_400_000) return 15 * 60_000          // ≤1d → 15 min
+  if (spanMs <= 7 * 86_400_000) return 3_600_000        // ≤7d → 1 hour
+  if (spanMs <= 30 * 86_400_000) return 6 * 3_600_000   // ≤30d → 6 hour
+  return 86_400_000                                      // else → 1 day
+}
+
+// @desc  Time-bucketed aggregate for a single variable over a named or custom window
 // @access SUPER_ADMIN | ORG_ADMIN | USER (own devices)
 const getAggregate = async (req, res, next) => {
   try {
-    const { deviceId, slaveId, variableName, timeRange } = req.query
-    if (!deviceId || !variableName || !timeRange) {
-      return next(new AppError('deviceId, variableName, and timeRange are required', 400))
+    const { deviceId, slaveId, variableName, timeRange, startDate, endDate } = req.query
+    if (!deviceId || !variableName) {
+      return next(new AppError('deviceId and variableName are required', 400))
+    }
+    if (!timeRange && !startDate && !endDate) {
+      return next(new AppError('timeRange or startDate/endDate is required', 400))
     }
 
     const device = await authoriseDevice(deviceId, req.user)
     if (isSwitchOff(device)) {
-      return res.json({ success: true, timeRange, data: [], switchOff: true })
+      return res.json({ success: true, timeRange: timeRange || null, data: [], switchOff: true })
     }
 
-    const startDate = startOfRange(timeRange)
-    const bucketMs  = BUCKET_MS[timeRange]
+    let rangeStart
+    let rangeEnd = null
+    let bucketMs
 
-    const where = { deviceId, timestamp: { gte: startDate } }
-    if (slaveId) where.deviceConfigSlaveId = slaveId
+    if (startDate || endDate) {
+      rangeStart = startDate ? parseDateBound(startDate, 'start') : new Date(0)
+      rangeEnd = endDate ? parseDateBound(endDate, 'end') : new Date()
+      const span = Math.max(0, rangeEnd.getTime() - rangeStart.getTime())
+      bucketMs = bucketMsForSpan(span || 86_400_000)
+    } else {
+      rangeStart = startOfRange(timeRange)
+      bucketMs = BUCKET_MS[timeRange]
+    }
 
-    const rows = await prisma.sensorReading.findMany({
-      where,
-      orderBy: { timestamp: 'asc' },
-      select:  { timestamp: true, readings: true },
+    // Prefer SQL bucketing (Timescale hourly / raw) so long ranges stay bounded for any device.
+    const data = await bucketVariable(prisma, {
+      deviceId,
+      slaveId: slaveId || null,
+      variableName,
+      startDate: rangeStart,
+      endDate: rangeEnd,
+      bucketMs,
     })
 
-    res.json({ success: true, timeRange, data: bucketReadings(rows, variableName, bucketMs) })
+    res.json({
+      success: true,
+      timeRange: timeRange || null,
+      startDate: rangeStart,
+      endDate: rangeEnd,
+      data,
+    })
   } catch (err) { next(err) }
 }
 

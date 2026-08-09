@@ -41,7 +41,7 @@ const probeHourlyView = async (db) => {
   return hourlyViewAvailable
 }
 
-const bucketVariableHourly = async (db, { deviceId, variableName, startDate, bucketMs }) => {
+const bucketVariableHourly = async (db, { deviceId, variableName, startDate, endDate, bucketMs }) => {
   const rows = await db.$queryRaw`
     SELECT
       (floor(extract(epoch from bucket) * 1000 / ${bucketMs}) * ${bucketMs})::bigint AS bucket_ms,
@@ -50,6 +50,7 @@ const bucketVariableHourly = async (db, { deviceId, variableName, startDate, buc
     WHERE "deviceId" = ${deviceId}
       AND variable_name = ${variableName}
       AND bucket >= ${startDate}
+      ${endDate ? Prisma.sql`AND bucket <= ${endDate}` : Prisma.empty}
     GROUP BY bucket_ms
     ORDER BY bucket_ms ASC
   `
@@ -69,7 +70,7 @@ const bucketVariable = async (prisma, opts) => {
     }
   }
 
-  const { deviceId, slaveId, variableName, startDate, bucketMs } = opts
+  const { deviceId, slaveId, variableName, startDate, endDate, bucketMs } = opts
   const rows = await db.$queryRaw`
     SELECT
       (floor(extract(epoch from sr."timestamp") * 1000 / ${bucketMs}) * ${bucketMs})::bigint AS bucket_ms,
@@ -78,7 +79,8 @@ const bucketVariable = async (prisma, opts) => {
          jsonb_array_elements(sr.readings::jsonb) AS elem
     WHERE sr."deviceId" = ${deviceId}
       AND sr."timestamp" >= ${startDate}
-      AND elem->>'variableName' = ${variableName}
+      ${endDate ? Prisma.sql`AND sr."timestamp" <= ${endDate}` : Prisma.empty}
+      AND lower(replace(elem->>'variableName', ' ', '')) = lower(replace(${variableName}, ' ', ''))
       ${slaveClause(slaveId)}
     GROUP BY bucket_ms
     ORDER BY bucket_ms ASC
