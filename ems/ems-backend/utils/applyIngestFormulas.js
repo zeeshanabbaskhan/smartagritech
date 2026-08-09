@@ -11,14 +11,33 @@ const {
 } = require('./formulaEngine')
 
 /**
+ * Build name→configVar map. When preferredSlaveId is set and duplicate names exist
+ * across slaves, resolve to that slave’s config variable.
+ */
+const mapConfigVarsByName = (configVars, preferredSlaveId) => {
+  const byName = {}
+  for (const v of configVars || []) {
+    if (!v?.name) continue
+    const existing = byName[v.name]
+    if (!existing) {
+      byName[v.name] = v
+      continue
+    }
+    if (preferredSlaveId && v.deviceConfigSlaveId === preferredSlaveId) {
+      byName[v.name] = v
+    }
+  }
+  return byName
+}
+
+/**
  * @param {Array} configVars - DeviceConfigVariable rows with templateVariable + configSlave
  * @param {Array<{variableName, value}>} readings - raw ingest readings
+ * @param {string} [preferredSlaveId] - when set, duplicate names resolve to this slave’s config var
  * @returns {Array<{variableName, value}>} computed readings (includes equation vars)
  */
-const applyIngestFormulas = (configVars, readings) => {
-  const byName = Object.fromEntries(
-    (configVars || []).map((v) => [v.name, v])
-  )
+const applyIngestFormulas = (configVars, readings, preferredSlaveId) => {
+  const byName = mapConfigVarsByName(configVars, preferredSlaveId)
 
   // Map of "SlaveName$$VariableName" → computed numeric value
   const refValues = {}

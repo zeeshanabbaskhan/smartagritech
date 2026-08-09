@@ -7,6 +7,7 @@ const prisma = require('../config/database')
 const redis  = require('../config/redis')
 const { markDirty } = require('./valueFlushService')
 const { applyIngestFormulas, CONFIG_VAR_INCLUDE } = require('../utils/applyIngestFormulas')
+const { cacheLatestValues: writeLatestCache } = require('../utils/redisLatest')
 
 const enqueueAnomaly = (payload) => {
   try {
@@ -21,17 +22,9 @@ const lastEmitByDevice = new Map()
 const skipPgCurrentValue = () =>
   redis.isEnabled() && process.env.SKIP_PG_CURRENT_VALUE !== 'false'
 
-const cacheLatestValues = async (deviceId, readings) => {
-  const c = redis.getClient()
-  if (!c) return
+const cacheLatestValues = async (deviceId, slaveId, readings) => {
   try {
-    const key = `device:${deviceId}:latest`
-    const pipe = c.multi()
-    for (const r of readings) {
-      if (r.variableName != null) pipe.hSet(key, r.variableName, String(r.value))
-    }
-    pipe.expire(key, 3600)
-    await pipe.exec()
+    await writeLatestCache(deviceId, slaveId, readings)
     await markDirty(deviceId)
   } catch (_) {}
 }
@@ -62,8 +55,11 @@ const bulkUpdateVariables = async (tx, deviceId, updates, now) => {
   )
 }
 
-const buildVarUpdates = (configVars, readings) => {
-  const configVarByName = Object.fromEntries(configVars.map((v) => [v.name, v]))
+const buildVarUpdates = (configVars, readings, slaveId) => {
+  const scoped = slaveId
+    ? configVars.filter((v) => v.deviceConfigSlaveId === slaveId)
+    : configVars
+  const configVarByName = Object.fromEntries(scoped.map((v) => [v.name, v]))
   const varUpdates = []
   for (const r of readings) {
     const cv = configVarByName[r.variableName]
@@ -105,8 +101,8 @@ const persistIngest = async ({ deviceId, slaveId, readings, organizationId }) =>
 
   const configVars = await loadConfigVars(deviceId)
   // Raw stays in SensorReading.readings; computed drives currentValue / values / redis / socket
-  const computed = applyIngestFormulas(configVars, readings)
-  const varUpdates = buildVarUpdates(configVars, computed)
+  const computed = applyIngestFormulas(configVars, readings, slaveId)
+  const varUpdates = buildVarUpdates(configVars, computed, slaveId)
 
   const sensorReading = await prisma.$transaction(async (tx) => {
     const reading = await tx.sensorReading.create({
@@ -134,7 +130,7 @@ const persistIngest = async ({ deviceId, slaveId, readings, organizationId }) =>
     return { reading, goOnline, gatewayId: existing?.gatewayId || null }
   })
 
-  await cacheLatestValues(deviceId, computed)
+  await cacheLatestValues(deviceId, slaveId, computed)
   if (sensorReading.goOnline) {
     try {
       const { emitDeviceStatus, touchGatewayOnline } = require('./devicePresenceService')
@@ -175,7 +171,7 @@ const processIngestBatch = async (payloads) => {
 
   const computedByPayload = payloads.map((p) => ({
     ...p,
-    computed: applyIngestFormulas(varsByDevice[p.deviceId] ?? [], p.readings),
+    computed: applyIngestFormulas(varsByDevice[p.deviceId] ?? [], p.readings, p.slaveId),
   }))
 
   const readingRows = payloads.map((p) => ({
@@ -213,7 +209,7 @@ const processIngestBatch = async (payloads) => {
   if (!skipPgCurrentValue()) {
     await prisma.$transaction(async (tx) => {
       for (const p of computedByPayload) {
-        const updates = buildVarUpdates(varsByDevice[p.deviceId] ?? [], p.computed)
+        const updates = buildVarUpdates(varsByDevice[p.deviceId] ?? [], p.computed, p.slaveId)
         await bulkUpdateVariables(tx, p.deviceId, updates, now)
       }
     })
@@ -248,7 +244,7 @@ const processIngestBatch = async (payloads) => {
 
   const touchedGateways = new Set()
   for (const p of computedByPayload) {
-    await cacheLatestValues(p.deviceId, p.computed)
+    await cacheLatestValues(p.deviceId, p.slaveId, p.computed)
     emitReading(p.organizationId, p.deviceId, p.computed, now)
     if (switchById[p.deviceId] !== 'OFF') {
       try {

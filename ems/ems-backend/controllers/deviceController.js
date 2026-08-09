@@ -7,6 +7,7 @@ const { deviceWhereForUser, assertDeviceAccess } = require('../utils/deviceAcces
 const { hashKey, generateDeviceIngestKey } = require('../utils/ingestAuth')
 const { isDeleteQueueEnabled, enqueueDeviceDelete } = require('../workers/jobQueues')
 const refCache = require('../utils/referenceCache')
+const { readLatestMerged } = require('../utils/redisLatest')
 
 // Creating / deleting a device changes the owning template's cached devices
 // count in the templates list — clear both viewer-org buckets so it stays right.
@@ -29,7 +30,7 @@ const attachLatestMetrics = async (devices) => {
     let hot = {}
     if (c) {
       try {
-        hot = await c.hGetAll(`device:${d.id}:latest`)
+        hot = await readLatestMerged(d.id)
       } catch (_) {
         hot = {}
       }

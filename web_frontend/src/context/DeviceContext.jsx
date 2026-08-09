@@ -10,6 +10,13 @@ function sameId(a, b) {
   return String(a) === String(b)
 }
 
+/** Prefer isDefault slave when auto-selecting; else first in list. */
+function pickDefaultSlaveId(slaveList) {
+  if (!slaveList?.length) return null
+  const def = slaveList.find((s) => s.isDefault)
+  return def?.id ?? slaveList[0]?.id ?? null
+}
+
 export function DeviceProvider({ children }) {
   const { user } = useAuth()
   const [devices, setDevices] = useState([])
@@ -19,10 +26,8 @@ export function DeviceProvider({ children }) {
   const [loading, setLoading] = useState(false)
   const devicesRef = useRef(devices)
   const slavesRef = useRef(slaves)
-  const selectedDeviceIdRef = useRef(selectedDeviceId)
   devicesRef.current = devices
   slavesRef.current = slaves
-  selectedDeviceIdRef.current = selectedDeviceId
 
   const loadSlavesForDevice = useCallback(async (deviceId) => {
     if (!deviceId) {
@@ -36,7 +41,7 @@ export function DeviceProvider({ children }) {
       setSlaves(slaveList)
       setSelectedSlaveId((prev) => {
         if (prev && slaveList.some((s) => sameId(s.id, prev))) return prev
-        return slaveList[0]?.id ?? null
+        return pickDefaultSlaveId(slaveList)
       })
     } catch {
       setSlaves([])
@@ -44,41 +49,29 @@ export function DeviceProvider({ children }) {
     }
   }, [])
 
-  const loadDevices = useCallback(async (opts = {}) => {
+  const loadDevices = useCallback(async () => {
     if (!user) return []
-    const silent = Boolean(opts?.silent)
-    if (!silent) setLoading(true)
+    setLoading(true)
     try {
       const res = await emsApi.getDevices({ limit: 100 })
       const mapped = list(res).map(mapDevice)
-      const prev = selectedDeviceIdRef.current
-      const next = (prev && mapped.some((d) => sameId(d.id, prev)))
-        ? prev
-        : (mapped[0]?.id ?? null)
       setDevices(mapped)
-      setSelectedDeviceId(next)
-      // If the selected device disappeared, reload slaves for the new selection.
-      if (next && !sameId(next, prev)) {
-        setSelectedSlaveId(null)
-        setSlaves([])
-        await loadSlavesForDevice(next)
-      }
+      setSelectedDeviceId((prev) => {
+        if (prev && mapped.some((d) => sameId(d.id, prev))) return prev
+        return mapped[0]?.id ?? null
+      })
       return mapped
     } catch {
       setDevices([])
       return []
     } finally {
-      if (!silent) setLoading(false)
+      setLoading(false)
     }
-  }, [user, loadSlavesForDevice])
+  }, [user])
 
   /** Select a device; empty/null falls back to the first available device. */
   const selectDevice = useCallback(async (deviceId) => {
     const next = deviceId || devicesRef.current[0]?.id || null
-    // No-op when already on this device with slaves loaded — avoids clear→reload flicker.
-    if (sameId(next, selectedDeviceIdRef.current) && slavesRef.current.length > 0) {
-      return
-    }
     // Clear slave immediately so consumers never fetch new device + old slave.
     setSelectedDeviceId(next)
     setSelectedSlaveId(null)
@@ -86,16 +79,16 @@ export function DeviceProvider({ children }) {
     await loadSlavesForDevice(next)
   }, [loadSlavesForDevice])
 
-  /** Set slave; empty/null falls back to default or first available slave. */
+  /** Set slave; empty/null falls back to the default (or first) available slave. */
   const setSelectedSlaveIdSafe = useCallback((slaveIdOrUpdater) => {
     if (typeof slaveIdOrUpdater === 'function') {
       setSelectedSlaveId((prev) => {
         const next = slaveIdOrUpdater(prev)
-        return next || slavesRef.current[0]?.id || null
+        return next || pickDefaultSlaveId(slavesRef.current)
       })
       return
     }
-    setSelectedSlaveId(slaveIdOrUpdater || slavesRef.current[0]?.id || null)
+    setSelectedSlaveId(slaveIdOrUpdater || pickDefaultSlaveId(slavesRef.current))
   }, [])
 
   useEffect(() => {
@@ -106,9 +99,15 @@ export function DeviceProvider({ children }) {
       setSelectedSlaveId(null)
       return
     }
-    // loadDevices loads slaves when selection is established (null → first device).
-    loadDevices()
+    loadDevices().then((mapped) => {
+      const id = mapped[0]?.id
+      if (id) loadSlavesForDevice(id)
+    })
   }, [user?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (selectedDeviceId) loadSlavesForDevice(selectedDeviceId)
+  }, [selectedDeviceId, loadSlavesForDevice])
 
   const deviceSlaves = selectedDeviceId
     ? slaves.filter((s) => !s.deviceId || sameId(s.deviceId, selectedDeviceId))

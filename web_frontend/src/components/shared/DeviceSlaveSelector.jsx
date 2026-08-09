@@ -7,10 +7,16 @@ function sameId(a, b) {
   return String(a) === String(b)
 }
 
+function pickDefaultSlaveId(slaveList) {
+  if (!slaveList?.length) return null
+  const def = slaveList.find((s) => s.isDefault)
+  return def?.id ?? slaveList[0]?.id ?? null
+}
+
 /**
  * Device + slave picker for chart/history sections.
  * Device/slave are required for dashboards — clear is disabled; empty
- * selection always falls back to the first available option.
+ * selection always falls back to the default (isDefault) or first option.
  * @param {Array} [devicesOverride] — when set (e.g. org-scoped admin filter), options come from this list
  */
 export default function DeviceSlaveSelector({
@@ -55,7 +61,8 @@ export default function DeviceSlaveSelector({
   useEffect(() => {
     if (!slaves.length) return
     if (!selectedSlaveId || !slaves.some((s) => sameId(s.id, selectedSlaveId))) {
-      setSelectedSlaveId(slaves[0].id)
+      const next = pickDefaultSlaveId(slaves)
+      if (next) setSelectedSlaveId(next)
     }
   }, [slaves, selectedSlaveId, setSelectedSlaveId])
 
@@ -68,7 +75,7 @@ export default function DeviceSlaveSelector({
   }
 
   const handleSlaveChange = (v) => {
-    const next = v || slaves[0]?.id || null
+    const next = v || pickDefaultSlaveId(slaves)
     if (!next) return
     setSelectedSlaveId(next)
     setTimeout(() => onChange?.(), 0)

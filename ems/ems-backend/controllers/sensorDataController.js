@@ -8,6 +8,7 @@ const { TIME_RANGE_MS, BUCKET_MS, paginate, parseDateBound } = require('../utils
 const { bucketVariable, sumVariable, periodEnergyKwh } = require('../utils/sensorAggregation')
 const { cached } = require('../utils/responseCache')
 const { assertDeviceAccess } = require('../utils/deviceAccess')
+const { readLatest } = require('../utils/redisLatest')
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
@@ -44,6 +45,13 @@ const emptyDashboardSummary = () => ({
   switchOff: true,
 })
 
+/** Case-insensitive, space-stripped variable name match. */
+const variableNameMatches = (candidate, variableName) => {
+  const want = String(variableName).replace(/\s+/g, '').toLowerCase()
+  const name = String(candidate || '').replace(/\s+/g, '').toLowerCase()
+  return name === want || String(candidate) === variableName
+}
+
 /**
  * Group raw SensorReading rows by a fixed bucket width and return avg per bucket.
  *
@@ -58,7 +66,7 @@ const bucketReadings = (rawReadings, variableName, bucketMs) => {
     const ts    = new Date(row.timestamp).getTime()
     const key   = Math.floor(ts / bucketMs) * bucketMs
     const arr   = Array.isArray(row.readings) ? row.readings : []
-    const entry = arr.find((r) => r.variableName === variableName)
+    const entry = arr.find((r) => variableNameMatches(r.variableName, variableName))
     if (!entry) continue
     if (!buckets[key]) buckets[key] = { sum: 0, count: 0 }
     buckets[key].sum   += Number(entry.value)
@@ -92,11 +100,11 @@ const getLatest = async (req, res, next) => {
       })
     }
 
-    // P-09: serve hot latest values from Redis when available
-    const redisClient = redis.getClient()
-    if (redisClient) {
+    // P-09: serve hot latest values from Redis when available.
+    // When slaveId is set, readLatest uses ONLY the scoped key — no legacy/other-slave merge.
+    if (redis.getClient()) {
       try {
-        const hot = await redisClient.hGetAll(`device:${deviceId}:latest`)
+        const hot = await readLatest(deviceId, slaveId || null)
         if (Object.keys(hot).length) {
           const where = { deviceId, isActive: true }
           if (slaveId) where.deviceConfigSlaveId = slaveId
@@ -106,8 +114,7 @@ const getLatest = async (req, res, next) => {
           })
           const meta = Object.fromEntries(vars.map((v) => [v.name, v]))
           const data = {}
-          // Only expose variables for the selected slave (or all configured vars when no slaveId).
-          // Device-level Redis hash can mix slaves — never return hot keys outside meta.
+          // Intersect Redis hot keys with config vars for this slave (or all when no slaveId).
           for (const [name, metaRow] of Object.entries(meta)) {
             if (!(name in hot)) continue
             data[name] = {
@@ -119,7 +126,7 @@ const getLatest = async (req, res, next) => {
           if (Object.keys(data).length) {
             return res.json({ success: true, data, timestamp: device.lastDataReceivedAt ?? null, source: 'redis' })
           }
-          // Slave filter yielded nothing from Redis — fall through to Postgres.
+          // Slave filter / intersect yielded nothing — fall through to Postgres.
         }
       } catch (_) { /* fall through to Postgres */ }
     }
@@ -169,7 +176,7 @@ const getHistory = async (req, res, next) => {
     const data = []
     for (const row of rows) {
       const arr   = Array.isArray(row.readings) ? row.readings : []
-      const entry = arr.find((r) => r.variableName === variableName)
+      const entry = arr.find((r) => variableNameMatches(r.variableName, variableName))
       if (entry) data.push({ variableName: entry.variableName, value: entry.value, unit: entry.unit, receivedTime: row.timestamp })
     }
 

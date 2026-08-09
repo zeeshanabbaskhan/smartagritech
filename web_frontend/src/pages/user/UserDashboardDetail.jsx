@@ -7,13 +7,42 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
 import DeviceSlaveSelector from '../../components/shared/DeviceSlaveSelector'
-import { DateRangePicker, resolvePresetRange, toYmd } from '../../components/ui/DataCenterFilterBar'
+import { resolvePresetRange, toYmd } from '../../components/ui/DataCenterFilterBar'
 import PageState, { ChartEmpty, useFetch } from '../../components/ui/PageState'
 import { useDevices } from '../../context/DeviceContext'
 import { useToast } from '../../context/ToastContext'
 import emsApi, { list } from '../../api/emsApi'
 import { downloadCsv } from '../../utils/csv'
-import { fetchDeviceVariables, latestToReadings } from '../../utils/sensorReadings'
+import { latestToReadings } from '../../utils/sensorReadings'
+
+/** Known metrics: labels/order only applied when the selected slave’s latest payload has a hit. */
+const READOUT_DEFS = [
+  { key: 'VoltageA',      label: 'Voltage A',        unit: 'V' },
+  { key: 'VoltageB',      label: 'Voltage B',        unit: 'V' },
+  { key: 'VoltageC',      label: 'Voltage C',        unit: 'V' },
+  { key: 'PhaseVoltageA', label: 'Phase Voltage A',  unit: 'V' },
+  { key: 'PhaseVoltageB', label: 'Phase Voltage B',  unit: 'V' },
+  { key: 'PhaseVoltageC', label: 'Phase Voltage C',  unit: 'V' },
+  { key: 'CurrentA',      label: 'Current A',        unit: 'A' },
+  { key: 'CurrentB',      label: 'Current B',        unit: 'A' },
+  { key: 'CurrentC',      label: 'Current C',        unit: 'A' },
+  { key: 'ActivePower',   label: 'Operating Power',  unit: 'kW' },
+  { key: 'ReactivePower', label: 'Reactive Power',   unit: 'kVar' },
+  { key: 'ApparentPower', label: 'Apparent Power',   unit: 'kVA' },
+  { key: 'PowerConsumption', label: 'Units (kWh)',   unit: 'kWh' },
+  { key: 'ExportPower',   label: 'Export Power',     unit: 'kWh' },
+  { key: 'PowerFactor',   label: 'Power Factor',     unit: '', icon: PieChart },
+  { key: 'Frequency',     label: 'Frequency',        unit: 'Hz' },
+  { key: 'Temperature',   label: 'Temperature',      unit: '°C' },
+  { key: 'Energy',        label: 'Energy',           unit: 'kWh' },
+  { key: 'THDUa',         label: 'THD Ua',           unit: '%' },
+  { key: 'THDUb',         label: 'THD Ub',           unit: '%' },
+  { key: 'THDUc',         label: 'THD Uc',           unit: '%' },
+  { key: 'THDIa',         label: 'THD Ia',           unit: '%' },
+  { key: 'THDIb',         label: 'THD Ib',           unit: '%' },
+  { key: 'THDIc',         label: 'THD Ic',           unit: '%' },
+  { key: 'TotalCost',     label: 'Total cost',       unit: 'PKR', icon: Package },
+]
 
 const defaultRange = resolvePresetRange('last7') || {
   from: toYmd(new Date(Date.now() - 6 * 86400000)),
@@ -21,6 +50,7 @@ const defaultRange = resolvePresetRange('last7') || {
 }
 
 function readoutIcon(row) {
+  if (row.icon) return row.icon
   const key = String(row.key || row.apiName || '')
   if (/powerfactor/i.test(key)) return PieChart
   if (/cost|price|pkr/i.test(key)) return Package
@@ -33,14 +63,21 @@ function readoutIcon(row) {
   return Activity
 }
 
+function normName(s) {
+  return String(s || '').replace(/\s+/g, '').toLowerCase()
+}
+
 function findReading(readings, name) {
   if (!name) return null
-  const norm = (s) => String(s || '').replace(/\s+/g, '').toLowerCase()
-  const target = norm(name)
+  const target = normName(name)
   return readings.find((r) => {
     const vn = String(r.variableName || '')
-    return vn.toLowerCase() === String(name).toLowerCase() || norm(vn) === target
+    return vn.toLowerCase() === String(name).toLowerCase() || normName(vn) === target
   }) || null
+}
+
+function isRegisterVar(name) {
+  return /^R\d/i.test(String(name || ''))
 }
 
 function fmtNum(v) {
@@ -48,6 +85,53 @@ function fmtNum(v) {
   const n = Number(v)
   if (Number.isNaN(n)) return String(v)
   return Number.isInteger(n) ? String(n) : n.toFixed(2)
+}
+
+/**
+ * Cards from variables present on the selected slave’s latest payload only.
+ * READOUT_DEFS supply labels/order for known metrics when a hit exists.
+ * Other named (non-R*) vars are appended; if only R* vars exist, show those.
+ */
+function buildReadoutsFromLatest(readings) {
+  const used = new Set()
+  const known = []
+
+  for (const def of READOUT_DEFS) {
+    const hit = findReading(readings, def.key)
+    if (!hit) continue
+    used.add(normName(hit.variableName || def.key))
+    used.add(normName(def.key))
+    known.push({
+      key: def.key,
+      label: def.label,
+      unit: hit.unit || def.unit || '',
+      value: fmtNum(hit.value),
+      apiName: hit.variableName || def.key,
+      icon: def.icon,
+    })
+  }
+
+  const extras = []
+  const registers = []
+  for (const r of readings) {
+    const name = r.variableName
+    if (!name) continue
+    const n = normName(name)
+    if (used.has(n)) continue
+    used.add(n)
+    const row = {
+      key: name,
+      label: name,
+      unit: r.unit || '',
+      value: fmtNum(r.value),
+      apiName: name,
+    }
+    if (isRegisterVar(name)) registers.push(row)
+    else extras.push(row)
+  }
+
+  if (known.length || extras.length) return [...known, ...extras]
+  return registers
 }
 
 function formatChartTime(ts) {
@@ -146,26 +230,15 @@ export default function UserDashboardDetail() {
       timeRange: '24h',
     }
 
-    // Cards come from the selected slave's configured variables — never a global hardcoded list.
-    const [configVars, latestRes, summaryRes, energyRes] = await Promise.all([
-      fetchDeviceVariables(selectedDeviceId, selectedSlaveId || null),
+    // Cards from selected slave’s latest only — never merge other slaves or hardcoded missing metrics.
+    const [latestRes, summaryRes, energyRes] = await Promise.all([
       emsApi.getLatestReadings(q).catch(() => null),
       emsApi.getDashboardSummary(q).catch(() => null),
       emsApi.getAiEnergy(q).catch(() => null),
     ])
 
     const readings = latestToReadings(latestRes)
-    const readouts = configVars.map((v) => {
-      const apiName = v.name
-      const hit = findReading(readings, apiName) || findReading(readings, v.displayName)
-      return {
-        key: apiName,
-        label: v.displayName || apiName,
-        unit: hit?.unit || v.unit || '',
-        value: fmtNum(hit?.value),
-        apiName: hit?.variableName || apiName,
-      }
-    })
+    const readouts = buildReadoutsFromLatest(readings)
 
     // Prefer dashboard-summary energySavingsComparison (authoritative).
     const esc = summaryRes?.data?.energySavingsComparison || {}
@@ -211,7 +284,7 @@ export default function UserDashboardDetail() {
   const hasLiveData = Boolean(data?.hasLiveData)
   const isEmpty = !hasVariables || !hasLiveData
 
-  // Keep selected card in sync with the current slave's variable set.
+  // Reset/keep selected card when the slave’s variable set changes.
   useEffect(() => {
     if (!data?.readouts?.length) {
       setSelectedKey(null)
@@ -425,7 +498,7 @@ export default function UserDashboardDetail() {
             {hasVariables ? (
               <>
                 <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
-                  {/* Left: selectable metric cards from slave config */}
+                  {/* Left: selectable metric cards from selected slave latest */}
                   <div className="xl:col-span-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {readouts.map((row) => {
                       const Icon = readoutIcon(row)
@@ -466,16 +539,26 @@ export default function UserDashboardDetail() {
                         </p>
                       </div>
                       <div className="flex flex-wrap items-end gap-2">
-                        <DateRangePicker
-                          label="From / To"
-                          className="w-56"
-                          dateFrom={dateFrom}
-                          dateTo={dateTo}
-                          onApply={(from, to) => {
-                            setDateFrom(from)
-                            setDateTo(to)
-                          }}
-                        />
+                        <div>
+                          <label className="label" htmlFor="detail-date-from">From</label>
+                          <input
+                            id="detail-date-from"
+                            type="date"
+                            className="input py-1.5 text-xs w-[9.5rem]"
+                            value={dateFrom}
+                            onChange={(e) => setDateFrom(e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <label className="label" htmlFor="detail-date-to">To</label>
+                          <input
+                            id="detail-date-to"
+                            type="date"
+                            className="input py-1.5 text-xs w-[9.5rem]"
+                            value={dateTo}
+                            onChange={(e) => setDateTo(e.target.value)}
+                          />
+                        </div>
                         <button
                           type="button"
                           className="btn-secondary text-xs"

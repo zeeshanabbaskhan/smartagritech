@@ -3,6 +3,7 @@ const redis = require('../config/redis')
 const { AppError } = require('../middleware/errorHandler')
 const { orgScope, paginate } = require('../utils/helpers')
 const { listAccessibleDeviceIds } = require('../utils/deviceAccess')
+const { readLatestMerged } = require('../utils/redisLatest')
 
 const resolveOrgId = (req, bodyOrgId) => {
   if (req.user.role === 'SUPER_ADMIN') return bodyOrgId || req.query.organizationId
@@ -33,7 +34,7 @@ const readDeviceLoadKw = async (deviceId) => {
   const c = redis.getClient()
   if (c) {
     try {
-      const hot = await c.hGetAll(`device:${deviceId}:latest`)
+      const hot = await readLatestMerged(deviceId)
       for (const name of LOAD_VAR_NAMES) {
         const raw = hot?.[name]
         if (raw != null && raw !== '') return toLoadKw(name, raw)
@@ -74,7 +75,7 @@ const readDeviceExportKw = async (deviceId) => {
   const c = redis.getClient()
   if (c) {
     try {
-      const hot = await c.hGetAll(`device:${deviceId}:latest`)
+      const hot = await readLatestMerged(deviceId)
       for (const name of EXPORT_NAMES) {
         const raw = hot?.[name]
         if (raw != null && raw !== '') return toLoadKw(name, raw)
