@@ -1,0 +1,58 @@
+name: Ops public disk wipe
+
+# One-shot ops for the GitHub Actions public deploy host (DEPLOY_* secrets).
+# Not Friendline. Triggered only on this branch or manual dispatch.
+on:
+  push:
+    branches: [ops/public-sensor-wipe]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-linux-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  wipe:
+    name: Wipe sensors on public GHA host
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.9.1
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+
+      - name: Free disk, wipe sensors, restart backend
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          DEPLOY_SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
+        run: |
+          set -euo pipefail
+          if [ -z "$DEPLOY_HOST" ] || [ -z "$DEPLOY_USER" ] || [ -z "$DEPLOY_PATH" ]; then
+            echo "Missing required secrets: DEPLOY_HOST, DEPLOY_USER, DEPLOY_PATH"
+            exit 1
+          fi
+          SSH_PORT="${DEPLOY_SSH_PORT:-22}"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          ssh-keyscan -p "$SSH_PORT" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+          echo "Connecting as ${DEPLOY_USER}@${DEPLOY_HOST} (secrets redacted in GHA log)"
+          IDENT="$(ssh -p "$SSH_PORT" -o BatchMode=yes "${DEPLOY_USER}@${DEPLOY_HOST}" "hostname; hostname -I; whoami")"
+          echo "$IDENT"
+          if echo "$IDENT" | grep -Eq '161\.97\.69\.118|[Ff]riendline|[Ff]riend-line'; then
+            echo "ABORT: remote identity looks like Friendline"
+            exit 2
+          fi
+
+          scp -P "$SSH_PORT" scripts/ops/wipe-sensor-data-all.sh \
+            "${DEPLOY_USER}@${DEPLOY_HOST}:/tmp/wipe-sensor-data-all.sh"
+          ssh -p "$SSH_PORT" -o BatchMode=yes "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "sed -i 's/\r$//' /tmp/wipe-sensor-data-all.sh"
+
+          ssh -p "$SSH_PORT" -o BatchMode=yes "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "bash -s" < scripts/ops/gha-public-disk-and-wipe.sh
