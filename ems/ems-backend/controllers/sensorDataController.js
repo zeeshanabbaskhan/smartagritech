@@ -121,14 +121,15 @@ const getLatest = async (req, res, next) => {
             select: { name: true, unit: true, lastUpdatedAt: true },
           })
           const meta = Object.fromEntries(vars.map((v) => [v.name, v]))
+          const freshAt = device.lastDataReceivedAt ?? null
           const data = {}
-          // Intersect Redis hot keys with config vars for this slave (or all when no slaveId).
+          // Intersect Redis hot keys with config vars for this slave (or primary slave when no slaveId).
           for (const [name, metaRow] of Object.entries(meta)) {
             if (!(name in hot)) continue
             data[name] = {
               value:         hot[name],
               unit:          metaRow?.unit ?? null,
-              lastUpdatedAt: metaRow?.lastUpdatedAt ?? null,
+              lastUpdatedAt: freshAt ?? metaRow?.lastUpdatedAt ?? null,
             }
           }
           if (Object.keys(data).length) {

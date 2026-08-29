@@ -90,8 +90,8 @@ const emsApi = {
 
   // ─── Device config ──────────────────────────────────────────────────────
   getDeviceConfig: (deviceId) => api.get(`/devices/${deviceId}/config/slaves`),
-  getDeviceVariables: (deviceId, slaveId) =>
-    api.get(`/devices/${deviceId}/config/slaves/${slaveId}/variables`),
+  getDeviceVariables: (deviceId, slaveId, params) =>
+    api.get(`/devices/${deviceId}/config/slaves/${slaveId}/variables`, q(params)),
 
   // ─── Device users ───────────────────────────────────────────────────────
   getDeviceUsers: (deviceId) => api.get(`/devices/${deviceId}/users`, q()),

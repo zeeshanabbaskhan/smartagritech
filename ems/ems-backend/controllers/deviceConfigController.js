@@ -43,10 +43,14 @@ const getConfigSlaves = async (req, res, next) => {
 const getConfigSlaveVariables = async (req, res, next) => {
   try {
     const { page, limit, skip } = paginate(req.query)
-    const where = { deviceId: req.params.deviceId, deviceConfigSlaveId: req.params.configSlaveId }
+    const where = { deviceId: req.params.deviceId, deviceConfigSlaveId: req.params.configSlaveId, isActive: true }
 
     const [data, total] = await Promise.all([
-      prisma.deviceConfigVariable.findMany({ where, skip, take: limit, orderBy: { createdAt: 'asc' } }),
+      prisma.deviceConfigVariable.findMany({
+        where, skip, take: limit,
+        orderBy: { createdAt: 'asc' },
+        include: { templateVariable: { select: { registerAddress: true } } },
+      }),
       prisma.deviceConfigVariable.count({ where }),
     ])
     res.json({ success: true, data, total, page, pages: Math.ceil(total / limit) })

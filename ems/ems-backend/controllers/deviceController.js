@@ -39,7 +39,7 @@ const attachLatestMetrics = async (devices) => {
     try {
       vars = await prisma.deviceConfigVariable.findMany({
         where: { deviceId: d.id, isActive: true },
-        select: { name: true, currentValue: true, unit: true },
+        select: { name: true, currentValue: true, unit: true, displayName: true },
         orderBy: { name: 'asc' },
       })
     } catch (_) {
@@ -50,7 +50,11 @@ const attachLatestMetrics = async (devices) => {
       if (!v?.name) continue
       const redisVal = hot[v.name]
       const value = redisVal != null && redisVal !== '' ? redisVal : v.currentValue
-      latestMetrics[v.name] = { value: value ?? null, unit: v.unit ?? null }
+      latestMetrics[v.name] = {
+        value: value ?? null,
+        unit: v.unit ?? null,
+        displayName: v.displayName || v.name,
+      }
     }
     for (const [name, value] of Object.entries(hot || {})) {
       if (latestMetrics[name]) continue

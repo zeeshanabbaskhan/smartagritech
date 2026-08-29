@@ -20,6 +20,28 @@ const META_KEYS = new Set([
   'time',
 ])
 
+const DEVICE_SELECT = {
+  id: true,
+  name: true,
+  organizationId: true,
+  gateway: { select: { id: true, serialNumber: true, name: true } },
+  configSlaves: {
+    where: { isActive: true },
+    select: {
+      id: true,
+      name: true,
+      configVariables: {
+        where: { isActive: true },
+        select: {
+          name: true,
+          unit: true,
+          templateVariable: { select: { registerAddress: true } },
+        },
+      },
+    },
+  },
+}
+
 const setStatus = async (bridgeId, status, extra = {}) => {
   try {
     const data = { status, updatedAt: new Date() }
@@ -43,29 +65,13 @@ const normalizeReg = (key) => String(key).trim().replace(/^0x/i, '').toUpperCase
 const loadDeviceMaps = async (organizationId) => {
   const devices = await prisma.device.findMany({
     where: { organizationId },
-    select: {
-      id: true,
-      name: true,
-      organizationId: true,
-      gateway: { select: { id: true, serialNumber: true, name: true } },
-      configSlaves: {
-        where: { isActive: true },
-        select: {
-          id: true,
-          name: true,
-          configVariables: {
-            where: { isActive: true },
-            select: {
-              name: true,
-              unit: true,
-              templateVariable: { select: { registerAddress: true } },
-            },
-          },
-        },
-      },
-    },
+    select: DEVICE_SELECT,
   })
 
+  return buildDeviceMaps(devices)
+}
+
+const buildDeviceMaps = (devices) => {
   /** @type {Map<string, typeof devices>} */
   const bySerial = new Map()
   /** @type {Map<string, typeof devices[0]>} */
@@ -82,6 +88,24 @@ const loadDeviceMaps = async (organizationId) => {
   }
 
   return { devices, bySerial, byName }
+}
+
+/** Fallback when org-scoped map misses (e.g. device registered under another org). */
+const resolveDeviceGlobal = async (payload) => {
+  const serial = payload.serial_number != null ? String(payload.serial_number).trim() : ''
+  const deviceName = payload.device != null ? String(payload.device).trim() : ''
+  if (!serial && !deviceName) return null
+
+  const or = []
+  if (serial) or.push({ gateway: { serialNumber: serial } })
+  if (deviceName) or.push({ name: { equals: deviceName, mode: 'insensitive' } })
+
+  const devices = await prisma.device.findMany({
+    where: { OR: or },
+    select: DEVICE_SELECT,
+  })
+  if (!devices.length) return null
+  return resolveDevice(buildDeviceMaps(devices), payload)
 }
 
 const resolveDevice = (maps, payload) => {
@@ -171,7 +195,8 @@ const handleMessage = async (bridgeId, organizationId, topic, buf) => {
   }
 
   const maps = await loadDeviceMaps(organizationId)
-  const device = resolveDevice(maps, payload)
+  let device = resolveDevice(maps, payload)
+  if (!device) device = await resolveDeviceGlobal(payload)
   if (!device) {
     logger.warn('mqtt bridge: no matching device', {
       bridgeId,

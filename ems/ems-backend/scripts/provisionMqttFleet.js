@@ -37,8 +37,16 @@ const DRY = has('dry-run')
 
 /** Prefer friendly EMS names for known EMS PANEL-style registers. */
 const KNOWN_REG_NAMES = {
-  40084: 'Scale',
+  40081: 'PowerFactor',
+  40084: 'PowerFactor',
   40085: 'Frequency',
+  40103: 'VoltageA',
+  40105: 'VoltageB',
+  40107: 'VoltageC',
+  40115: 'ActivePower',
+  40123: 'ReactivePower',
+  40131: 'ApparentPower',
+  40141: 'ExportPower',
   40097: 'VoltageA',
   40099: 'VoltageB',
   40101: 'VoltageC',
@@ -47,9 +55,16 @@ const KNOWN_REG_NAMES = {
   40113: 'CurrentC',
   40121: 'ActivePower',
   40129: 'ReactivePower',
-  40137: 'PowerFactor',
+  40137: 'ApparentPower',
   40139: 'Energy',
-  40437: 'Status40437',
+  40003: 'Temperature',
+  40327: 'THDUa',
+  40328: 'THDUb',
+  40329: 'THDUc',
+  40330: 'THDIa',
+  40331: 'THDIb',
+  40332: 'THDIc',
+  40437: 'R40437',
 }
 
 function unitGuess(name, reg) {

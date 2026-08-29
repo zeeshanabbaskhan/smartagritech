@@ -2,6 +2,18 @@
 // Keys: device:{deviceId}:latest:{slaveId|none}
 
 const redis = require('../config/redis')
+const prisma = require('../config/database')
+
+/** Prefer these slave names when a device has multiple MQTT blocks (no blind merge). */
+const SLAVE_NAME_PRIORITY = [
+  'ficoinverter',
+  'main',
+  'invertermain',
+  'smart',
+  'suprafurnace',
+  'fico furnace',
+  'charger',
+]
 
 const latestKey = (deviceId, slaveId) =>
   `device:${deviceId}:latest:${slaveId || 'none'}`
@@ -11,9 +23,10 @@ const legacyLatestKey = (deviceId) => `device:${deviceId}:latest`
 
 const scanKeys = async (c, pattern) => {
   const keys = []
+  const pushKey = (key) => keys.push(String(key))
   try {
     for await (const key of c.scanIterator({ MATCH: pattern, COUNT: 64 })) {
-      keys.push(key)
+      pushKey(key)
     }
   } catch (_) {
     // Older clients: manual SCAN
@@ -22,7 +35,7 @@ const scanKeys = async (c, pattern) => {
       const res = await c.scan(cursor, { MATCH: pattern, COUNT: 64 })
       cursor = String(res.cursor ?? res[0] ?? '0')
       const batch = res.keys ?? res[1] ?? []
-      keys.push(...batch)
+      for (const key of batch) pushKey(key)
     } while (cursor !== '0')
   }
   return keys
@@ -65,25 +78,64 @@ const readLatestForSlave = async (deviceId, slaveId) => {
   }
 }
 
+const resolveDefaultSlaveId = async (deviceId) => {
+  const def = await prisma.deviceConfigSlave.findFirst({
+    where: { deviceId, isActive: true, isDefault: true },
+    select: { id: true },
+  })
+  if (def?.id) return def.id
+
+  const slaves = await prisma.deviceConfigSlave.findMany({
+    where: { deviceId, isActive: true },
+    select: { id: true, name: true },
+    orderBy: { name: 'asc' },
+  })
+  if (slaves.length === 1) return slaves[0].id
+
+  for (const pname of SLAVE_NAME_PRIORITY) {
+    const s = slaves.find((x) => x.name.trim().toLowerCase() === pname)
+    if (s) return s.id
+  }
+  return slaves[0]?.id ?? null
+}
+
 /**
- * Merge all slave-scoped hashes for a device (plus legacy if present).
- * Used when no slaveId filter is requested.
+ * Read latest values when no slaveId is specified.
+ * Uses the default / primary slave — never merges duplicate variable names across slaves.
  */
 const readLatestMerged = async (deviceId) => {
   const c = redis.getClient()
   if (!c) return {}
   try {
-    const merged = {}
-    const legacy = await c.hGetAll(legacyLatestKey(deviceId))
-    Object.assign(merged, legacy || {})
-
     const keys = await scanKeys(c, `device:${deviceId}:latest:*`)
-    for (const key of keys) {
-      if (key === legacyLatestKey(deviceId)) continue
-      const hot = await c.hGetAll(key)
-      Object.assign(merged, hot || {})
+    const scopedKeys = keys.filter(
+      (k) => {
+        const key = String(k)
+        return key !== legacyLatestKey(deviceId) && !key.endsWith(':none')
+      },
+    )
+
+    if (!scopedKeys.length) {
+      return (await c.hGetAll(legacyLatestKey(deviceId))) || {}
     }
-    return merged
+
+    if (scopedKeys.length === 1) {
+      const suffix = scopedKeys[0].split(':latest:')[1]
+      if (suffix) return readLatestForSlave(deviceId, suffix)
+    }
+
+    const slaveId = await resolveDefaultSlaveId(deviceId)
+    if (slaveId) {
+      const hot = await readLatestForSlave(deviceId, slaveId)
+      if (Object.keys(hot).length) return hot
+    }
+
+    let best = {}
+    for (const key of scopedKeys) {
+      const hot = await c.hGetAll(key)
+      if (Object.keys(hot).length > Object.keys(best).length) best = hot
+    }
+    return best
   } catch (_) {
     try {
       return (await c.hGetAll(legacyLatestKey(deviceId))) || {}

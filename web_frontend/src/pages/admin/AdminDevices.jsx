@@ -15,7 +15,7 @@ import {
 } from '../../utils/deviceFilters'
 import { useToast } from '../../context/ToastContext'
 
-const blank = { name: '', organizationId: '', gatewayId: '', templateId: '', switchOn: false }
+const blank = { name: '', organizationId: '', gatewayId: '', templateId: '', switchOn: true }
 
 export default function AdminDevices() {
   const { showToast } = useToast()
@@ -65,6 +65,9 @@ export default function AdminDevices() {
   const filteredGateways = form.organizationId
     ? gateways.filter((g) => g.organizationId === form.organizationId)
     : gateways
+
+  const selectedGateway = gateways.find((g) => g.id === form.gatewayId) || null
+  const selectedTemplate = templates.find((t) => t.id === form.templateId) || null
 
   const filterBarGateways = orgFilter
     ? gateways.filter((g) => g.organizationId === orgFilter)
@@ -334,9 +337,42 @@ export default function AdminDevices() {
                 disabled={modal === 'edit'} />
               <SelectInput label="Gateway" required placeholder="Select gateway"
                 value={form.gatewayId} onChange={(e) => setForm((f) => ({ ...f, gatewayId: e.target.value }))}
-                options={filteredGateways.map((g) => ({ value: g.id, label: g.name }))} />
+                options={filteredGateways.map((g) => ({
+                  value: g.id,
+                  label: g.serial && g.serial !== '—' ? `${g.name} — SN ${g.serial}` : g.name,
+                }))} />
             </div>
-            <ToggleInput label="Switch On" checked={form.switchOn}
+            {modal === 'add' && (
+              <div className="rounded-lg border border-primary-200 bg-primary-50/60 dark:border-primary-900 dark:bg-primary-950/30 px-3 py-3 space-y-2">
+                <p className="text-[11px] font-black uppercase tracking-wider text-primary-700 dark:text-primary-300">
+                  MQTT live data checklist (required for Online status)
+                </p>
+                <ul className="text-[11px] text-surface-600 dark:text-surface-400 space-y-1 list-disc pl-4">
+                  <li>
+                    <strong>Device name</strong> must match MQTT field <code className="text-primary-700">device</code>
+                    {form.name ? ` → "${form.name}"` : ''}
+                  </li>
+                  <li>
+                    <strong>Gateway serial</strong> must match MQTT <code className="text-primary-700">serial_number</code>
+                    {selectedGateway?.serial ? ` → ${selectedGateway.serial}` : ' — pick a gateway with the correct serial'}
+                  </li>
+                  <li>
+                    <strong>Template slave name</strong> must match the MQTT JSON block key (e.g. NUST, Main, SupraFurnace)
+                    {selectedTemplate ? ` — edit template "${selectedTemplate.name}" → Slaves → Variables` : ''}
+                  </li>
+                  <li>
+                    <strong>Register address</strong> must match MQTT keys <em>exactly</em> (use <code className="text-primary-700">40097</code>, not <code className="text-primary-700">97</code>)
+                  </li>
+                  <li>
+                    <strong>Switch On</strong> below — device stays Offline until switch is ON and at least one register maps
+                  </li>
+                  <li>
+                    MQTT bridge for this org must be <strong>Started</strong> (Admin → MQTT Bridges)
+                  </li>
+                </ul>
+              </div>
+            )}
+            <ToggleInput label="Switch On (required for live Online status)" checked={form.switchOn}
               onChange={(v) => setForm((f) => ({ ...f, switchOn: v }))} />
           </div>
         </Modal>

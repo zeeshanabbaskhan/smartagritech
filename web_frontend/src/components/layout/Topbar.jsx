@@ -328,8 +328,8 @@ export default function Topbar({ title, onMenuClick }) {
     {impersonation?.active && (
       <div className="bg-amber-500 text-amber-950 px-3 sm:px-6 py-2 flex flex-wrap items-center justify-between gap-2 text-xs font-semibold">
         <span>
-          Viewing as <strong>{user?.name}</strong>
-          {user?.email ? ` (${user.email})` : ''}
+          Viewing as <strong>{user?.organization?.name || user?.name}</strong>
+          {user?.organization?.name && user?.name ? ` (${user.name})` : user?.email ? ` (${user.email})` : ''}
           {impersonation.adminName ? ` — signed in from ${impersonation.adminName}` : ''}
         </span>
         <button
@@ -574,6 +574,9 @@ export default function Topbar({ title, onMenuClick }) {
               {/* User Header */}
               <div className="px-4 py-3 border-b border-surface-100 dark:border-surface-800">
                 <p className="text-xs font-bold text-surface-800 dark:text-surface-200 leading-none">{user?.name}</p>
+                {user?.organization?.name && (
+                  <p className="text-[10px] font-semibold text-info-600 mt-1 truncate">{user.organization.name}</p>
+                )}
                 <p className="text-[10px] text-surface-400 mt-1 truncate">{user?.email}</p>
               </div>
               {/* Menu items */}

@@ -225,7 +225,7 @@ export default function AdminOrganizations() {
     setLoggingInId(row.id)
     try {
       const session = await impersonateOrganization(row.id)
-      showToast(`Logged in as ${session.name}`, 'success')
+      showToast(`Logged in as ${row.name}`, 'success')
       navigate(`/${session.role}`)
     } catch (e) {
       showToast(e.message || 'Login failed', 'error')

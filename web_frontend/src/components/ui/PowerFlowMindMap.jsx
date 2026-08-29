@@ -169,6 +169,18 @@ export default function PowerFlowMindMap({
     commitSources(localSources.filter((s) => s.id !== key))
   }
 
+  function deleteSourceFromModal() {
+    if (!sourceModal || sourceModal === 'create') return
+    const target = sourceModal
+    const type = target.type || target.id
+    if (['grid', 'solar', 'generator'].includes(type)) {
+      commitSources(localSources.filter((s) => s.type !== type && s.id !== type))
+    } else {
+      deleteCustomSource(target.id)
+    }
+    closeSourceModal()
+  }
+
   const load = totalLoadKw != null && Number.isFinite(Number(totalLoadKw))
     ? Number(totalLoadKw)
     : localSources.reduce((sum, s) => sum + (Number(s.valueKw) || 0), 0)
@@ -496,6 +508,15 @@ export default function PowerFlowMindMap({
         title={sourceModal === 'create' ? 'Add Power Source' : 'Edit Power Source'}
         footer={
           <>
+            {sourceModal !== 'create' && sourceModal && (
+              <button
+                type="button"
+                className="btn-danger mr-auto"
+                onClick={deleteSourceFromModal}
+              >
+                Delete Source
+              </button>
+            )}
             <button type="button" className="btn-secondary" onClick={closeSourceModal}>Cancel</button>
             <button
               type="button"

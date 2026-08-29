@@ -5,11 +5,12 @@ import { mapDevice, mapOrganization } from '../../utils/mappers'
 import {
   readDeviceMetric,
   computeDynamicKpis,
-  listDeviceMetricEntries,
   isOffline,
   isSwitchOff,
   unitForVariable,
 } from '../../utils/deviceMetrics'
+import DeviceSlaveMetricsPanel from '../shared/DeviceSlaveMetricsPanel'
+import { formatTileValue } from '../shared/dashboardFormatters'
 import DrillDownModal from '../ui/DrillDownModal'
 import { useToast } from '../../context/ToastContext'
 import { onSocketEvent, isSocketEnabled } from '../../services/socketService'
@@ -30,13 +31,6 @@ function highlightMatch(text, search) {
       )}
     </span>
   )
-}
-
-function formatTileValue(value, name) {
-  if (!Number.isFinite(value)) return '—'
-  if (/powerfactor|\bpf\b/i.test(String(name))) return value.toFixed(2)
-  if (Math.abs(value) >= 1000) return value.toFixed(0)
-  return value.toFixed(1)
 }
 
 /**
@@ -440,7 +434,6 @@ export default function DashboardTelemetry({
               filteredDevices.map((d) => {
                 const offline = isOffline(d)
                 const switchOff = isSwitchOff(d)
-                const tiles = switchOff ? [] : listDeviceMetricEntries(d, { limit: 24 })
                 return (
                   <div key={d.id} className="p-4 bg-surface-50/50 dark:bg-surface-900/40 rounded-xl border border-surface-200 dark:border-surface-800 space-y-3 hover:border-primary-300 dark:hover:border-primary-800 transition-all duration-200">
                     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-surface-100 dark:border-surface-800/80 pb-2.5">
@@ -472,35 +465,11 @@ export default function DashboardTelemetry({
                       </div>
                     </div>
 
-                    {switchOff ? (
-                      <p className="text-[11px] text-surface-500 py-3 text-center">
-                        Switch is off — live telemetry hidden for this device.
-                      </p>
-                    ) : tiles.length === 0 ? (
-                      <p className="text-[11px] text-surface-500 py-3 text-center">
-                        Waiting for first reading from this device’s variables…
-                      </p>
-                    ) : (
-                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-                        {tiles.map(({ name, value, unit }) => (
-                          <div key={name} className="p-3 bg-white dark:bg-surface-900 rounded-lg border border-surface-200 dark:border-surface-800/80 flex flex-col justify-between min-h-[5.5rem] hover:border-primary-300 dark:hover:border-primary-800 transition-all duration-200">
-                            <div className="flex justify-between items-start text-surface-400 gap-1">
-                              <span className="text-[10px] font-black uppercase tracking-wide truncate" title={name}>{name}</span>
-                              <Zap size={13} className={offline ? 'text-surface-400' : 'text-primary-500'} />
-                            </div>
-                            <div className="mt-1">
-                              <span className="device-metric-value text-base font-black leading-none">
-                                {formatTileValue(value, name)}
-                              </span>
-                              {unit ? <span className="text-[10px] text-surface-400 font-semibold ml-1">{unit}</span> : null}
-                            </div>
-                            <div className="text-[9px] text-surface-400/80 mt-1 truncate border-t border-surface-100 dark:border-surface-800/40 pt-1.5 font-bold uppercase tracking-widest">
-                              {offline ? 'last reading · ' : ''}for {d.name}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                    <DeviceSlaveMetricsPanel
+                      deviceId={d.id}
+                      switchOn={!switchOff}
+                      compact
+                    />
                   </div>
                 )
               })

@@ -171,6 +171,11 @@ export default function Sidebar({ navItems, role, mobileOpen = false, onMobileCl
               <p className="text-xs font-semibold text-surface-200 truncate leading-tight">
                 {user?.name ?? 'Guest User'}
               </p>
+              {user?.organization?.name && (
+                <p className="text-[10px] font-semibold text-info-400 truncate leading-tight mt-0.5">
+                  {user.organization.name}
+                </p>
+              )}
               <p className={`text-[10px] font-bold uppercase tracking-wider mt-0.5 ${roleColors[role]}`}>
                 {roleLabels[role]}
               </p>

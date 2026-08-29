@@ -78,9 +78,10 @@ export function listDeviceMetricEntries(device, { limit = 24, includeEmpty = tru
     const value = parseMetricRaw(raw)
     if (!includeEmpty && !Number.isFinite(value)) continue
     const unitFromMeta = raw && typeof raw === 'object' ? (raw.unit || '') : ''
+    const displayLabel = raw && typeof raw === 'object' ? (raw.displayName || '') : ''
     entries.push({
       name,
-      label: name,
+      label: displayLabel || name,
       value: Number.isFinite(value) ? value : NaN,
       unit: unitFromMeta || unitForVariable(name),
     })

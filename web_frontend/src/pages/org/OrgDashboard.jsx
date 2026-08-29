@@ -47,6 +47,8 @@ export default function OrgDashboard() {
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [deleting, setDeleting] = useState(false)
   const [energy, setEnergy] = useState(null)
+  const [kpiScope, setKpiScope] = useState({ deviceId: null, device: null })
+  const isDeviceKpiScoped = Boolean(kpiScope.deviceId)
 
   const { data: stats, loading, error, reload } = useFetch(async () => {
     const orgStats = await fetchOrgStats()
@@ -503,6 +505,7 @@ export default function OrgDashboard() {
             allDevicesLabel="All Organization Devices"
             powerKpiLabel="Total Power Consumption"
             emptyGroupsHint="No devices found for this organization."
+            onScopeChange={setKpiScope}
           />
 
           {/* 3. Stat cards */}
@@ -513,6 +516,9 @@ export default function OrgDashboard() {
             <StatCard label="Monthly Energy" value={monthlyEnergy} icon={Zap} color="info" />
           </div>
 
+          {/* 4–6. Org-wide history charts — hidden when a single device is selected in KPI filter */}
+          {!isDeviceKpiScoped && (
+          <>
           {/* 4. Power Sources — Last 24 Hours (linked sources only) */}
           <div className="card p-5">
             <h3 className="text-sm font-bold text-surface-900 dark:text-surface-100 leading-none">Power Sources — Last 24 Hours</h3>
@@ -648,6 +654,8 @@ export default function OrgDashboard() {
               </ResponsiveContainer>
             )}
           </div>
+          </>
+          )}
 
           {/* 7. Device Telemetry (org-wide list + search; KPI device filter is separate) */}
           <DashboardTelemetry
@@ -704,6 +712,19 @@ export default function OrgDashboard() {
             title="Edit Device Group"
             footer={
               <>
+                <button
+                  type="button"
+                  className="btn-danger mr-auto"
+                  onClick={() => {
+                    const g = groupLoads.find((x) => x.id === editGroupId)
+                    if (g) {
+                      closeEditGroup()
+                      setDeleteTarget(g)
+                    }
+                  }}
+                >
+                  Delete Group
+                </button>
                 <button type="button" className="btn-secondary" onClick={closeEditGroup}>Cancel</button>
                 <button
                   type="button"

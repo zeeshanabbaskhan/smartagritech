@@ -9,7 +9,7 @@ import { useToast } from '../../context/ToastContext'
 import emsApi, { list, one } from '../../api/emsApi'
 import { mapDevice, mapScheduledTask, mapUser } from '../../utils/mappers'
 import { subscribeDevice } from '../../services/socketService'
-import { latestToReadings } from '../../utils/sensorReadings'
+import DeviceSlaveMetricsPanel from '../../components/shared/DeviceSlaveMetricsPanel'
 
 const TABS = ['Overview', 'Metrics', 'Schedule', 'Users']
 
@@ -22,7 +22,6 @@ export default function DeviceDetailPage({ basePath }) {
   const [tab, setTab] = useState('Overview')
   const [device, setDevice] = useState(null)
   const [summary, setSummary] = useState(null)
-  const [latest, setLatest] = useState({})
   const [tasks, setTasks] = useState([])
   const [deviceUsers, setDeviceUsers] = useState([])
   const [orgUsers, setOrgUsers] = useState([])
@@ -36,17 +35,15 @@ export default function DeviceDetailPage({ basePath }) {
     setError(null)
     subscribeDevice(deviceId)
     try {
-      const [devRes, summaryRes, latestRes, tasksRes, duRes, usersRes] = await Promise.all([
+      const [devRes, summaryRes, tasksRes, duRes, usersRes] = await Promise.all([
         emsApi.getDevice(deviceId),
         emsApi.getDashboardSummary({ deviceId, timeRange: '24h' }).catch(() => null),
-        emsApi.getLatestReadings({ deviceId }).catch(() => null),
         emsApi.getScheduledTasks({ limit: 100 }).catch(() => ({ data: [] })),
         emsApi.getDeviceUsers(deviceId).catch(() => ({ data: [] })),
         canManage ? emsApi.getUsers({ limit: 100, role: 'USER' }).catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
       ])
       setDevice(mapDevice(one(devRes)))
       setSummary(summaryRes?.data ?? null)
-      setLatest(one(latestRes) ?? {})
       setTasks(list(tasksRes).filter((t) => t.deviceId === deviceId).map(mapScheduledTask))
       setDeviceUsers(list(duRes).map((u) => mapUser(u)))
       setOrgUsers(list(usersRes).map((u) => mapUser(u)))
@@ -92,8 +89,6 @@ export default function DeviceDetailPage({ basePath }) {
       showToast(e.message || 'Remove failed', 'error')
     }
   }
-
-  const readings = latestToReadings({ data: latest })
 
   return (
     <PageState loading={loading} error={error} onRetry={load}>
@@ -152,37 +147,13 @@ export default function DeviceDetailPage({ basePath }) {
               </div>
               <div className="card p-5">
                 <h3 className="text-sm font-bold mb-3">Latest Readings</h3>
-                {!device.switchOn ? (
-                  <p className="text-xs text-surface-500">Switch is off — live telemetry is hidden for this device.</p>
-                ) : readings.length ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {readings.slice(0, 6).map((r) => (
-                      <div key={r.variableName} className="bg-surface-50 dark:bg-surface-950 rounded-lg p-3">
-                        <p className="text-[10px] text-surface-400 uppercase">{r.variableName}</p>
-                        <p className="text-lg font-bold">{r.value ?? '—'} <span className="text-xs text-surface-400">{r.unit}</span></p>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-xs text-surface-500">No readings yet. Send data to this device to see its variables here.</p>
-                )}
+                <DeviceSlaveMetricsPanel deviceId={deviceId} switchOn={device.switchOn} compact />
               </div>
             </div>
           )}
 
           {tab === 'Metrics' && (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-              {!device.switchOn ? (
-                <div className="col-span-full card p-8 text-center text-sm text-surface-500">Switch is off — live telemetry is hidden</div>
-              ) : readings.length ? readings.map((r) => (
-                <div key={r.variableName} className="card p-4">
-                  <p className="text-[10px] font-bold text-surface-400 uppercase">{r.variableName}</p>
-                  <p className="text-lg font-bold mt-1">{r.value} <span className="text-xs text-surface-400">{r.unit}</span></p>
-                </div>
-              )) : (
-                <div className="col-span-full card p-8 text-center text-sm text-surface-500">No live readings yet</div>
-              )}
-            </div>
+            <DeviceSlaveMetricsPanel deviceId={deviceId} switchOn={device.switchOn} />
           )}
 
           {tab === 'Schedule' && (

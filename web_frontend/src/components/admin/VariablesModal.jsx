@@ -531,10 +531,11 @@ function AddVariableModal({ value, isEdit, onChange, onClose, onSubmit, busy, re
             <select className="select w-56" value={value.registerFuncCode} onChange={(e) => set({ registerFuncCode: e.target.value })}>
               {REGISTER_FUNCTIONS.map((f) => <option key={f} value={f}>{f}</option>)}
             </select>
-            <input type="text" className="input w-32" placeholder="Address" value={value.registerAddress}
+            <input type="text" className="input w-32" placeholder="40097" value={value.registerAddress}
               onChange={(e) => set({ registerAddress: e.target.value.replace(/[^0-9]/g, '') })} />
             <span className="text-xs text-surface-400 font-mono">{registerDisplay}</span>
           </div>
+          <p className="text-[10px] text-surface-500">Must match the MQTT JSON register key exactly (e.g. 40097, not 97).</p>
         </div>
         <SelectInput label="Data Format" required
           value={value.dataFormat} onChange={(e) => set({ dataFormat: e.target.value })}
