@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import emsApi, { list } from '../../api/emsApi'
 import { latestToReadings } from '../../utils/sensorReadings'
 import { formatTileValue } from './dashboardFormatters'
+import { onSocketEvent, subscribeDevice, isSocketEnabled } from '../../services/socketService'
 
 function pickDefaultSlaveId(slaveList) {
   if (!slaveList?.length) return null
@@ -127,6 +128,17 @@ export default function DeviceSlaveMetricsPanel({
   useEffect(() => {
     if (activeSlaveId) loadSlaveData(activeSlaveId)
   }, [activeSlaveId, loadSlaveData])
+
+  useEffect(() => {
+    if (!deviceId) return undefined
+    subscribeDevice(deviceId)
+    if (!isSocketEnabled()) return undefined
+    return onSocketEvent((event, data) => {
+      if (event === 'reading:new' && data?.deviceId === deviceId && activeSlaveId) {
+        loadSlaveData(activeSlaveId)
+      }
+    })
+  }, [deviceId, activeSlaveId, loadSlaveData])
 
   const activeSlave = useMemo(
     () => slaves.find((s) => s.id === activeSlaveId),
