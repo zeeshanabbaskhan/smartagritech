@@ -1,11 +1,28 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import emsApi, { list } from '../../api/emsApi'
 import { latestToReadings } from '../../utils/sensorReadings'
-import { formatTileValue } from './dashboardFormatters'
+import { formatMetricValue } from './dashboardFormatters'
 import { onSocketEvent, subscribeDevice, isSocketEnabled } from '../../services/socketService'
+
+/** Legacy cfsmartems.com default slave tab (not first-created slave). */
+const LEGACY_DEFAULT_SLAVE_NAMES = [
+  'Main',
+  'FicoInverter',
+  'MainIncomingCF',
+  'MainIncoming',
+  'Smart',
+  'MainBreaker',
+  'SupraFurnace',
+  'ACBreaker',
+  'EMS PANEL',
+]
 
 function pickDefaultSlaveId(slaveList) {
   if (!slaveList?.length) return null
+  for (const preferred of LEGACY_DEFAULT_SLAVE_NAMES) {
+    const hit = slaveList.find((s) => (s.name ?? s.displayName) === preferred)
+    if (hit?.id) return hit.id
+  }
   return slaveList[0]?.id ?? null
 }
 
@@ -52,26 +69,32 @@ export default function DeviceSlaveMetricsPanel({
   switchOn = true,
   compact = false,
   className = '',
+  /** When false, parent drives refresh via refreshToken (avoids N socket listeners in fleet view). */
+  liveRefresh = true,
+  refreshToken = 0,
 }) {
   const [slaves, setSlaves] = useState([])
   const [activeSlaveId, setActiveSlaveId] = useState(null)
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
+  const socketTimerRef = useRef(null)
 
-  const loadSlaveData = useCallback(async (slaveId) => {
+  const loadSlaveData = useCallback(async (slaveId, { silent = false } = {}) => {
     if (!deviceId || !slaveId) {
       setRows([])
       return
     }
-    setLoading(true)
+    if (!silent) setLoading(true)
     try {
       const [varsRes, latestRes] = await Promise.all([
-        emsApi.getDeviceVariables(deviceId, slaveId),
+        emsApi.getDeviceVariables(deviceId, slaveId, { limit: 200 }),
         emsApi.getLatestReadings({ deviceId, slaveId }).catch(() => null),
       ])
       const vars = list(varsRes)
+      const latestReadings = latestToReadings(latestRes ?? {})
+      const hasLiveBatch = latestReadings.length > 0
       const latestMap = Object.fromEntries(
-        latestToReadings(latestRes ?? {}).map((r) => [r.variableName, r]),
+        latestReadings.map((r) => [r.variableName, r]),
       )
       const merged = vars.map((v) => {
         const key = v.name ?? v.variableName
@@ -83,16 +106,17 @@ export default function DeviceSlaveMetricsPanel({
           displayName: v.displayName ?? '',
           registerAddress: reg,
           unit: live?.unit ?? v.unit ?? '',
-          value: live?.value ?? v.currentValue ?? null,
+          value: live?.displayValue ?? live?.value ?? (hasLiveBatch ? null : v.displayValue ?? v.currentValue ?? null),
+          rawValue: live?.value ?? (hasLiveBatch ? null : v.currentValue ?? null),
           lastUpdatedAt: live?.lastUpdatedAt ?? v.lastUpdatedAt ?? null,
         }
       })
       merged.sort(sortLegacy)
       setRows(merged)
     } catch {
-      setRows([])
+      if (!silent) setRows([])
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [deviceId])
 
@@ -130,15 +154,27 @@ export default function DeviceSlaveMetricsPanel({
   }, [activeSlaveId, loadSlaveData])
 
   useEffect(() => {
-    if (!deviceId) return undefined
+    if (!liveRefresh && activeSlaveId && refreshToken > 0) {
+      loadSlaveData(activeSlaveId, { silent: true })
+    }
+  }, [refreshToken, liveRefresh, activeSlaveId, loadSlaveData])
+
+  useEffect(() => {
+    if (!liveRefresh || !deviceId) return undefined
     subscribeDevice(deviceId)
     if (!isSocketEnabled()) return undefined
     return onSocketEvent((event, data) => {
-      if (event === 'reading:new' && data?.deviceId === deviceId && activeSlaveId) {
-        loadSlaveData(activeSlaveId)
-      }
+      if (event !== 'reading:new' || data?.deviceId !== deviceId || !activeSlaveId) return
+      if (socketTimerRef.current) clearTimeout(socketTimerRef.current)
+      socketTimerRef.current = setTimeout(() => {
+        loadSlaveData(activeSlaveId, { silent: true })
+      }, 1500)
     })
-  }, [deviceId, activeSlaveId, loadSlaveData])
+  }, [deviceId, activeSlaveId, loadSlaveData, liveRefresh])
+
+  useEffect(() => () => {
+    if (socketTimerRef.current) clearTimeout(socketTimerRef.current)
+  }, [])
 
   const activeSlave = useMemo(
     () => slaves.find((s) => s.id === activeSlaveId),
@@ -209,7 +245,7 @@ export default function DeviceSlaveMetricsPanel({
                 <p className="text-[10px] text-surface-400 font-mono mt-0.5">Reg {r.registerAddress}</p>
               ) : null}
               <p className="text-lg font-bold mt-1">
-                  {formatTileValue(parseFloat(r.value), r.name, r.unit)}
+                  {formatMetricValue(r.rawValue, r.value, r.name, r.unit)}
                 {r.unit ? <span className="text-xs font-normal text-surface-400 ml-1">{r.unit}</span> : null}
               </p>
             </div>
@@ -235,7 +271,9 @@ export default function DeviceSlaveMetricsPanel({
                     {labelFor(r)}
                   </td>
                   <td className="px-4 py-2.5 font-bold">
-                    {r.value != null && r.value !== '' ? formatTileValue(parseFloat(r.value), r.name) : '—'}
+                    {r.value != null && r.value !== ''
+                      ? formatMetricValue(r.rawValue, r.value, r.name, r.unit)
+                      : '—'}
                   </td>
                   <td className="px-4 py-2.5 text-surface-500">{r.unit || '—'}</td>
                   <td className="px-4 py-2.5 text-surface-500 text-xs">

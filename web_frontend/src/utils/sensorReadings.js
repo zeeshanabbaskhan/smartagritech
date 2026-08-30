@@ -39,6 +39,7 @@ export function latestToReadings(res) {
     .map(([variableName, v]) => ({
       variableName,
       value: v.value,
+      displayValue: v.displayValue ?? null,
       unit: v.unit ?? '',
       lastUpdatedAt: v.lastUpdatedAt ?? null,
     }))

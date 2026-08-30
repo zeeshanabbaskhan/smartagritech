@@ -22,7 +22,7 @@ const UNIT_HINTS = [
 
 /**
  * Normalize instantaneous power readings to kW.
- * MQTT ActivePower registers are typically watts; classic EMS PowerConsumption is often already kW.
+ * Ingest formulas already scale ActivePower (=s/1000); do not divide again.
  */
 export function powerReadingToKw(variableName, value, unit = '') {
   const n = Number(value)
@@ -32,8 +32,12 @@ export function powerReadingToKw(variableName, value, unit = '') {
   if (u === 'w' || u === 'watt' || u === 'watts') return n / 1000
   const nm = String(variableName || '')
   if (/powerconsumption/i.test(nm) && !/active/i.test(nm)) return n
-  if (/activepower|^power$|totalactivepower|exportpower|solarpower/i.test(nm)) return n / 1000
-  if (Math.abs(n) >= 200) return n / 1000
+  if (/activepower|^power$|totalactivepower|exportpower|solarpower/i.test(nm)) {
+    // Backend formulas store kW-scale values (typically < 10000); raw watts are much larger.
+    if (Math.abs(n) <= 10000) return n
+    return n / 1000
+  }
+  if (Math.abs(n) >= 200000) return n / 1000
   return n
 }
 
@@ -61,8 +65,14 @@ export const isTelemetryActive = (d) => !isSwitchOff(d) && !isOffline(d)
 
 function parseMetricRaw(raw) {
   if (raw == null || raw === '') return NaN
-  if (typeof raw === 'object' && raw !== null && 'value' in raw) {
-    return parseFloat(raw.value)
+  if (typeof raw === 'object' && raw !== null) {
+    if (raw.displayValue != null && raw.displayValue !== '') {
+      const d = parseFloat(raw.displayValue)
+      if (Number.isFinite(d)) return d
+    }
+    if ('value' in raw) {
+      return parseFloat(raw.value)
+    }
   }
   return parseFloat(raw)
 }

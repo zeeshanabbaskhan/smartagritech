@@ -2,8 +2,11 @@
 // Exposes the runtime config that was cloned from a template when the device
 // was provisioned: ConfigSlaves → ConfigVariables → ConfigVariableLogs.
 const prisma      = require('../config/database')
+const redis       = require('../config/redis')
 const { AppError } = require('../middleware/errorHandler')
 const { paginate, buildDateRange } = require('../utils/helpers')
+const { readLatestForSlave } = require('../utils/redisLatest')
+const { legacyDisplayString } = require('../utils/legacyDisplayValue')
 
 // @desc  Return the full nested config tree for a device
 //        (all slaves with their active variables)
@@ -42,18 +45,50 @@ const getConfigSlaves = async (req, res, next) => {
 // @access SUPER_ADMIN | ORG_ADMIN | USER
 const getConfigSlaveVariables = async (req, res, next) => {
   try {
-    const { page, limit, skip } = paginate(req.query)
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1)
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 200))
+    const skip = (page - 1) * limit
     const where = { deviceId: req.params.deviceId, deviceConfigSlaveId: req.params.configSlaveId, isActive: true }
 
-    const [data, total] = await Promise.all([
+    const [data, total, device] = await Promise.all([
       prisma.deviceConfigVariable.findMany({
         where, skip, take: limit,
         orderBy: { createdAt: 'asc' },
         include: { templateVariable: { select: { registerAddress: true } } },
       }),
       prisma.deviceConfigVariable.count({ where }),
+      prisma.device.findUnique({
+        where: { id: req.params.deviceId },
+        select: { lastDataReceivedAt: true },
+      }),
     ])
-    res.json({ success: true, data, total, page, pages: Math.ceil(total / limit) })
+
+    let hot = {}
+    if (redis.getClient()) {
+      try {
+        hot = await readLatestForSlave(req.params.deviceId, req.params.configSlaveId)
+      } catch (_) { /* Postgres fallback */ }
+    }
+    const freshAt = device?.lastDataReceivedAt ?? null
+    const enriched = data.map((v) => {
+      const meta = { name: v.name, displayName: v.displayName, unit: v.unit }
+      if (hot[v.name] == null || hot[v.name] === '') {
+        const n = Number(v.currentValue)
+        if (!Number.isFinite(n)) return v
+        const displayValue = legacyDisplayString(n, meta)
+        return displayValue != null ? { ...v, displayValue } : v
+      }
+      const n = Number(hot[v.name])
+      const displayValue = Number.isFinite(n) ? legacyDisplayString(n, meta) : null
+      return {
+        ...v,
+        currentValue: String(hot[v.name]),
+        displayValue,
+        lastUpdatedAt: freshAt ?? v.lastUpdatedAt,
+      }
+    })
+
+    res.json({ success: true, data: enriched, total, page, pages: Math.ceil(total / limit) })
   } catch (err) { next(err) }
 }
 

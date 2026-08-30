@@ -1,10 +1,9 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState } from 'react'
 import { RefreshCw } from 'lucide-react'
 import PageState, { useFetch } from '../../components/ui/PageState'
 import emsApi, { list } from '../../api/emsApi'
 import { mapOrganization, mapDevice } from '../../utils/mappers'
 import { useToast } from '../../context/ToastContext'
-import { onSocketEvent, subscribeDevice, isSocketEnabled } from '../../services/socketService'
 
 const METRIC_LABELS = {
   totalPowerConsumption: 'Active Power',
@@ -40,13 +39,17 @@ function summaryToRows(summary, timestamp) {
 }
 
 function latestToRows(latest, timestamp, idOffset = 0) {
-  return Object.entries(latest || {}).map(([name, info], idx) => ({
-    id: idOffset + idx + 1,
-    variable: name,
-    value: info?.value != null ? String(info.value) : '—',
-    unit: info?.unit ?? '',
-    time: info?.lastUpdatedAt ? new Date(info.lastUpdatedAt).toLocaleString() : new Date(timestamp).toLocaleString(),
-  }))
+  return Object.entries(latest || {}).map(([name, info], idx) => {
+    const raw = info?.value
+    const display = info?.displayValue != null ? String(info.displayValue) : (raw != null ? String(raw) : '—')
+    return {
+      id: idOffset + idx + 1,
+      variable: info?.displayName || name,
+      value: display,
+      unit: info?.unit ?? '',
+      time: info?.lastUpdatedAt ? new Date(info.lastUpdatedAt).toLocaleString() : new Date(timestamp).toLocaleString(),
+    }
+  })
 }
 
 async function fetchDeviceLiveRows(deviceId) {
@@ -79,7 +82,6 @@ export default function AdminDataCenter() {
   const [liveData, setLiveData] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
-  const hasLoadedRef = useRef(false)
 
   const filteredDevices = orgFilter
     ? (filters?.devices ?? []).filter((d) => d.organizationId === orgFilter)
@@ -91,13 +93,12 @@ export default function AdminDataCenter() {
       ? `All devices in ${(filters?.organizations ?? []).find((o) => o.id === orgFilter)?.name || 'org'}`
       : 'All devices')
 
-  const handleRefresh = useCallback(async () => {
+  const handleRefresh = async () => {
     const targets = deviceFilter
       ? filteredDevices.filter((d) => d.id === deviceFilter)
       : filteredDevices
 
     if (!targets.length) {
-      if (hasLoadedRef.current) return
       showToast(orgFilter ? 'No devices found for this organization' : 'No devices available', 'warning')
       return
     }
@@ -120,35 +121,14 @@ export default function AdminDataCenter() {
         }))
         const merged = batches.flat().map((r, idx) => ({ ...r, id: idx + 1 }))
         setLiveData(merged)
-        if (!merged.length && !hasLoadedRef.current) showToast('No live readings returned for selected devices', 'warning')
+        if (!merged.length) showToast('No live readings returned for selected devices', 'warning')
       }
-      hasLoadedRef.current = true
     } catch (e) {
       setError(e.message || 'Failed to load live data')
     } finally {
       setLoading(false)
     }
-  }, [deviceFilter, filteredDevices, orgFilter, showToast])
-
-  useEffect(() => {
-    hasLoadedRef.current = false
-    setLiveData([])
-  }, [orgFilter, deviceFilter])
-
-  useEffect(() => {
-    if (!deviceFilter) return undefined
-    subscribeDevice(deviceFilter)
-    handleRefresh()
-    const interval = setInterval(handleRefresh, 15000)
-    return () => clearInterval(interval)
-  }, [deviceFilter, handleRefresh])
-
-  useEffect(() => {
-    if (!isSocketEnabled() || !deviceFilter) return undefined
-    return onSocketEvent((event, data) => {
-      if (event === 'reading:new' && data?.deviceId === deviceFilter) handleRefresh()
-    })
-  }, [deviceFilter, handleRefresh])
+  }
 
   return (
     <PageState loading={filtersLoading} error={filtersError} onRetry={reloadFilters}>

@@ -8,6 +8,9 @@ const prisma = require('../config/database')
 const SLAVE_NAME_PRIORITY = [
   'ficoinverter',
   'main',
+  'mainbreaker',
+  'mainincomingcf',
+  'mainincoming',
   'invertermain',
   'smart',
   'suprafurnace',

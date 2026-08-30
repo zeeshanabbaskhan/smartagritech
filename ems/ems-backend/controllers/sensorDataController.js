@@ -9,6 +9,7 @@ const { bucketVariable, sumVariable, periodEnergyKwh } = require('../utils/senso
 const { cached } = require('../utils/responseCache')
 const { assertDeviceAccess } = require('../utils/deviceAccess')
 const { readLatest } = require('../utils/redisLatest')
+const { legacyDisplayValue } = require('../utils/legacyDisplayValue')
 const {
   PREFERRED_METRIC_COLUMNS,
   IDENTITY_COLUMNS,
@@ -118,7 +119,7 @@ const getLatest = async (req, res, next) => {
           if (slaveId) where.deviceConfigSlaveId = slaveId
           const vars = await prisma.deviceConfigVariable.findMany({
             where,
-            select: { name: true, unit: true, lastUpdatedAt: true },
+            select: { name: true, unit: true, displayName: true, lastUpdatedAt: true },
           })
           const meta = Object.fromEntries(vars.map((v) => [v.name, v]))
           const freshAt = device.lastDataReceivedAt ?? null
@@ -126,8 +127,15 @@ const getLatest = async (req, res, next) => {
           // Intersect Redis hot keys with config vars for this slave (or primary slave when no slaveId).
           for (const [name, metaRow] of Object.entries(meta)) {
             if (!(name in hot)) continue
+            const num = Number(hot[name])
+            const displayMeta = {
+              name,
+              displayName: metaRow?.displayName,
+              unit: metaRow?.unit,
+            }
             data[name] = {
               value:         hot[name],
+              displayValue:  Number.isFinite(num) ? legacyDisplayValue(num, displayMeta) : null,
               unit:          metaRow?.unit ?? null,
               lastUpdatedAt: freshAt ?? metaRow?.lastUpdatedAt ?? null,
             }
@@ -145,11 +153,20 @@ const getLatest = async (req, res, next) => {
 
     const vars = await prisma.deviceConfigVariable.findMany({
       where,
-      select: { name: true, currentValue: true, unit: true, lastUpdatedAt: true },
+      select: { name: true, currentValue: true, unit: true, displayName: true, lastUpdatedAt: true },
     })
 
     const data = {}
-    for (const v of vars) data[v.name] = { value: v.currentValue, unit: v.unit, lastUpdatedAt: v.lastUpdatedAt }
+    for (const v of vars) {
+      const num = Number(v.currentValue)
+      const displayMeta = { name: v.name, displayName: v.displayName, unit: v.unit }
+      data[v.name] = {
+        value: v.currentValue,
+        displayValue: Number.isFinite(num) ? legacyDisplayValue(num, displayMeta) : null,
+        unit: v.unit,
+        lastUpdatedAt: v.lastUpdatedAt,
+      }
+    }
 
     res.json({ success: true, data, timestamp: device.lastDataReceivedAt ?? null })
   } catch (err) { next(err) }
@@ -273,7 +290,7 @@ const buildDashboardSummary = async (deviceId, slaveId, timeRange) => {
     'PowerFactor', 'THD_V', 'THD_I', 'Frequency', 'Energy',
   ]
 
-  const [charts, totalPower, totalActive, totalExport, latestVars] = await Promise.all([
+  const [charts, totalPower, totalActive, totalExport, latestVars, hotLatest] = await Promise.all([
     Promise.all(metricNames.map(async (name) => [
       name,
       await bucketVariable(prisma, { ...base, variableName: name, bucketMs }),
@@ -285,10 +302,15 @@ const buildDashboardSummary = async (deviceId, slaveId, timeRange) => {
       where:  { deviceId, isActive: true, ...(slaveId ? { deviceConfigSlaveId: slaveId } : {}) },
       select: { name: true, currentValue: true },
     }),
+    readLatest(deviceId, slaveId || null).catch(() => ({})),
   ])
 
   const chartMap = Object.fromEntries(charts)
-  const latest   = Object.fromEntries(latestVars.map((v) => [v.name, v.currentValue]))
+  const latest = Object.fromEntries(latestVars.map((v) => {
+    const live = hotLatest?.[v.name]
+    const val = live != null && live !== '' ? live : v.currentValue
+    return [v.name, val]
+  }))
   const latestNum = (name) => {
     const v = latest[name]
     return v != null && v !== '' ? parseFloat(v) : null

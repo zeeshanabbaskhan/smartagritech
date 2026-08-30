@@ -8,6 +8,7 @@ const { hashKey, generateDeviceIngestKey } = require('../utils/ingestAuth')
 const { isDeleteQueueEnabled, enqueueDeviceDelete } = require('../workers/jobQueues')
 const refCache = require('../utils/referenceCache')
 const { readLatestMerged } = require('../utils/redisLatest')
+const { legacyDisplayValue } = require('../utils/legacyDisplayValue')
 
 // Creating / deleting a device changes the owning template's cached devices
 // count in the templates list — clear both viewer-org buckets so it stays right.
@@ -49,16 +50,16 @@ const attachLatestMetrics = async (devices) => {
     for (const v of vars) {
       if (!v?.name) continue
       const redisVal = hot[v.name]
-      const value = redisVal != null && redisVal !== '' ? redisVal : v.currentValue
+      const raw = redisVal != null && redisVal !== '' ? redisVal : v.currentValue
+      const num = raw != null && raw !== '' ? Number(raw) : NaN
+      const meta = { name: v.name, displayName: v.displayName, unit: v.unit }
+      const displayValue = Number.isFinite(num) ? legacyDisplayValue(num, meta) : null
       latestMetrics[v.name] = {
-        value: value ?? null,
+        value: raw ?? null,
+        displayValue,
         unit: v.unit ?? null,
         displayName: v.displayName || v.name,
       }
-    }
-    for (const [name, value] of Object.entries(hot || {})) {
-      if (latestMetrics[name]) continue
-      latestMetrics[name] = { value, unit: null }
     }
     enriched.push({ ...d, latestMetrics })
   }

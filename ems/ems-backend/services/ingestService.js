@@ -17,7 +17,7 @@ const enqueueAnomaly = (payload) => {
   }
 }
 
-const EMIT_DEBOUNCE_MS = 1000
+const EMIT_DEBOUNCE_MS = 300
 const lastEmitByDevice = new Map()
 const skipPgCurrentValue = () =>
   redis.isEnabled() && process.env.SKIP_PG_CURRENT_VALUE !== 'false'

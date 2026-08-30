@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { Zap, Activity, Gauge, TrendingUp, Radio, Search, ChevronRight, Cpu } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
 import { mapDevice, mapOrganization } from '../../utils/mappers'
@@ -16,6 +16,18 @@ import { useToast } from '../../context/ToastContext'
 import { onSocketEvent, isSocketEnabled } from '../../services/socketService'
 import { resolveBrandPrimary } from '../../utils/branding'
 
+/** Debounce helper — coalesce rapid socket/poll bursts into one callback. */
+function useDebouncedCallback(fn, delayMs) {
+  const fnRef = useRef(fn)
+  const timerRef = useRef(null)
+  fnRef.current = fn
+  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current) }, [])
+  return useCallback((...args) => {
+    if (timerRef.current) clearTimeout(timerRef.current)
+    timerRef.current = setTimeout(() => fnRef.current(...args), delayMs)
+  }, [delayMs])
+}
+const KPI_REFRESH_DEBOUNCE_MS = 400
 const KPI_ICONS = [Zap, Activity, Gauge, TrendingUp]
 const kpiColors = () => [resolveBrandPrimary(), '#3B82F6', '#22C55E', '#8B5CF6']
 
@@ -55,6 +67,7 @@ export default function DashboardTelemetry({
   const [devices, setDevices] = useState([])
   const [groups, setGroups] = useState([])
   const [organizations, setOrganizations] = useState([])
+  const [metricsRefreshToken, setMetricsRefreshToken] = useState(0)
   const [groupFilter, setGroupFilter] = useState('all')
   const [drillMetric, setDrillMetric] = useState(null)
   const [deviceSearch, setDeviceSearch] = useState('')
@@ -68,17 +81,22 @@ export default function DashboardTelemetry({
   const isOrgMode = filterMode === 'org'
   const isDeviceMode = filterMode === 'device'
 
-  const loadDevices = () => {
+  const loadDevices = useCallback(() => {
     emsApi.getDevices({ limit: 100, withMetrics: true })
-      .then((res) => setDevices(list(res).map(mapDevice)))
+      .then((res) => {
+        setDevices(list(res).map(mapDevice))
+        setMetricsRefreshToken((t) => t + 1)
+      })
       .catch(() => {})
-  }
+  }, [])
+
+  const debouncedLoadDevices = useDebouncedCallback(loadDevices, KPI_REFRESH_DEBOUNCE_MS)
 
   useEffect(() => {
     loadDevices()
-    const interval = setInterval(loadDevices, 15000)
+    const interval = setInterval(loadDevices, 5000)
     return () => clearInterval(interval)
-  }, [])
+  }, [loadDevices])
 
   useEffect(() => {
     if (!isSocketEnabled()) return undefined
@@ -108,9 +126,12 @@ export default function DashboardTelemetry({
           }
         }))
       }
-      if (event === 'reading:new') loadDevices()
+      if (event === 'reading:new') {
+        setMetricsRefreshToken((t) => t + 1)
+        debouncedLoadDevices()
+      }
     })
-  }, [])
+  }, [debouncedLoadDevices])
 
   useEffect(() => {
     if (!showAccessFilter) return
@@ -469,6 +490,8 @@ export default function DashboardTelemetry({
                       deviceId={d.id}
                       switchOn={!switchOff}
                       compact
+                      liveRefresh={false}
+                      refreshToken={metricsRefreshToken}
                     />
                   </div>
                 )
