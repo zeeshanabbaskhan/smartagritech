@@ -205,34 +205,45 @@ const mapReadings = (device, slaveName, registers) => {
 
     const varLower = mapped.variableName.toLowerCase().replace(/[\s_-]+/g, '')
 
-    // Auto-scale raw voltage integer (e.g. 2356024 -> 235.6024 V)
-    if (varLower.includes('voltage') && num > 100000) {
-      num = parseFloat((num / 10000).toFixed(4))
+    // Auto-scale Voltage to standard ~100V-500V range
+    if (varLower.includes('voltage')) {
+      if (num > 100000) num = num / 10000
+      else if (num > 1000) num = num / 10
+      else if (num > 0.05 && num < 5) num = num * 1000
+      num = parseFloat(num.toFixed(2))
     }
 
-    // Auto-scale raw frequency integer (e.g. 4997 -> 49.97 Hz)
-    if (varLower.includes('frequency') && num > 1000) {
-      num = parseFloat((num / 100).toFixed(2))
+    // Auto-scale Frequency to ~45Hz-65Hz
+    if (varLower.includes('frequency')) {
+      if (num > 1000) num = num / 100
+      else if (num > 0.3 && num < 1.0) num = num * 100
+      num = parseFloat(num.toFixed(2))
     }
 
-    // Auto-scale raw power factor integer (e.g. 556 -> 0.556, 1000 -> 1.0)
-    if ((varLower.includes('powerfactor') || varLower === 'pf') && num > 10) {
-      num = parseFloat((num / 1000).toFixed(3))
+    // Auto-scale Power Factor to 0.0 - 1.0
+    if (varLower.includes('powerfactor') || varLower === 'pf') {
+      if (num > 10) num = num / 1000
+      else if (num > 0.00001 && num < 0.01) num = num * 1000
+      num = parseFloat(num.toFixed(3))
     }
 
-    // Auto-scale raw current integer (e.g. 467520 -> 46.752 A)
-    if (varLower.startsWith('current') && num > 10000) {
-      num = parseFloat((num / 10000).toFixed(4))
+    // Auto-scale Current
+    if (varLower.startsWith('current')) {
+      if (num > 10000) num = num / 1000
+      else if (num > 0.0001 && num < 1.0) num = num * 1000
+      num = parseFloat(num.toFixed(2))
     }
 
-    // Auto-scale raw power integer (e.g. 160560 -> 160.56 kW)
-    if ((varLower.includes('power') || varLower.includes('apparent') || varLower.includes('reactive')) && !varLower.includes('powerfactor') && num > 10000) {
-      num = parseFloat((num / 1000).toFixed(4))
+    // Auto-scale Power
+    if ((varLower.includes('power') || varLower.includes('apparent') || varLower.includes('reactive')) && !varLower.includes('powerfactor')) {
+      if (num > 10000) num = num / 1000
+      num = parseFloat(num.toFixed(2))
     }
 
-    // Auto-scale raw energy / units integer (e.g. 2233760 -> 2233.76 kWh)
-    if ((varLower.includes('energy') || varLower.includes('units') || varLower.includes('kwh')) && num > 100000) {
-      num = parseFloat((num / 1000).toFixed(4))
+    // Auto-scale Energy / Units
+    if (varLower.includes('energy') || varLower.includes('units') || varLower.includes('kwh')) {
+      if (num > 100000) num = num / 1000
+      num = parseFloat(num.toFixed(2))
     }
 
     readings.push({
