@@ -209,21 +209,23 @@ const mapReadings = (device, slaveName, registers) => {
     if (varLower.includes('voltage')) {
       if (num > 100000) num = num / 10000
       else if (num > 1000) num = num / 10
-      else if (num > 0.05 && num < 5) num = num * 1000
+      else if (num > 0.00001 && num < 0.01) num = num * 100000
+      else if (num >= 0.01 && num < 10) num = num * 1000
       num = parseFloat(num.toFixed(2))
     }
 
     // Auto-scale Frequency to ~45Hz-65Hz
     if (varLower.includes('frequency')) {
       if (num > 1000) num = num / 100
-      else if (num > 0.3 && num < 1.0) num = num * 100
+      else if (num > 0.001 && num < 1.0) num = num * 100
       num = parseFloat(num.toFixed(2))
     }
 
     // Auto-scale Power Factor to 0.0 - 1.0
     if (varLower.includes('powerfactor') || varLower === 'pf') {
       if (num > 10) num = num / 1000
-      else if (num > 0.00001 && num < 0.01) num = num * 1000
+      else if (num > 0.000001 && num < 0.01) num = num * 1000
+      if (num > 1.0 && num <= 10.0) num = num / 10
       num = parseFloat(num.toFixed(3))
     }
 
