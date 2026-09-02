@@ -90,6 +90,16 @@ const buildDeviceMaps = (devices) => {
   return { devices, bySerial, byName }
 }
 
+const recentMsgHashes = new Map()
+const DEDUP_TTL_MS = 2000
+
+const cleanOldHashes = () => {
+  const now = Date.now()
+  for (const [hash, ts] of recentMsgHashes.entries()) {
+    if (now - ts > DEDUP_TTL_MS) recentMsgHashes.delete(hash)
+  }
+}
+
 /** Fallback when org-scoped map misses (e.g. device registered under another org). */
 const resolveDeviceGlobal = async (payload) => {
   const serial = payload.serial_number != null ? String(payload.serial_number).trim() : ''
@@ -97,8 +107,19 @@ const resolveDeviceGlobal = async (payload) => {
   if (!serial && !deviceName) return null
 
   const or = []
-  if (serial) or.push({ gateway: { serialNumber: serial } })
-  if (deviceName) or.push({ name: { equals: deviceName, mode: 'insensitive' } })
+  if (serial) {
+    or.push({ gateway: { serialNumber: serial } })
+    or.push({ gateway: { serialNumber: { contains: serial, mode: 'insensitive' } } })
+  }
+  if (deviceName) {
+    or.push({ name: { equals: deviceName, mode: 'insensitive' } })
+    // If device is named e.g. AMBITIONAPPAREL, match Ambition
+    const prefix = deviceName.replace(/apparel|plant|factory|hall|unit/i, '').trim()
+    if (prefix.length >= 3) {
+      or.push({ name: { contains: prefix, mode: 'insensitive' } })
+      or.push({ organization: { name: { contains: prefix, mode: 'insensitive' } } })
+    }
+  }
 
   const devices = await prisma.device.findMany({
     where: { OR: or },
@@ -117,12 +138,23 @@ const resolveDevice = (maps, payload) => {
     if (deviceName) {
       const named = list.find((d) => d.name.trim().toLowerCase() === deviceName)
       if (named) return named
+      const prefixed = list.find((d) => deviceName.startsWith(d.name.trim().toLowerCase()) || d.name.trim().toLowerCase().startsWith(deviceName))
+      if (prefixed) return prefixed
     }
     return list[0]
   }
 
   if (deviceName && maps.byName.has(deviceName)) {
     return maps.byName.get(deviceName)
+  }
+
+  // Prefix / partial fallback across known devices
+  if (deviceName) {
+    for (const [name, d] of maps.byName.entries()) {
+      if (deviceName.startsWith(name) || name.startsWith(deviceName)) {
+        return d
+      }
+    }
   }
 
   return null
@@ -143,23 +175,39 @@ const mapReadings = (device, slaveName, registers) => {
   const slave =
     device.configSlaves.find((s) => s.name.trim().toLowerCase() === slaveName.trim().toLowerCase()) ||
     (device.configSlaves.length === 1 ? device.configSlaves[0] : null) ||
-    device.configSlaves.find((s) => s.name.trim().toLowerCase() === 'main')
+    device.configSlaves.find((s) => s.name.trim().toLowerCase() === 'main') ||
+    device.configSlaves.find((s) => s.name.trim().toLowerCase() === 'incoming') ||
+    device.configSlaves[0]
 
   if (!slave) return null
 
   const byReg = new Map()
+  const byName = new Map()
   for (const v of slave.configVariables) {
     const reg = v.templateVariable?.registerAddress
-    if (!reg) continue
-    byReg.set(normalizeReg(reg), { variableName: v.name, unit: v.unit || '' })
+    if (reg) byReg.set(normalizeReg(reg), { variableName: v.name.trim(), unit: v.unit || '' })
+    byName.set(v.name.trim().toLowerCase().replace(/[\s_-]+/g, ''), { variableName: v.name.trim(), unit: v.unit || '' })
   }
 
   const readings = []
-  for (const [reg, raw] of Object.entries(registers)) {
-    const mapped = byReg.get(normalizeReg(reg))
+  for (const [regKey, raw] of Object.entries(registers)) {
+    let mapped = byReg.get(normalizeReg(regKey))
+    if (!mapped) {
+      mapped = byName.get(String(regKey).trim().toLowerCase().replace(/[\s_-]+/g, ''))
+    }
     if (!mapped) continue
-    const num = typeof raw === 'number' ? raw : Number(raw)
-    if (Number.isNaN(num)) continue
+
+    let num = typeof raw === 'number' ? raw : Number(raw)
+    if (!Number.isFinite(num)) continue
+
+    // Discard extreme corrupted float overflows (e.g. 2.94e+37)
+    if (Math.abs(num) > 1e8) continue
+
+    // Auto-scale raw voltage integer (e.g. 2356024 -> 235.6)
+    if (mapped.variableName.toLowerCase().includes('voltage') && num > 100000) {
+      num = parseFloat((num / 10000).toFixed(4))
+    }
+
     readings.push({
       variableName: mapped.variableName,
       value: num,
@@ -194,6 +242,13 @@ const handleMessage = async (bridgeId, organizationId, topic, buf) => {
     return
   }
 
+  // Deduplicate when multiple bridges subscribe to the same topic
+  cleanOldHashes()
+  const dedupKey = `${topic}:${payload.serial_number || ''}:${payload.device || ''}:${payload.timestamp || payload.time || ''}:${buf.length}`
+  if (recentMsgHashes.has(dedupKey)) {
+    return
+  }
+
   const maps = await loadDeviceMaps(organizationId)
   let device = resolveDevice(maps, payload)
   if (!device) device = await resolveDeviceGlobal(payload)
@@ -210,6 +265,8 @@ const handleMessage = async (bridgeId, organizationId, topic, buf) => {
     })
     return
   }
+
+  recentMsgHashes.set(dedupKey, Date.now())
 
   const blocks = slaveBlocks(payload)
   let ingested = 0

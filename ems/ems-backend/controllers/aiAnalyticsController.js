@@ -6,6 +6,18 @@ const { bucketVariable, sumVariable, periodEnergyKwh } = require('../utils/senso
 const { cached } = require('../utils/responseCache')
 const { assertDeviceAccess } = require('../utils/deviceAccess')
 
+const { getVariableAliases } = require('../utils/sensorAggregation')
+
+const mapCurrentVars = (allVars, targetNames) => {
+  const result = {}
+  for (const t of targetNames) {
+    const aliases = getVariableAliases(t)
+    const match = allVars.find((v) => aliases.includes(v.name.trim().toLowerCase().replace(/[\s_-]+/g, '')))
+    result[t] = match?.currentValue ?? null
+  }
+  return result
+}
+
 const buildVoltageAnalysis = async (deviceId, slaveId, timeRange) => {
   const startDate = new Date(Date.now() - (TIME_RANGE_MS[timeRange] || TIME_RANGE_MS['24h']))
   const bucketMs  = BUCKET_MS[timeRange] || BUCKET_MS['24h']
@@ -13,20 +25,20 @@ const buildVoltageAnalysis = async (deviceId, slaveId, timeRange) => {
 
   const names = ['VoltageA', 'VoltageB', 'VoltageC', 'VoltageImbalance', 'THD_V']
 
-  const [chartEntries, alarms, currentVars] = await Promise.all([
+  const [chartEntries, alarms, allVars] = await Promise.all([
     Promise.all(names.map(async (name) => [name, await bucketVariable(prisma, { ...base, variableName: name })])),
     prisma.deviceVariableAlarmHistory.findMany({
       where:  { deviceId, alarmTime: { gte: startDate } },
       select: { triggerType: true, variableName: true, alarmTime: true },
     }),
     prisma.deviceConfigVariable.findMany({
-      where:  { deviceId, name: { in: names } },
+      where:  { deviceId, isActive: true },
       select: { name: true, currentValue: true },
     }),
   ])
 
   const charts  = Object.fromEntries(chartEntries)
-  const current = Object.fromEntries(currentVars.map((v) => [v.name, v.currentValue]))
+  const current = mapCurrentVars(allVars, names)
 
   return {
     current,
@@ -37,7 +49,7 @@ const buildVoltageAnalysis = async (deviceId, slaveId, timeRange) => {
       voltageImbalance: charts.VoltageImbalance ?? [],
       thdV:             charts.THD_V ?? [],
     },
-    alarms: alarms.filter((a) => a.variableName?.startsWith('Voltage')),
+    alarms: alarms.filter((a) => a.variableName?.toLowerCase().includes('voltage')),
   }
 }
 
@@ -59,16 +71,16 @@ const buildCurrentAnalysis = async (deviceId, slaveId, timeRange) => {
   const base      = { deviceId, slaveId: slaveId || null, startDate, bucketMs }
   const names     = ['CurrentA', 'CurrentB', 'CurrentC', 'CurrentImbalance', 'THD_I']
 
-  const [chartEntries, currentVars] = await Promise.all([
+  const [chartEntries, allVars] = await Promise.all([
     Promise.all(names.map(async (name) => [name, await bucketVariable(prisma, { ...base, variableName: name })])),
     prisma.deviceConfigVariable.findMany({
-      where:  { deviceId, name: { in: names } },
+      where:  { deviceId, isActive: true },
       select: { name: true, currentValue: true },
     }),
   ])
 
   const charts  = Object.fromEntries(chartEntries)
-  const current = Object.fromEntries(currentVars.map((v) => [v.name, v.currentValue]))
+  const current = mapCurrentVars(allVars, names)
 
   return {
     current,
@@ -99,21 +111,23 @@ const buildPowerFactorAnalysis = async (deviceId, slaveId, timeRange) => {
   const bucketMs  = BUCKET_MS[timeRange] || BUCKET_MS['24h']
   const base      = { deviceId, slaveId: slaveId || null, startDate, bucketMs }
 
-  const [chartData, currentVars, alarms, forecast] = await Promise.all([
+  const [chartData, allVars, alarms, forecast] = await Promise.all([
     bucketVariable(prisma, { ...base, variableName: 'PowerFactor' }),
-    prisma.deviceConfigVariable.findMany({ where: { deviceId, name: 'PowerFactor' }, select: { name: true, currentValue: true } }),
+    prisma.deviceConfigVariable.findMany({ where: { deviceId, isActive: true }, select: { name: true, currentValue: true } }),
     prisma.deviceVariableAlarmHistory.findMany({
-      where:   { deviceId, variableName: 'PowerFactor', alarmTime: { gte: startDate } },
+      where:   { deviceId, alarmTime: { gte: startDate } },
       orderBy: { alarmTime: 'desc' },
       take:    10,
     }),
     prisma.aIForecastReading.findFirst({ where: { deviceId, variableName: 'PowerFactor' }, orderBy: { generatedAt: 'desc' } }),
   ])
 
+  const current = mapCurrentVars(allVars, ['PowerFactor']).PowerFactor
+
   return {
-    current:        currentVars[0]?.currentValue ?? null,
+    current,
     chartData,
-    alarms,
+    alarms: alarms.filter((a) => a.variableName?.toLowerCase().includes('power factor') || a.variableName === 'PowerFactor'),
     predictedChart: forecast ? (Array.isArray(forecast.predictions) ? forecast.predictions : []) : [],
   }
 }

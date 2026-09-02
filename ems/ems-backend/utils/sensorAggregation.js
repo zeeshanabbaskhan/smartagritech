@@ -60,6 +60,31 @@ const bucketVariableHourly = async (db, { deviceId, variableName, startDate, end
   }))
 }
 
+const VARIABLE_ALIASES = {
+  voltagea: ['voltagea', 'phasevoltagea', 'phaseavoltage', 'voltage_a', 'voltage', 'v_a', 'v1', 'phasevoltage1'],
+  voltageb: ['voltageb', 'phasevoltageb', 'phasebvoltage', 'voltage_b', 'v_b', 'v2', 'phasevoltage2'],
+  voltagec: ['voltagec', 'phasevoltagec', 'phasecvoltage', 'voltage_c', 'v_c', 'v3', 'phasevoltage3'],
+  voltageimbalance: ['voltageimbalance', 'voltage_imbalance', 'v_imbalance', 'vimbalance'],
+  currenta: ['currenta', 'current a', 'phasecurrenta', 'phaseacurrent', 'current_a', 'i_a', 'i1', 'current1'],
+  currentb: ['currentb', 'current b', 'phasecurrentb', 'phasebcurrent', 'current_b', 'i_b', 'i2', 'current2'],
+  currentc: ['currentc', 'current c', 'phasecurrentc', 'phaseccurrent', 'current_c', 'i_c', 'i3', 'current3'],
+  currentimbalance: ['currentimbalance', 'current_imbalance', 'i_imbalance', 'iimbalance'],
+  powerfactor: ['powerfactor', 'power factor', 'pf', 'totalpowerfactor', 'averagepowerfactor'],
+  activepower: ['activepower', ' activepower', 'active power', 'totalpower', 'total active power', 'power', 'powera'],
+  powerconsumption: ['powerconsumption', 'energy', 'units', 'kwh', 'totalenergy', 'importenergy', 'activeenergy'],
+  frequency: ['frequency', 'freq', 'hz'],
+  thd_v: ['thd_v', 'thdv', 'thd-v', 'thd v', 'thd_voltage'],
+  thd_i: ['thd_i', 'thdi', 'thd-i', 'thd i', 'thd_current'],
+  energy: ['energy', 'units', 'kwh', 'powerconsumption', 'totalenergy', 'importenergy', 'activeenergy'],
+}
+
+const getVariableAliases = (name) => {
+  const norm = String(name || '').toLowerCase().replace(/[\s_-]+/g, '')
+  const known = VARIABLE_ALIASES[norm]
+  if (known) return Array.from(new Set(known.map((a) => a.toLowerCase().replace(/[\s_-]+/g, ''))))
+  return [norm]
+}
+
 const bucketVariable = async (prisma, opts) => {
   const db = readDb(prisma)
   if (useHourlyAggregate(opts.startDate) && (await probeHourlyView(db))) {
@@ -71,6 +96,7 @@ const bucketVariable = async (prisma, opts) => {
   }
 
   const { deviceId, slaveId, variableName, startDate, endDate, bucketMs } = opts
+  const aliases = getVariableAliases(variableName)
   const rows = await db.$queryRaw`
     SELECT
       (floor(extract(epoch from sr."timestamp") * 1000 / ${bucketMs}) * ${bucketMs})::bigint AS bucket_ms,
@@ -80,7 +106,9 @@ const bucketVariable = async (prisma, opts) => {
     WHERE sr."deviceId" = ${deviceId}
       AND sr."timestamp" >= ${startDate}
       ${endDate ? Prisma.sql`AND sr."timestamp" <= ${endDate}` : Prisma.empty}
-      AND lower(replace(elem->>'variableName', ' ', '')) = lower(replace(${variableName}, ' ', ''))
+      AND lower(regexp_replace(elem->>'variableName', '[\\s_-]+', '', 'g')) IN (${Prisma.join(aliases)})
+      AND (elem->>'value')::double precision > -10000000
+      AND (elem->>'value')::double precision < 10000000
       ${slaveClause(slaveId)}
     GROUP BY bucket_ms
     ORDER BY bucket_ms ASC
@@ -94,13 +122,15 @@ const bucketVariable = async (prisma, opts) => {
 const sumVariable = async (prisma, { deviceId, slaveId, variableName, startDate, endDate }) => {
   const db = readDb(prisma)
   const endClause = endDate ? Prisma.sql`AND v.timestamp < ${endDate}` : Prisma.empty
+  const aliases = getVariableAliases(variableName)
 
   try {
     const narrow = await db.$queryRaw`
       SELECT COALESCE(SUM(v.value), 0)::double precision AS total
       FROM sensor_reading_values v
       WHERE v."deviceId" = ${deviceId}
-        AND v."variableName" = ${variableName}
+        AND lower(regexp_replace(v."variableName", '[\\s_-]+', '', 'g')) IN (${Prisma.join(aliases)})
+        AND v.value > -10000000 AND v.value < 10000000
         AND v.timestamp >= ${startDate}
         ${slaveClauseValues(slaveId)}
         ${endClause}
@@ -115,7 +145,9 @@ const sumVariable = async (prisma, { deviceId, slaveId, variableName, startDate,
          jsonb_array_elements(sr.readings::jsonb) AS elem
     WHERE sr."deviceId" = ${deviceId}
       AND sr."timestamp" >= ${startDate}
-      AND elem->>'variableName' = ${variableName}
+      AND lower(regexp_replace(elem->>'variableName', '[\\s_-]+', '', 'g')) IN (${Prisma.join(aliases)})
+      AND (elem->>'value')::double precision > -10000000
+      AND (elem->>'value')::double precision < 10000000
       ${slaveClause(slaveId)}
       ${endClauseSr}
   `
@@ -129,6 +161,7 @@ const sumVariable = async (prisma, { deviceId, slaveId, variableName, startDate,
 const deltaVariable = async (prisma, { deviceId, slaveId, variableName, startDate, endDate }) => {
   const db = readDb(prisma)
   const endClause = endDate ? Prisma.sql`AND v.timestamp < ${endDate}` : Prisma.empty
+  const aliases = getVariableAliases(variableName)
 
   try {
     const narrow = await db.$queryRaw`
@@ -138,7 +171,8 @@ const deltaVariable = async (prisma, { deviceId, slaveId, variableName, startDat
         COUNT(*)::int AS n
       FROM sensor_reading_values v
       WHERE v."deviceId" = ${deviceId}
-        AND v."variableName" = ${variableName}
+        AND lower(regexp_replace(v."variableName", '[\\s_-]+', '', 'g')) IN (${Prisma.join(aliases)})
+        AND v.value > -10000000 AND v.value < 10000000
         AND v.timestamp >= ${startDate}
         ${slaveClauseValues(slaveId)}
         ${endClause}
@@ -161,7 +195,9 @@ const deltaVariable = async (prisma, { deviceId, slaveId, variableName, startDat
            jsonb_array_elements(sr.readings::jsonb) AS elem
       WHERE sr."deviceId" = ${deviceId}
         AND sr."timestamp" >= ${startDate}
-        AND elem->>'variableName' = ${variableName}
+        AND lower(regexp_replace(elem->>'variableName', '[\\s_-]+', '', 'g')) IN (${Prisma.join(aliases)})
+        AND (elem->>'value')::double precision > -10000000
+        AND (elem->>'value')::double precision < 10000000
         ${slaveClause(slaveId)}
         ${endClauseSr}
     )
@@ -211,4 +247,5 @@ const bucketMany = async (prisma, deviceId, slaveId, startDate, bucketMs, names)
   return Object.fromEntries(entries)
 }
 
-module.exports = { bucketVariable, sumVariable, deltaVariable, periodEnergyKwh, bucketMany }
+module.exports = { bucketVariable, sumVariable, deltaVariable, periodEnergyKwh, bucketMany, getVariableAliases }
+

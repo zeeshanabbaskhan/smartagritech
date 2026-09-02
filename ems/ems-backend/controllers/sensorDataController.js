@@ -54,11 +54,13 @@ const emptyDashboardSummary = () => ({
   switchOff: true,
 })
 
-/** Case-insensitive, space-stripped variable name match. */
+const { getVariableAliases } = require('../utils/sensorAggregation')
+
+/** Case-insensitive, space-stripped variable name match with alias resolution. */
 const variableNameMatches = (candidate, variableName) => {
-  const want = String(variableName).replace(/\s+/g, '').toLowerCase()
-  const name = String(candidate || '').replace(/\s+/g, '').toLowerCase()
-  return name === want || String(candidate) === variableName
+  const wantAliases = getVariableAliases(variableName)
+  const cand = String(candidate || '').toLowerCase().replace(/[\s_-]+/g, '')
+  return wantAliases.includes(cand) || String(candidate) === variableName
 }
 
 /**
@@ -312,8 +314,19 @@ const buildDashboardSummary = async (deviceId, slaveId, timeRange) => {
     return [v.name, val]
   }))
   const latestNum = (name) => {
-    const v = latest[name]
-    return v != null && v !== '' ? parseFloat(v) : null
+    if (latest[name] != null && latest[name] !== '') return parseFloat(latest[name])
+    const aliases = getVariableAliases(name)
+    for (const a of aliases) {
+      for (const [k, val] of Object.entries(latest)) {
+        if (k.toLowerCase().replace(/[\s_-]+/g, '') === a) {
+          if (val != null && val !== '') {
+            const num = parseFloat(val)
+            if (Number.isFinite(num)) return num
+          }
+        }
+      }
+    }
+    return null
   }
 
   // Prefer PowerConsumption history; fall back to ActivePower (W → kW) for MQTT devices
