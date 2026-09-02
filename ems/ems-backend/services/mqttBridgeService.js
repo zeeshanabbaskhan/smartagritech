@@ -203,51 +203,6 @@ const mapReadings = (device, slaveName, registers) => {
     // Discard extreme corrupted float overflows (e.g. 2.94e+37)
     if (Math.abs(num) > 1e8) continue
 
-    const varLower = mapped.variableName.toLowerCase().replace(/[\s_-]+/g, '')
-
-    // Auto-scale Voltage to standard ~100V-500V range
-    if (varLower.includes('voltage')) {
-      if (num > 100000) num = num / 10000
-      else if (num > 1000) num = num / 10
-      else if (num > 0.00001 && num < 0.01) num = num * 100000
-      else if (num >= 0.01 && num < 10) num = num * 1000
-      num = parseFloat(num.toFixed(2))
-    }
-
-    // Auto-scale Frequency to ~45Hz-65Hz
-    if (varLower.includes('frequency')) {
-      if (num > 1000) num = num / 100
-      else if (num > 0.001 && num < 1.0) num = num * 100
-      num = parseFloat(num.toFixed(2))
-    }
-
-    // Auto-scale Power Factor to 0.0 - 1.0
-    if (varLower.includes('powerfactor') || varLower === 'pf') {
-      if (num > 10) num = num / 1000
-      else if (num > 0.000001 && num < 0.01) num = num * 1000
-      if (num > 1.0 && num <= 10.0) num = num / 10
-      num = parseFloat(num.toFixed(3))
-    }
-
-    // Auto-scale Current
-    if (varLower.startsWith('current')) {
-      if (num > 10000) num = num / 1000
-      else if (num > 0.0001 && num < 1.0) num = num * 1000
-      num = parseFloat(num.toFixed(2))
-    }
-
-    // Auto-scale Power
-    if ((varLower.includes('power') || varLower.includes('apparent') || varLower.includes('reactive')) && !varLower.includes('powerfactor')) {
-      if (num > 10000) num = num / 1000
-      num = parseFloat(num.toFixed(2))
-    }
-
-    // Auto-scale Energy / Units
-    if (varLower.includes('energy') || varLower.includes('units') || varLower.includes('kwh')) {
-      if (num > 100000) num = num / 1000
-      num = parseFloat(num.toFixed(2))
-    }
-
     readings.push({
       variableName: mapped.variableName,
       value: num,
