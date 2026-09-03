@@ -30,6 +30,81 @@ const mapConfigVarsByName = (configVars, preferredSlaveId) => {
   return byName
 }
 
+const isVoltage = (v) => {
+  if (v.includes('voltage') || v.includes('volt')) return true
+  if (/^v[0-9abc]/.test(v) || /^v_[0-9abc]/.test(v)) return true
+  if (/^v(ab|bc|ca|12|23|31|ln|ll|an|bn|cn|1n|2n|3n)$/.test(v)) return true
+  if (v.startsWith('phase') && (v.includes('v') || v.includes('volt'))) return true
+  if (v.includes('linevoltage') || v.includes('line_voltage')) return true
+  return false
+}
+
+const isCurrent = (v) => {
+  if (v.includes('current') || v.includes('amp') || v.includes('curr')) return true
+  if (/^i[0-9abcn]/.test(v) || /^i_[0-9abcn]/.test(v)) return true
+  if (v.startsWith('phase') && (v.includes('i') || v.includes('amp') || v.includes('curr'))) return true
+  return false
+}
+
+const isPower = (v) => {
+  if (v.includes('powerfactor') || v === 'pf') return false
+  if (v.includes('power') || v.includes('apparent') || v.includes('reactive') || v.includes('watt')) return true
+  if (v.endsWith('kw') || v.endsWith('kvar') || v.endsWith('kva') || v.endsWith('w')) return true
+  if (/^(p|q|s)[0-9abc]$/.test(v) || /^(p|q|s)_[0-9abc]$/.test(v)) return true
+  return false
+}
+
+const isPowerFactor = (v) => {
+  return v.includes('powerfactor') || v === 'pf' || v.includes('cosphi') || v.includes('cos_phi')
+}
+
+const isFrequency = (v) => {
+  return v.includes('frequency') || v.includes('freq') || v.endsWith('hz') || v === 'hz'
+}
+
+const isUnits = (v) => {
+  return v.includes('units') || v.includes('energy') || v.includes('kwh') || v.includes('mwh') || v.endsWith('kwh')
+}
+
+const applyStandardFormulation = (varName, rawVal) => {
+  const num = typeof rawVal === 'number' ? rawVal : Number(rawVal)
+  if (!Number.isFinite(num)) return rawVal
+
+  const v = String(varName || '').toLowerCase().replace(/[\s_-]+/g, '')
+
+  // 1. Power Factor: divided by 100
+  if (isPowerFactor(v)) {
+    return parseFloat((num / 100).toFixed(4))
+  }
+
+  // 2. Frequency: divided by 100
+  if (isFrequency(v)) {
+    return parseFloat((num / 100).toFixed(2))
+  }
+
+  // 3. Units / Energy: divided by 1000
+  if (isUnits(v)) {
+    return parseFloat((num / 1000).toFixed(4))
+  }
+
+  // 4. All Voltages & All Phase Voltages: divided by 10000
+  if (isVoltage(v)) {
+    return parseFloat((num / 10000).toFixed(4))
+  }
+
+  // 5. All Currents: divided by 10000
+  if (isCurrent(v)) {
+    return parseFloat((num / 10000).toFixed(4))
+  }
+
+  // 6. All Power (Active, Total, Apparent, Reactive): divided by 10000
+  if (isPower(v)) {
+    return parseFloat((num / 10000).toFixed(4))
+  }
+
+  return num
+}
+
 /**
  * @param {Array} configVars - DeviceConfigVariable rows with templateVariable + configSlave
  * @param {Array<{variableName, value}>} readings - raw ingest readings
@@ -63,8 +138,7 @@ const applyIngestFormulas = (configVars, readings, preferredSlaveId) => {
       if (scaleFormula && !/^=?[sS]\s*\/\s*\d+$/.test(scaleFormula.trim())) {
         value = applyAcquisitionFormula(scaleFormula, r.value)
       } else {
-        const num = Number(r.value)
-        value = Number.isNaN(num) ? r.value : num
+        value = applyStandardFormulation(r.variableName, r.value)
       }
     }
 

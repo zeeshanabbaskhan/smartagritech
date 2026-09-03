@@ -203,18 +203,61 @@ const mapReadings = (device, slaveName, registers) => {
     // Discard extreme corrupted float overflows (e.g. 2.94e+37)
     if (Math.abs(num) > 1e8) continue
 
-    const varLower = mapped.variableName.toLowerCase().replace(/[\s_-]+/g, '')
-    if (varLower.includes('powerfactor') || varLower === 'pf') {
+    const v = mapped.variableName.toLowerCase().replace(/[\s_-]+/g, '')
+
+    // 1. Power Factor: divided by 100
+    if (v.includes('powerfactor') || v === 'pf' || v.includes('cosphi') || v.includes('cos_phi')) {
       num = parseFloat((num / 100).toFixed(4))
-    } else if (varLower.includes('frequency') || varLower.includes('freq') || varLower === 'hz') {
+    }
+    // 2. Frequency: divided by 100
+    else if (v.includes('frequency') || v.includes('freq') || v.endsWith('hz') || v === 'hz') {
       num = parseFloat((num / 100).toFixed(2))
-    } else if (varLower.includes('units') || varLower.includes('energy') || varLower.includes('kwh')) {
+    }
+    // 3. Units / Energy: divided by 1000
+    else if (v.includes('units') || v.includes('energy') || v.includes('kwh') || v.includes('mwh') || v.endsWith('kwh')) {
       num = parseFloat((num / 1000).toFixed(4))
-    } else if (varLower.includes('voltage') || varLower.startsWith('v')) {
+    }
+    // 4. All Voltages & All Phase Voltages: divided by 10000
+    else if (
+      v.includes('voltage') ||
+      v.includes('volt') ||
+      /^v[0-9abc]/.test(v) ||
+      /^v_[0-9abc]/.test(v) ||
+      /^v(ab|bc|ca|12|23|31|ln|ll|an|bn|cn|1n|2n|3n)$/.test(v) ||
+      (v.startsWith('phase') && (v.includes('v') || v.includes('volt'))) ||
+      v.includes('linevoltage') ||
+      v.includes('line_voltage')
+    ) {
       num = parseFloat((num / 10000).toFixed(4))
-    } else if (varLower.includes('current') || varLower.startsWith('i')) {
+    }
+    // 5. All Currents: divided by 10000
+    else if (
+      v.includes('current') ||
+      v.includes('amp') ||
+      v.includes('curr') ||
+      /^i[0-9abcn]/.test(v) ||
+      /^i_[0-9abcn]/.test(v) ||
+      (v.startsWith('phase') && (v.includes('i') || v.includes('amp') || v.includes('curr')))
+    ) {
       num = parseFloat((num / 10000).toFixed(4))
-    } else if (varLower.includes('power') || varLower.includes('apparent') || varLower.includes('reactive') || varLower.includes('watt') || varLower.endsWith('kw') || varLower.endsWith('w')) {
+    }
+    // 6. All Power (Active, Total, Apparent, Reactive): divided by 10000
+    else if (
+      !v.includes('powerfactor') &&
+      v !== 'pf' &&
+      (
+        v.includes('power') ||
+        v.includes('apparent') ||
+        v.includes('reactive') ||
+        v.includes('watt') ||
+        v.endsWith('kw') ||
+        v.endsWith('kvar') ||
+        v.endsWith('kva') ||
+        v.endsWith('w') ||
+        /^(p|q|s)[0-9abc]$/.test(v) ||
+        /^(p|q|s)_[0-9abc]$/.test(v)
+      )
+    ) {
       num = parseFloat((num / 10000).toFixed(4))
     }
 
