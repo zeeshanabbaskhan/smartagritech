@@ -14,7 +14,7 @@ const { legacyDisplayString } = require('../utils/legacyDisplayValue')
 const getFullConfig = async (req, res, next) => {
   try {
     const data = await prisma.deviceConfigSlave.findMany({
-      where:   { deviceId: req.params.deviceId },
+      where:   { deviceId: req.params.deviceId, isActive: true },
       orderBy: { createdAt: 'asc' },
       include: { configVariables: { where: { isActive: true }, orderBy: { createdAt: 'asc' } } },
     })
@@ -26,10 +26,11 @@ const getFullConfig = async (req, res, next) => {
 // @access SUPER_ADMIN | ORG_ADMIN | USER
 const getConfigSlaves = async (req, res, next) => {
   try {
+<<<<<<< HEAD
     const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 100))
     const page  = Math.max(1, parseInt(req.query.page, 10) || 1)
     const skip  = (page - 1) * limit
-    const where = { deviceId: req.params.deviceId }
+    const where = { deviceId: req.params.deviceId, isActive: true }
 
     const [data, total] = await Promise.all([
       prisma.deviceConfigSlave.findMany({
