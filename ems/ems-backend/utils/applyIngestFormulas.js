@@ -60,7 +60,7 @@ const applyIngestFormulas = (configVars, readings, preferredSlaveId) => {
 
     if (!isEquation) {
       const scaleFormula = tv?.controlFormula || tv?.acquisitionFormula
-      if (scaleFormula) {
+      if (scaleFormula && !/^=?[sS]\s*\/\s*\d+$/.test(scaleFormula.trim())) {
         value = applyAcquisitionFormula(scaleFormula, r.value)
       } else {
         const num = Number(r.value)

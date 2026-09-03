@@ -203,6 +203,21 @@ const mapReadings = (device, slaveName, registers) => {
     // Discard extreme corrupted float overflows (e.g. 2.94e+37)
     if (Math.abs(num) > 1e8) continue
 
+    const varLower = mapped.variableName.toLowerCase().replace(/[\s_-]+/g, '')
+    if (varLower.includes('powerfactor') || varLower === 'pf') {
+      num = parseFloat((num / 100).toFixed(4))
+    } else if (varLower.includes('frequency') || varLower.includes('freq') || varLower === 'hz') {
+      num = parseFloat((num / 100).toFixed(2))
+    } else if (varLower.includes('units') || varLower.includes('energy') || varLower.includes('kwh')) {
+      num = parseFloat((num / 1000).toFixed(4))
+    } else if (varLower.includes('voltage') || varLower.startsWith('v')) {
+      num = parseFloat((num / 10000).toFixed(4))
+    } else if (varLower.includes('current') || varLower.startsWith('i')) {
+      num = parseFloat((num / 10000).toFixed(4))
+    } else if (varLower.includes('power') || varLower.includes('apparent') || varLower.includes('reactive') || varLower.includes('watt') || varLower.endsWith('kw') || varLower.endsWith('w')) {
+      num = parseFloat((num / 10000).toFixed(4))
+    }
+
     readings.push({
       variableName: mapped.variableName,
       value: num,
