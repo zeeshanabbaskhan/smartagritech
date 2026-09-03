@@ -191,7 +191,7 @@ const updateVariable = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
-// @desc  Delete a variable; blocked when provisioned config variables reference it
+// @desc  Delete a variable from a specific slave; cascades provisioned device variables for this variable
 const deleteVariable = async (req, res, next) => {
   try {
     const { variableId, slaveId, templateId } = req.params
@@ -199,10 +199,10 @@ const deleteVariable = async (req, res, next) => {
     const existing = await prisma.deviceTemplateVariable.findFirst({ where: { id: variableId, templateSlaveId: slaveId } })
     if (!existing) return next(new AppError('Variable not found', 404))
 
-    const inUse = await prisma.deviceConfigVariable.count({ where: { templateVariableId: variableId } })
-    if (inUse) return next(new AppError('Cannot delete: variable has provisioned config variables.', 400))
-
     await prisma.$transaction([
+      // Cascade delete device-level copies of this variable and associated triggers
+      prisma.deviceConfigVariable.deleteMany({ where: { templateVariableId: variableId } }),
+      prisma.templateTrigger.deleteMany({ where: { templateVariableId: variableId } }),
       prisma.deviceTemplateVariable.delete({ where: { id: variableId } }),
       prisma.deviceTemplate.update({ where: { id: templateId }, data: { totalVariables: { decrement: 1 } } }),
     ])

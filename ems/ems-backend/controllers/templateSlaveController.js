@@ -97,7 +97,7 @@ const updateSlave = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
-// @desc  Delete a slave; blocked when provisioned devices use it
+// @desc  Delete a slave; cascades its variables and device config slaves cleanly
 const deleteSlave = async (req, res, next) => {
   try {
     const { slaveId, templateId } = req.params
@@ -105,18 +105,23 @@ const deleteSlave = async (req, res, next) => {
     const existing = await prisma.deviceTemplateSlave.findFirst({ where: { id: slaveId, templateId } })
     if (!existing) return next(new AppError('Slave not found', 404))
 
-    const inUse = await prisma.deviceConfigSlave.count({ where: { templateSlaveId: slaveId } })
-    if (inUse) return next(new AppError('Cannot delete: slave is in use by provisioned devices.', 400))
-
-    const varCount = await prisma.deviceTemplateVariable.count({ where: { templateSlaveId: slaveId } })
+    const tVars = await prisma.deviceTemplateVariable.findMany({
+      where: { templateSlaveId: slaveId },
+      select: { id: true },
+    })
+    const tVarIds = tVars.map((v) => v.id)
 
     await prisma.$transaction([
+      ...(tVarIds.length ? [prisma.deviceConfigVariable.deleteMany({ where: { templateVariableId: { in: tVarIds } } })] : []),
+      prisma.deviceConfigSlave.deleteMany({ where: { templateSlaveId: slaveId } }),
+      ...(tVarIds.length ? [prisma.templateTrigger.deleteMany({ where: { templateVariableId: { in: tVarIds } } })] : []),
+      prisma.deviceTemplateVariable.deleteMany({ where: { templateSlaveId: slaveId } }),
       prisma.deviceTemplateSlave.delete({ where: { id: slaveId } }),
       prisma.deviceTemplate.update({
         where: { id: templateId },
         data: {
           totalSlaves: { decrement: 1 },
-          ...(varCount ? { totalVariables: { decrement: varCount } } : {}),
+          ...(tVarIds.length ? { totalVariables: { decrement: tVarIds.length } } : {}),
         },
       }),
     ])
