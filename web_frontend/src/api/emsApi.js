@@ -89,7 +89,7 @@ const emsApi = {
   getCommandStatus: (deviceId, commandId) => api.get(`/devices/${deviceId}/commands/${commandId}`),
 
   // ─── Device config ──────────────────────────────────────────────────────
-  getDeviceConfig: (deviceId) => api.get(`/devices/${deviceId}/config/slaves`),
+  getDeviceConfig: (deviceId, params) => api.get(`/devices/${deviceId}/config/slaves`, q(params)),
   getDeviceVariables: (deviceId, slaveId, params) =>
     api.get(`/devices/${deviceId}/config/slaves/${slaveId}/variables`, q(params)),
 

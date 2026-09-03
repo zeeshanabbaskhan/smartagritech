@@ -26,7 +26,9 @@ const getFullConfig = async (req, res, next) => {
 // @access SUPER_ADMIN | ORG_ADMIN | USER
 const getConfigSlaves = async (req, res, next) => {
   try {
-    const { page, limit, skip } = paginate(req.query)
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 100))
+    const page  = Math.max(1, parseInt(req.query.page, 10) || 1)
+    const skip  = (page - 1) * limit
     const where = { deviceId: req.params.deviceId }
 
     const [data, total] = await Promise.all([

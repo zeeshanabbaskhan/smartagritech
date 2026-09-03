@@ -132,7 +132,7 @@ export default function DeviceSlaveMetricsPanel({
     ;(async () => {
       setLoading(true)
       try {
-        const slaveList = list(await emsApi.getDeviceConfig(deviceId))
+        const slaveList = list(await emsApi.getDeviceConfig(deviceId, { limit: 100 }))
         if (cancelled) return
         setSlaves(slaveList)
         setActiveSlaveId(pickDefaultSlaveId(slaveList))
