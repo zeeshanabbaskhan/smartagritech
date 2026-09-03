@@ -72,8 +72,10 @@ const applyStandardFormulation = (varName, rawVal) => {
 
   const v = String(varName || '').toLowerCase().replace(/[\s_-]+/g, '')
 
-  // 1. Power Factor: divided by 100
+  // 1. Power Factor: standard 0.00 to 1.00
   if (isPowerFactor(v)) {
+    if (Math.abs(num) <= 1) return parseFloat(num.toFixed(4))
+    if (Math.abs(num) > 100) return parseFloat((num / 1000).toFixed(4))
     return parseFloat((num / 100).toFixed(4))
   }
 
@@ -135,7 +137,7 @@ const applyIngestFormulas = (configVars, readings, preferredSlaveId) => {
 
     if (!isEquation) {
       const scaleFormula = tv?.controlFormula || tv?.acquisitionFormula
-      if (scaleFormula && !/^=?[sS]\s*\/\s*\d+$/.test(scaleFormula.trim())) {
+      if (scaleFormula) {
         value = applyAcquisitionFormula(scaleFormula, r.value)
       } else {
         value = applyStandardFormulation(r.variableName, r.value)
