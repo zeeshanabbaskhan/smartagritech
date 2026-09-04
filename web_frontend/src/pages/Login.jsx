@@ -7,14 +7,6 @@ import emsApi from '../api/emsApi'
 import { Eye, EyeOff, CheckCircle2, Sun, Moon, LogIn } from 'lucide-react'
 import { DEFAULT_DISPLAY_NAME, DEFAULT_LOGO } from '../utils/branding'
 
-// Seeded demo accounts (see ems-backend/utils/dummyDataSeeder.js TEST_CREDENTIALS).
-const DEMO_CREDENTIALS = [
-  { label: 'Super Admin', email: 'superadmin@ems.com', password: 'Admin@123456' },
-  { label: 'Org Admin', email: 'orgadmin@ems.com', password: 'Admin@123456' },
-  { label: 'User', email: 'user@ems.com', password: 'User@123456' },
-  { label: 'Engineer', email: 'engineer@lab.com', password: 'User@123456' },
-]
-
 export default function Login() {
   const { loginWithCredentials } = useAuth()
   const { showToast } = useToast()
@@ -45,12 +37,6 @@ export default function Login() {
   const handleSubmit = (e) => {
     e.preventDefault()
     triggerTransition(email, password)
-  }
-
-  const fillCredentials = (cred) => {
-    setEmail(cred.email)
-    setPassword(cred.password)
-    setError('')
   }
 
   return (
@@ -218,39 +204,6 @@ export default function Login() {
                 Forgot password?
               </button>
             </p>
-
-            <div className="border border-surface-200 dark:border-surface-800 rounded-xl overflow-hidden">
-              <div className="px-3 py-2 bg-surface-50 dark:bg-surface-800/50 border-b border-surface-200 dark:border-surface-800">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-surface-500">Demo credentials</p>
-              </div>
-              <ul className="divide-y divide-surface-100 dark:divide-surface-800">
-                {DEMO_CREDENTIALS.map((cred) => (
-                  <li key={cred.email} className="flex items-center gap-3 px-3 py-2.5">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[10px] font-bold uppercase tracking-wide text-primary-600">{cred.label}</p>
-                      <p className="text-xs font-medium text-surface-800 dark:text-surface-200 truncate">{cred.email}</p>
-                      <p className="text-[11px] font-mono text-surface-500">{cred.password}</p>
-                    </div>
-                    <button
-                      type="button"
-                      className="btn-secondary text-[11px] px-2.5 py-1.5 flex-shrink-0"
-                      onClick={() => fillCredentials(cred)}
-                    >
-                      Use
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-primary text-[11px] px-2.5 py-1.5 flex-shrink-0 inline-flex items-center gap-1 disabled:opacity-50"
-                      onClick={() => { fillCredentials(cred); triggerTransition(cred.email, cred.password) }}
-                      disabled={isLoggingIn}
-                      title={`Sign in as ${cred.label}`}
-                    >
-                      <LogIn size={12} /> Login
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
           </div>
         </div>
       </div>
