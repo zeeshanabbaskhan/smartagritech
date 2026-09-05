@@ -54,6 +54,13 @@ CREATE TABLE IF NOT EXISTS "device_group_users" (
   PRIMARY KEY ("deviceGroupId","userId")
 );
 
+CREATE TABLE IF NOT EXISTS "device_group_slaves" (
+  "deviceGroupId" TEXT NOT NULL REFERENCES "device_groups"("id") ON DELETE CASCADE,
+  "slaveId" TEXT NOT NULL REFERENCES "device_config_slaves"("id") ON DELETE CASCADE,
+  PRIMARY KEY ("deviceGroupId","slaveId")
+);
+CREATE INDEX IF NOT EXISTS "device_group_slaves_slaveId_idx" ON "device_group_slaves"("slaveId");
+
 CREATE TABLE IF NOT EXISTS "facility_nodes" (
   "id" TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   "organizationId" TEXT NOT NULL REFERENCES "organizations"("id") ON DELETE CASCADE,

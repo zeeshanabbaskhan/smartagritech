@@ -114,6 +114,8 @@ export default function OrgDashboard() {
         name: g.name,
         description: g.description || '',
         deviceIds: g.deviceIds ?? (g.devices || []).map((d) => d.id ?? d.deviceId).filter(Boolean),
+        slaveIds: g.slaveIds ?? (g.slaves || []).map((s) => s.id ?? s.slaveId).filter(Boolean),
+        slaves: g.slaves || [],
         userIds: g.userIds ?? [],
       }))))
       .catch(() => {})
@@ -123,7 +125,7 @@ export default function OrgDashboard() {
     refreshFallbackGroups()
   }, [powerFlow?.groups?.length])
 
-  /** Always compute group kW from live Redis metrics so cards move with telemetry. */
+  /** Always compute group kW from live metrics and backend power-flow aggregation. */
   const groupLoads = useMemo(() => {
     const base = powerFlow?.groups?.length
       ? powerFlow.groups
@@ -131,9 +133,12 @@ export default function OrgDashboard() {
           id: g.id,
           name: g.name,
           description: g.description || '',
-          deviceIds: g.deviceIds,
+          deviceIds: g.deviceIds || [],
+          slaveIds: g.slaveIds || [],
+          slaves: g.slaves || [],
           userIds: g.userIds || [],
           deviceCount: g.deviceIds?.length || 0,
+          slaveCount: g.slaveIds?.length || 0,
           load: 0,
           active: false,
         }))
@@ -142,16 +147,21 @@ export default function OrgDashboard() {
       const ids = g.deviceIds || []
       const groupDevices = liveDevices.filter((d) => ids.includes(d.id))
       const active = groupDevices.filter((d) => !isSwitchOff(d))
-      const load = active.reduce((s, d) => {
-        const v = readDeviceMetric(d, 'power')
-        return s + (Number.isFinite(v) ? v : 0)
-      }, 0)
+      let load = g.loadKw != null ? Number(g.loadKw) : (g.load != null ? Number(g.load) : 0)
+      if (!g.loadKw && !g.slaveIds?.length) {
+        load = active.reduce((s, d) => {
+          const v = readDeviceMetric(d, 'power')
+          return s + (Number.isFinite(v) ? v : 0)
+        }, 0)
+      }
       return {
         ...g,
         deviceIds: ids,
+        slaveIds: g.slaveIds || [],
         deviceCount: groupDevices.length || g.deviceCount || ids.length,
+        slaveCount: (g.slaveIds || []).length || g.slaveCount || 0,
         load: +load.toFixed(2),
-        active: active.some((d) => !isOffline(d)),
+        active: active.some((d) => !isOffline(d)) || (g.slaveIds?.length > 0 && load > 0),
       }
     })
   }, [powerFlow, fallbackGroups, liveDevices])
@@ -168,7 +178,7 @@ export default function OrgDashboard() {
   }, [liveDevices])
 
   /**
-   * Sources linked to real devices → live ActivePower (kW).
+   * Sources linked to real devices / slaves → live ActivePower (kW).
    * Sources with no linked devices stay at 0 kW (including Grid).
    */
   const liveSources = useMemo(() => {
@@ -180,10 +190,11 @@ export default function OrgDashboard() {
     let sources = (powerFlow?.sources || []).map((s) => ({
       ...s,
       deviceIds: Array.isArray(s.deviceIds) ? s.deviceIds.filter(Boolean) : [],
+      slaveIds: Array.isArray(s.slaveIds) ? s.slaveIds.filter(Boolean) : [],
     }))
     for (const b of builtins) {
       if (!sources.some((s) => s.type === b.type || s.id === b.id)) {
-        sources.push({ ...b, deviceIds: [], valueKw: 0 })
+        sources.push({ ...b, deviceIds: [], slaveIds: [], valueKw: 0 })
       }
     }
 
@@ -200,8 +211,11 @@ export default function OrgDashboard() {
 
     return sources.map((s) => {
       const ids = s.deviceIds || []
-      if (!ids.length) return { ...s, valueKw: 0, derived: false }
-      return { ...s, valueKw: powerOf(ids), deviceCount: ids.length, derived: false }
+      const sIds = s.slaveIds || []
+      if (!ids.length && !sIds.length) return { ...s, valueKw: 0, derived: false }
+      // If backend calculated live kW with slave resolution, preserve s.valueKw
+      const val = s.valueKw != null ? Number(s.valueKw) : (ids.length ? powerOf(ids) : 0)
+      return { ...s, valueKw: +val.toFixed(2), derived: false }
     })
   }, [powerFlow, liveDevices])
 

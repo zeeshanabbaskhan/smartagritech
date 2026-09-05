@@ -326,6 +326,7 @@ model DeviceConfigSlave {
   slabRates         SlabRate[]
   scheduledTasks    ScheduledTask[]
   intervalHistories IntervalHistory[]
+  deviceGroups      DeviceGroupSlave[]
 
   @@map("device_config_slaves")
 }
@@ -1057,6 +1058,7 @@ model DeviceGroup {
   organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   creator      User?               @relation("DeviceGroupCreator", fields: [createdBy], references: [id])
   devices      DeviceGroupDevice[]
+  slaves       DeviceGroupSlave[]
   users        DeviceGroupUser[]
 
   @@index([organizationId])
@@ -1072,6 +1074,17 @@ model DeviceGroupDevice {
 
   @@id([deviceGroupId, deviceId])
   @@map("device_group_devices")
+}
+
+model DeviceGroupSlave {
+  deviceGroupId String
+  slaveId       String
+
+  deviceGroup DeviceGroup       @relation(fields: [deviceGroupId], references: [id], onDelete: Cascade)
+  slave       DeviceConfigSlave @relation(fields: [slaveId], references: [id], onDelete: Cascade)
+
+  @@id([deviceGroupId, slaveId])
+  @@map("device_group_slaves")
 }
 
 model DeviceGroupUser {

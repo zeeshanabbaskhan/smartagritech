@@ -3,7 +3,7 @@ const redis = require('../config/redis')
 const { AppError } = require('../middleware/errorHandler')
 const { orgScope, paginate } = require('../utils/helpers')
 const { listAccessibleDeviceIds } = require('../utils/deviceAccess')
-const { readLatestMerged } = require('../utils/redisLatest')
+const { readLatestMerged, readLatestForSlave } = require('../utils/redisLatest')
 
 const resolveOrgId = (req, bodyOrgId) => {
   if (req.user.role === 'SUPER_ADMIN') return bodyOrgId || req.query.organizationId
@@ -54,13 +54,64 @@ const readDeviceLoadKw = async (deviceId) => {
   return 0
 }
 
-const sumLoadsForDeviceIds = async (deviceIds) => {
-  if (!deviceIds?.length) return 0
-  let total = 0
-  for (const id of deviceIds) {
-    total += await readDeviceLoadKw(id)
+/** Read ActivePower for a specific slave from Redis hot hash or DB variables. */
+const readSlaveLoadKw = async (deviceId, slaveId) => {
+  if (!slaveId) return 0
+  if (deviceId) {
+    const device = await prisma.device.findUnique({
+      where: { id: deviceId },
+      select: { switchState: true },
+    })
+    if (String(device?.switchState || '').toUpperCase() === 'OFF') return 0
   }
+
+  const c = redis.getClient()
+  if (c && deviceId) {
+    try {
+      const hot = await readLatestForSlave(deviceId, slaveId)
+      for (const name of LOAD_VAR_NAMES) {
+        const raw = hot?.[name]
+        if (raw != null && raw !== '') return toLoadKw(name, raw)
+      }
+    } catch (_) {}
+  }
+
+  const v = await prisma.deviceConfigVariable.findFirst({
+    where: { deviceConfigSlaveId: slaveId, name: { in: LOAD_VAR_NAMES }, isActive: true },
+    select: { name: true, currentValue: true },
+  })
+  if (v?.currentValue != null && v.currentValue !== '') {
+    return toLoadKw(v.name, v.currentValue)
+  }
+  return 0
+}
+
+const sumLoadsForSlavesAndDevices = async (deviceIds = [], slaveIds = []) => {
+  const safeDeviceIds = [...new Set((deviceIds || []).filter(Boolean))]
+  const safeSlaveIds = [...new Set((slaveIds || []).filter(Boolean))]
+
+  let total = 0
+  if (safeSlaveIds.length) {
+    const slaves = await prisma.deviceConfigSlave.findMany({
+      where: { id: { in: safeSlaveIds } },
+      select: { id: true, deviceId: true },
+    })
+    for (const s of slaves) {
+      total += await readSlaveLoadKw(s.deviceId, s.id)
+    }
+  }
+
+  if (safeDeviceIds.length) {
+    for (const id of safeDeviceIds) {
+      total += await readDeviceLoadKw(id)
+    }
+  }
+
   return Math.round(total * 100) / 100
+}
+
+const sumLoadsForDeviceIds = async (deviceIds) => {
+  return sumLoadsForSlavesAndDevices(deviceIds, [])
 }
 
 /** Read ExportPower (solar/export) for a device — Redis then DB. */
@@ -287,6 +338,19 @@ const getPowerFlow = async (req, res, next) => {
       where: { organizationId: orgId, isActive: true },
       include: {
         devices: { include: { device: { select: { id: true, name: true, status: true } } } },
+        slaves: {
+          include: {
+            slave: {
+              select: {
+                id: true,
+                name: true,
+                deviceId: true,
+                isDefault: true,
+                device: { select: { id: true, name: true, status: true } },
+              },
+            },
+          },
+        },
       },
     })
 
@@ -294,20 +358,38 @@ const getPowerFlow = async (req, res, next) => {
     const allDeviceIds = new Set()
     for (const g of groups) {
       const deviceRows = allowedSet
-        ? g.devices.filter((d) => allowedSet.has(d.deviceId))
-        : g.devices
-      // USER: omit groups with no accessible devices
-      if (allowedSet && !deviceRows.length) continue
+        ? (g.devices || []).filter((d) => allowedSet.has(d.deviceId))
+        : (g.devices || [])
+      const slaveRows = allowedSet
+        ? (g.slaves || []).filter((s) => !s.slave?.deviceId || allowedSet.has(s.slave.deviceId))
+        : (g.slaves || [])
+
+      // USER: omit groups with no accessible devices/slaves
+      if (allowedSet && !deviceRows.length && !slaveRows.length) continue
+
       const deviceIds = deviceRows.map((d) => d.deviceId)
+      const slaveIds = slaveRows.map((s) => s.slaveId)
       deviceIds.forEach((id) => allDeviceIds.add(id))
-      const loadKw = await sumLoadsForDeviceIds(deviceIds)
+      slaveRows.forEach((s) => s.slave?.deviceId && allDeviceIds.add(s.slave.deviceId))
+
+      const loadKw = await sumLoadsForSlavesAndDevices(deviceIds, slaveIds)
       mappedGroups.push({
         id: g.id,
         name: g.name,
         description: g.description,
         deviceCount: deviceRows.length,
+        slaveCount: slaveRows.length,
         deviceIds,
+        slaveIds,
         devices: deviceRows.map((d) => d.device),
+        slaves: slaveRows.map((s) => ({
+          id: s.slave?.id,
+          name: s.slave?.name,
+          deviceId: s.slave?.deviceId,
+          deviceName: s.slave?.device?.name,
+          deviceStatus: s.slave?.device?.status,
+          isDefault: s.slave?.isDefault,
+        })),
         loadKw,
         load: loadKw,
       })
@@ -333,18 +415,21 @@ const getPowerFlow = async (req, res, next) => {
       { id: 'generator', name: 'Generator', type: 'generator' },
     ]) {
       if (!sources.some((s) => s.type === b.type || s.id === b.id)) {
-        sources.push({ ...b, deviceIds: [], valueKw: 0 })
+        sources.push({ ...b, deviceIds: [], slaveIds: [], valueKw: 0 })
       }
     }
 
-    // Fill live kW from linked devices when present; otherwise 0 (including Grid)
+    // Fill live kW from linked devices and slaves when present; otherwise 0 (including Grid)
     for (const s of sources) {
-      const ids = Array.isArray(s.deviceIds)
+      const devIds = Array.isArray(s.deviceIds)
         ? s.deviceIds.filter((id) => id && (!allowedSet || allowedSet.has(id)))
         : []
+      const slvIds = Array.isArray(s.slaveIds) ? s.slaveIds.filter(Boolean) : []
       s.deviceIds = Array.isArray(s.deviceIds) ? s.deviceIds.filter(Boolean) : []
-      if (ids.length) {
-        s.valueKw = await sumLoadsForDeviceIds(ids)
+      s.slaveIds = Array.isArray(s.slaveIds) ? s.slaveIds.filter(Boolean) : []
+
+      if (devIds.length || slvIds.length) {
+        s.valueKw = await sumLoadsForSlavesAndDevices(devIds, slvIds)
         s.liveDerived = true
       } else {
         s.valueKw = 0

@@ -83,6 +83,11 @@ const getDevices = async (req, res, next) => {
         gateway:      { select: { id: true, name: true } },
         template:     { select: { id: true, name: true } },
         organization: { select: { id: true, name: true } },
+        configSlaves: {
+          where: { isActive: true },
+          select: { id: true, name: true, isDefault: true, deviceId: true },
+          orderBy: { name: 'asc' },
+        },
       },
     })
 
@@ -103,6 +108,11 @@ const getDevice = async (req, res, next) => {
         gateway:      { select: { id: true, name: true } },
         template:     { select: { id: true, name: true } },
         organization: { select: { id: true, name: true } },
+        configSlaves: {
+          where: { isActive: true },
+          select: { id: true, name: true, isDefault: true, deviceId: true },
+          orderBy: { name: 'asc' },
+        },
       },
     })
     if (!data) return next(new AppError('Device not found', 404))

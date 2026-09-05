@@ -24,7 +24,7 @@ function formatPKR(n = 0) {
 }
 
 const TARIFF_PKR_PER_KWH = 28
-const EMPTY_SOURCE_FORM = { name: '', type: 'custom', deviceIds: [] }
+const EMPTY_SOURCE_FORM = { name: '', type: 'custom', deviceIds: [], slaveIds: [] }
 
 function downloadCSV(filename, rows) {
   const content = rows.map((r) => r.join(',')).join('\n')
@@ -54,8 +54,17 @@ const BUILTIN_META = {
   generator: { label: 'Generator', Icon: Fuel, from: '#6EE7B7', to: '#059669' },
 }
 
+function formatLinkedSummary(devIds = [], slvIds = []) {
+  const nDev = (devIds || []).length
+  const nSlv = (slvIds || []).length
+  if (nSlv && nDev) return `${nSlv} slave${nSlv !== 1 ? 's' : ''}, ${nDev} device${nDev !== 1 ? 's' : ''}`
+  if (nSlv) return `${nSlv} slave${nSlv !== 1 ? 's' : ''}`
+  if (nDev) return `${nDev} device${nDev !== 1 ? 's' : ''}`
+  return 'No slave/device linked'
+}
+
 /**
- * Power Flow mind map — Sources (linked to real devices) → Total Load → Device Groups.
+ * Power Flow mind map — Sources (linked to real devices/slaves) → Total Load → Device Groups.
  */
 export default function PowerFlowMindMap({
   sources = [],
@@ -95,6 +104,7 @@ export default function PowerFlowMindMap({
       name: source.name || BUILTIN_META[source.type]?.label || '',
       type: source.type || 'custom',
       deviceIds: [...(source.deviceIds || [])],
+      slaveIds: [...(source.slaveIds || [])],
     })
     setSourceModal(source)
   }
@@ -113,11 +123,20 @@ export default function PowerFlowMindMap({
     }))
   }
 
+  function toggleSourceSlave(slaveId) {
+    setSourceForm((prev) => ({
+      ...prev,
+      slaveIds: (prev.slaveIds || []).includes(slaveId)
+        ? prev.slaveIds.filter((x) => x !== slaveId)
+        : [...(prev.slaveIds || []), slaveId],
+    }))
+  }
+
   function saveSourceForm() {
     if (!sourceForm.name.trim()) return
     const isBuiltin = ['grid', 'solar', 'generator'].includes(sourceForm.type)
-    // All sources must link at least one device (Grid included — otherwise stays 0 kW)
-    if (!sourceForm.deviceIds.length) return
+    const hasLinked = sourceForm.deviceIds.length > 0 || (sourceForm.slaveIds && sourceForm.slaveIds.length > 0)
+    if (!hasLinked) return
 
     if (sourceModal === 'create') {
       const idx = localSources.filter((s) => !['grid', 'solar', 'generator'].includes(s.type || s.id)).length
@@ -129,7 +148,12 @@ export default function PowerFlowMindMap({
         if (existing) {
           commitSources(localSources.map((s) => (
             s.id === existing.id || s.type === type
-              ? { ...s, name: sourceForm.name.trim(), deviceIds: [...sourceForm.deviceIds] }
+              ? {
+                  ...s,
+                  name: sourceForm.name.trim(),
+                  deviceIds: [...sourceForm.deviceIds],
+                  slaveIds: [...(sourceForm.slaveIds || [])],
+                }
               : s
           )))
           closeSourceModal()
@@ -143,6 +167,7 @@ export default function PowerFlowMindMap({
           name: sourceForm.name.trim(),
           type,
           deviceIds: [...sourceForm.deviceIds],
+          slaveIds: [...(sourceForm.slaveIds || [])],
           valueKw: 0,
           from: isBuiltin ? undefined : grad.from,
           to: isBuiltin ? undefined : grad.to,
@@ -158,6 +183,7 @@ export default function PowerFlowMindMap({
               name: sourceForm.name.trim(),
               type: ['grid', 'solar', 'generator'].includes(s.type) ? s.type : sourceForm.type,
               deviceIds: [...sourceForm.deviceIds],
+              slaveIds: [...(sourceForm.slaveIds || [])],
             }
           : s
       )))
@@ -189,15 +215,17 @@ export default function PowerFlowMindMap({
     const found = localSources.find((s) => s.type === type || s.id === type)
     const meta = BUILTIN_META[type]
     const deviceIds = found?.deviceIds || []
+    const slaveIds = found?.slaveIds || []
     return {
       key: type,
-      source: found || { id: type, type, name: meta.label, deviceIds: [], valueKw: 0 },
+      source: found || { id: type, type, name: meta.label, deviceIds: [], slaveIds: [], valueKw: 0 },
       label: found?.name || meta.label,
       rawVal: found?.valueKw ?? 0,
       Icon: meta.Icon,
       from: meta.from,
       to: meta.to,
       deviceIds,
+      slaveIds,
       derived: false,
     }
   })
@@ -324,15 +352,13 @@ export default function PowerFlowMindMap({
                 <p className="text-[11px] font-bold opacity-90">{s.label}</p>
                 <p className="text-sm font-black leading-tight">{Number(s.rawVal).toFixed(1)} kW</p>
                 <p className="text-[9px] opacity-70 font-semibold mt-0.5">
-                  {s.deviceIds.length
-                    ? `${s.deviceIds.length} device${s.deviceIds.length !== 1 ? 's' : ''}`
-                    : 'No device linked'}
+                  {formatLinkedSummary(s.deviceIds, s.slaveIds)}
                 </p>
               </div>
               {editable && (
                 <button
                   type="button"
-                  title="Link devices"
+                  title="Link slaves or devices"
                   onClick={() => openEditSource(s.source)}
                   className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-white/90 text-primary-700 opacity-0 group-hover:opacity-100 flex items-center justify-center shadow-sm"
                 >
@@ -346,7 +372,6 @@ export default function PowerFlowMindMap({
             const Icon = CUSTOM_ICONS[s.iconIdx ?? idx % CUSTOM_ICONS.length]
             const from = s.from || CUSTOM_GRADIENTS[idx % CUSTOM_GRADIENTS.length].from
             const to = s.to || CUSTOM_GRADIENTS[idx % CUSTOM_GRADIENTS.length].to
-            const nDev = (s.deviceIds || []).length
             return (
               <div
                 key={s.id}
@@ -358,7 +383,7 @@ export default function PowerFlowMindMap({
                   <p className="text-[11px] font-bold opacity-90">{s.name}</p>
                   <p className="text-sm font-black">{Number(s.valueKw || 0).toFixed(1)} kW</p>
                   <p className="text-[9px] opacity-70 font-semibold mt-0.5">
-                    {nDev ? `${nDev} device${nDev !== 1 ? 's' : ''}` : 'No device linked'}
+                    {formatLinkedSummary(s.deviceIds, s.slaveIds)}
                   </p>
                 </div>
                 {editable && (
@@ -430,12 +455,20 @@ export default function PowerFlowMindMap({
               className="flex items-center gap-1.5 rounded-2xl px-3.5 py-2.5 border border-dashed border-surface-300 text-surface-400 hover:text-primary-600"
             >
               <Plus size={14} />
-              <span className="text-xs font-bold">Create a Device Group</span>
+              <span className="text-xs font-bold">Create a Group</span>
             </Link>
           ) : (
             <>
               {groups.map((g) => {
                 const Icon = iconForGroup(g.name)
+                const nSlv = (g.slaveIds || g.slaves || []).length
+                const nDev = (g.deviceIds || g.devices || []).length
+                const groupCountSummary = nSlv && nDev
+                  ? `${nSlv} slave${nSlv !== 1 ? 's' : ''}, ${nDev} device${nDev !== 1 ? 's' : ''}`
+                  : nSlv
+                    ? `${nSlv} slave${nSlv !== 1 ? 's' : ''}`
+                    : `${nDev} device${nDev !== 1 ? 's' : ''}`
+
                 return (
                   <div
                     key={g.id}
@@ -481,8 +514,8 @@ export default function PowerFlowMindMap({
                     <div className="leading-tight flex-1 min-w-0 relative z-[1] pointer-events-none">
                       <p className="text-xs font-bold text-surface-800 dark:text-surface-100 truncate max-w-[7rem]">{g.name}</p>
                       <p className="text-[11px] font-black text-primary-600">{(g.load ?? 0).toFixed?.(2) ?? g.load ?? '0.00'} kW</p>
-                      <p className="text-[9px] text-surface-400 font-semibold">
-                        {g.deviceCount ?? g.deviceIds?.length ?? 0} device{(g.deviceCount ?? g.deviceIds?.length ?? 0) !== 1 ? 's' : ''}
+                      <p className="text-[9px] text-surface-400 font-semibold truncate max-w-[7.5rem]">
+                        {groupCountSummary}
                       </p>
                     </div>
                     <ChevronRight size={12} className="text-surface-300 group-hover:text-primary-500 relative z-[1] pointer-events-none" />
@@ -551,13 +584,17 @@ export default function PowerFlowMindMap({
             ]}
           />
           <div>
-            <label className="label">
-              Link Devices
-              <span className="text-danger-600 font-bold ml-0.5">*</span>
-              <span className="ml-1 text-surface-400 font-normal">({sourceForm.deviceIds.length})</span>
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="label mb-0">
+                Link Slaves & Devices
+                <span className="text-danger-600 font-bold ml-0.5">*</span>
+              </label>
+              <span className="text-xs text-primary-600 font-bold">
+                {(sourceForm.slaveIds?.length || 0) + (sourceForm.deviceIds?.length || 0)} selected
+              </span>
+            </div>
             <p className="text-[11px] text-surface-400 mb-2">
-              Select the real device(s) for this source. Live kW comes from their ActivePower. With no devices linked, the source stays at 0 kW.
+              Select specific slaves (e.g. Solar, Generator, Compressors) or entire devices. Live kW comes from their active telemetry.
             </p>
             {devices.length === 0 ? (
               <div className="p-3 inset-panel space-y-3">
@@ -574,26 +611,61 @@ export default function PowerFlowMindMap({
                 </button>
               </div>
             ) : (
-              <div className="border border-surface-200 dark:border-surface-700 rounded-xl overflow-hidden divide-y divide-surface-100 dark:divide-surface-800 max-h-56 overflow-y-auto">
-                {devices.map((d) => (
-                  <label key={d.id} className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-surface-50 dark:hover:bg-surface-800">
-                    <input
-                      type="checkbox"
-                      className="rounded border-surface-300 text-primary-600"
-                      checked={sourceForm.deviceIds.includes(d.id)}
-                      onChange={() => toggleSourceDevice(d.id)}
-                    />
-                    <Cpu size={13} className="text-surface-400 flex-shrink-0" />
-                    <span className="text-sm text-surface-800 dark:text-surface-100 flex-1">{d.name}</span>
-                    <span className={`badge text-[9px] ${d.status === 'Online' ? 'badge-success' : 'badge-neutral'}`}>
-                      {d.status}
-                    </span>
-                  </label>
-                ))}
+              <div className="border border-surface-200 dark:border-surface-700 rounded-xl overflow-hidden divide-y divide-surface-100 dark:divide-surface-800 max-h-64 overflow-y-auto">
+                {devices.map((d) => {
+                  const dSlaves = d.slaves || d.configSlaves || d._raw?.configSlaves || []
+                  return (
+                    <div key={d.id} className="bg-white dark:bg-surface-900 divide-y divide-surface-50 dark:divide-surface-800/60">
+                      {/* Device header */}
+                      <div className="flex items-center gap-3 px-3 py-2 bg-surface-50/80 dark:bg-surface-800/40">
+                        <label className="flex items-center gap-2.5 flex-1 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            className="rounded border-surface-300 text-primary-600"
+                            checked={sourceForm.deviceIds.includes(d.id)}
+                            onChange={() => toggleSourceDevice(d.id)}
+                          />
+                          <Cpu size={13} className="text-primary-600 flex-shrink-0" />
+                          <span className="text-xs font-bold text-surface-900 dark:text-surface-100">{d.name}</span>
+                          <span className="text-[10px] text-surface-400">({dSlaves.length} slaves)</span>
+                        </label>
+                        <span className={`badge text-[9px] ${d.status === 'Online' ? 'badge-success' : 'badge-neutral'}`}>
+                          {d.status}
+                        </span>
+                      </div>
+
+                      {/* Slaves under device */}
+                      {dSlaves.length > 0 && (
+                        <div className="pl-6 pr-3 py-1 space-y-1 bg-surface-50/30 dark:bg-surface-950/20">
+                          {dSlaves.map((slv) => (
+                            <label
+                              key={slv.id}
+                              className="flex items-center gap-2.5 py-1.5 px-2 rounded-lg cursor-pointer hover:bg-surface-100/60 dark:hover:bg-surface-800/60 transition-colors"
+                            >
+                              <input
+                                type="checkbox"
+                                className="rounded border-surface-300 text-primary-600"
+                                checked={(sourceForm.slaveIds || []).includes(slv.id)}
+                                onChange={() => toggleSourceSlave(slv.id)}
+                              />
+                              <span className="text-xs text-surface-700 dark:text-surface-200 flex-1">
+                                {slv.name}
+                                {slv.isDefault && (
+                                  <span className="ml-1.5 text-[9px] text-surface-400 font-normal">(Default)</span>
+                                )}
+                              </span>
+                              <span className="badge badge-info text-[8px] py-0 px-1.5">Slave</span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             )}
-            {devices.length > 0 && sourceForm.deviceIds.length === 0 && (
-              <p className="text-[11px] text-danger-600 mt-1.5 font-semibold">Select at least one device</p>
+            {devices.length > 0 && sourceForm.deviceIds.length === 0 && (!sourceForm.slaveIds || sourceForm.slaveIds.length === 0) && (
+              <p className="text-[11px] text-danger-600 mt-1.5 font-semibold">Select at least one slave or device</p>
             )}
           </div>
         </div>

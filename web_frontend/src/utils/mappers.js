@@ -127,6 +127,13 @@ export const mapDevice = (d) => {
     updatedAt: fmtDate(d.updatedAt),
     updatedAtRaw: d.updatedAt,
     latestMetrics: d.latestMetrics,
+    slaves: (d.configSlaves || d.slaves || []).map((s) => ({
+      id: s.id,
+      name: s.name,
+      deviceId: d.id,
+      deviceName: d.name,
+      isDefault: s.isDefault,
+    })),
     _raw: d,
   }
 }

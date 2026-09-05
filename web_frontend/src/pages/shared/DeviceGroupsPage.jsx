@@ -10,7 +10,7 @@ import { mapDevice, mapUser, mapOrganization } from '../../utils/mappers'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
 
-const EMPTY = { name: '', description: '', organizationId: '', deviceIds: [], userIds: [] }
+const EMPTY = { name: '', description: '', organizationId: '', deviceIds: [], slaveIds: [], userIds: [] }
 
 function fmtDate(d) {
   if (!d) return '—'
@@ -57,6 +57,8 @@ export default function DeviceGroupsPage({ scope = 'admin' }) {
       organizationId: g.organizationId,
       org: orgMap[g.organizationId] || g.organization?.name || '—',
       deviceIds: g.deviceIds || [],
+      slaveIds: g.slaveIds || [],
+      slaves: g.slaves || [],
       userIds: g.userIds || [],
       createdBy: g.createdByRole === 'SUPER_ADMIN' ? 'Admin' : g.createdByRole ? 'Organization' : '—',
       createdAt: fmtDate(g.createdAt),
@@ -111,6 +113,7 @@ export default function DeviceGroupsPage({ scope = 'admin' }) {
       description: row.description || '',
       organizationId: row.organizationId,
       deviceIds: [...(row.deviceIds || [])],
+      slaveIds: [...(row.slaveIds || [])],
       userIds: [...(row.userIds || [])],
     })
     setModal('edit')
@@ -124,6 +127,15 @@ export default function DeviceGroupsPage({ scope = 'admin' }) {
       deviceIds: prev.deviceIds.includes(id)
         ? prev.deviceIds.filter((x) => x !== id)
         : [...prev.deviceIds, id],
+    }))
+  }
+
+  const toggleSlave = (id) => {
+    setForm((prev) => ({
+      ...prev,
+      slaveIds: (prev.slaveIds || []).includes(id)
+        ? prev.slaveIds.filter((x) => x !== id)
+        : [...(prev.slaveIds || []), id],
     }))
   }
 
@@ -143,8 +155,9 @@ export default function DeviceGroupsPage({ scope = 'admin' }) {
       showToast('Select an organization', 'error')
       return
     }
-    if (!form.deviceIds.length) {
-      showToast('Select at least one device', 'error')
+    const hasMembers = (form.deviceIds?.length || 0) + (form.slaveIds?.length || 0) > 0
+    if (!hasMembers) {
+      showToast('Select at least one slave or device', 'error')
       return
     }
     setSaving(true)
@@ -154,6 +167,7 @@ export default function DeviceGroupsPage({ scope = 'admin' }) {
         description: form.description.trim() || null,
         organizationId,
         deviceIds: form.deviceIds,
+        slaveIds: form.slaveIds,
         userIds: form.userIds,
       }
       if (modal === 'create') await emsApi.createDeviceGroup(body)
@@ -192,13 +206,22 @@ export default function DeviceGroupsPage({ scope = 'admin' }) {
       render: (v) => <span className="text-xs text-surface-400">{v || '—'}</span>,
     },
     {
-      key: 'deviceIds',
-      label: 'Devices',
-      render: (ids) => (
-        <span className="badge badge-neutral" title={`${ids?.length || 0} device${(ids?.length || 0) !== 1 ? 's' : ''}`}>
-          {ids?.length || 0}
-        </span>
-      ),
+      key: 'members',
+      label: 'Slaves & Devices',
+      render: (_, row) => {
+        const nSlv = row.slaveIds?.length || 0
+        const nDev = row.deviceIds?.length || 0
+        if (nSlv && nDev) {
+          return (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="badge badge-info" title={`${nSlv} slave(s)`}>{nSlv} slave{nSlv !== 1 ? 's' : ''}</span>
+              <span className="badge badge-neutral" title={`${nDev} device(s)`}>{nDev} dev</span>
+            </div>
+          )
+        }
+        if (nSlv) return <span className="badge badge-info">{nSlv} slave{nSlv !== 1 ? 's' : ''}</span>
+        return <span className="badge badge-neutral">{nDev} device{nDev !== 1 ? 's' : ''}</span>
+      },
     },
     {
       key: 'userIds',
@@ -281,7 +304,7 @@ export default function DeviceGroupsPage({ scope = 'admin' }) {
                 disabled={
                   saving
                   || !form.name.trim()
-                  || !form.deviceIds.length
+                  || ((!form.deviceIds?.length) && (!form.slaveIds?.length))
                   || (isAdmin && !form.organizationId)
                 }
               >
@@ -309,7 +332,7 @@ export default function DeviceGroupsPage({ scope = 'admin' }) {
                 label="Organization"
                 required
                 value={form.organizationId}
-                onChange={(e) => setForm((f) => ({ ...f, organizationId: e.target.value, deviceIds: [], userIds: [] }))}
+                onChange={(e) => setForm((f) => ({ ...f, organizationId: e.target.value, deviceIds: [], slaveIds: [], userIds: [] }))}
                 options={[
                   { value: '', label: 'Select organization…' },
                   ...orgs.map((o) => ({ value: o.id, label: o.name })),
@@ -320,11 +343,15 @@ export default function DeviceGroupsPage({ scope = 'admin' }) {
             {(form.organizationId || !isAdmin) && (
               <>
                 <div>
-                  <label className="label">
-                    Add Devices
-                    <span className="text-danger-600 font-bold ml-0.5">*</span>
-                    <span className="ml-1 text-surface-400 font-normal">({form.deviceIds.length})</span>
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="label mb-0">
+                      Add Slaves & Devices
+                      <span className="text-danger-600 font-bold ml-0.5">*</span>
+                    </label>
+                    <span className="text-xs text-primary-600 font-bold">
+                      {(form.slaveIds?.length || 0) + (form.deviceIds?.length || 0)} selected
+                    </span>
+                  </div>
                   {hasDeviceCeiling && (
                     <p className="text-[11px] text-surface-400 mb-2">
                       Limited to the {adminAllowedDeviceIds.length} device{adminAllowedDeviceIds.length !== 1 ? 's' : ''} granted to your organization by the platform admin.
@@ -347,26 +374,61 @@ export default function DeviceGroupsPage({ scope = 'admin' }) {
                       </button>
                     </div>
                   ) : (
-                    <div className="border border-surface-200 rounded-xl overflow-hidden divide-y divide-surface-100 max-h-56 overflow-y-auto">
-                      {orgDevices.map((d) => (
-                        <label key={d.id} className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-surface-50">
-                          <input
-                            type="checkbox"
-                            className="rounded border-surface-300 text-primary-600"
-                            checked={form.deviceIds.includes(d.id)}
-                            onChange={() => toggleDevice(d.id)}
-                          />
-                          <Cpu size={13} className="text-surface-400 flex-shrink-0" />
-                          <span className="text-sm text-surface-800 flex-1">{d.name}</span>
-                          <span className={`badge text-[9px] ${d.status === 'Online' ? 'badge-success' : 'badge-neutral'}`}>
-                            {d.status}
-                          </span>
-                        </label>
-                      ))}
+                    <div className="border border-surface-200 dark:border-surface-700 rounded-xl overflow-hidden divide-y divide-surface-100 dark:divide-surface-800 max-h-64 overflow-y-auto">
+                      {orgDevices.map((d) => {
+                        const dSlaves = d.slaves || d.configSlaves || d._raw?.configSlaves || []
+                        return (
+                          <div key={d.id} className="bg-white dark:bg-surface-900 divide-y divide-surface-50 dark:divide-surface-800/60">
+                            {/* Device header */}
+                            <div className="flex items-center gap-3 px-3 py-2 bg-surface-50/80 dark:bg-surface-800/40">
+                              <label className="flex items-center gap-2.5 flex-1 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  className="rounded border-surface-300 text-primary-600"
+                                  checked={form.deviceIds.includes(d.id)}
+                                  onChange={() => toggleDevice(d.id)}
+                                />
+                                <Cpu size={13} className="text-primary-600 flex-shrink-0" />
+                                <span className="text-xs font-bold text-surface-900 dark:text-surface-100">{d.name}</span>
+                                <span className="text-[10px] text-surface-400">({dSlaves.length} slaves)</span>
+                              </label>
+                              <span className={`badge text-[9px] ${d.status === 'Online' ? 'badge-success' : 'badge-neutral'}`}>
+                                {d.status}
+                              </span>
+                            </div>
+
+                            {/* Slaves under device */}
+                            {dSlaves.length > 0 && (
+                              <div className="pl-6 pr-3 py-1 space-y-1 bg-surface-50/30 dark:bg-surface-950/20">
+                                {dSlaves.map((slv) => (
+                                  <label
+                                    key={slv.id}
+                                    className="flex items-center gap-2.5 py-1.5 px-2 rounded-lg cursor-pointer hover:bg-surface-100/60 dark:hover:bg-surface-800/60 transition-colors"
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      className="rounded border-surface-300 text-primary-600"
+                                      checked={(form.slaveIds || []).includes(slv.id)}
+                                      onChange={() => toggleSlave(slv.id)}
+                                    />
+                                    <span className="text-xs text-surface-700 dark:text-surface-200 flex-1">
+                                      {slv.name}
+                                      {slv.isDefault && (
+                                        <span className="ml-1.5 text-[9px] text-surface-400 font-normal">(Default)</span>
+                                      )}
+                                    </span>
+                                    <span className="badge badge-info text-[8px] py-0 px-1.5">Slave</span>
+                                  </label>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
                     </div>
                   )}
-                  {orgDevices.length > 0 && form.deviceIds.length === 0 && (
-                    <p className="text-[11px] text-danger-600 mt-1.5 font-semibold">Select at least one device</p>
+                  {orgDevices.length > 0 && form.deviceIds.length === 0 && (!form.slaveIds || form.slaveIds.length === 0) && (
+                    <p className="text-[11px] text-danger-600 mt-1.5 font-semibold">Select at least one slave or device</p>
                   )}
                 </div>
                 <div>

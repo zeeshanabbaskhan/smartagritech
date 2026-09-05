@@ -4,18 +4,39 @@ const { orgScope, paginate } = require('../utils/helpers')
 
 const includeMembers = {
   devices: { include: { device: { select: { id: true, name: true, status: true } } } },
+  slaves: {
+    include: {
+      slave: {
+        select: {
+          id: true,
+          name: true,
+          deviceId: true,
+          isDefault: true,
+          device: { select: { id: true, name: true, status: true } },
+        },
+      },
+    },
+  },
   users: { include: { user: { select: { id: true, fullName: true, email: true, role: true } } } },
   creator: { select: { id: true, fullName: true, role: true } },
-  _count: { select: { devices: true, users: true } },
+  _count: { select: { devices: true, slaves: true, users: true } },
 }
 
 function mapGroup(g) {
-  const { creator, devices, users, ...rest } = g
+  const { creator, devices, slaves, users, ...rest } = g
   return {
     ...rest,
     deviceIds: (devices || []).map((d) => d.deviceId),
-    userIds: (users || []).map((u) => u.userId),
+    slaveIds: (slaves || []).map((s) => s.slaveId),
     devices: (devices || []).map((d) => d.device),
+    slaves: (slaves || []).map((s) => ({
+      id: s.slave?.id,
+      name: s.slave?.name,
+      deviceId: s.slave?.deviceId,
+      deviceName: s.slave?.device?.name,
+      deviceStatus: s.slave?.device?.status,
+      isDefault: s.slave?.isDefault,
+    })),
     users: (users || []).map((u) => u.user),
     createdByRole: creator?.role || null,
     createdByName: creator?.fullName || null,
@@ -27,10 +48,11 @@ const resolveOrgId = (req, bodyOrgId) => {
   return req.user.organizationId
 }
 
-/** Ensure member devices/users belong to the target organization. */
-async function assertMembersInOrg(orgId, deviceIds = [], userIds = []) {
+/** Ensure member devices/slaves/users belong to the target organization. */
+async function assertMembersInOrg(orgId, deviceIds = [], userIds = [], slaveIds = []) {
   const uniqueDevices = [...new Set((deviceIds || []).filter(Boolean))]
   const uniqueUsers = [...new Set((userIds || []).filter(Boolean))]
+  const uniqueSlaves = [...new Set((slaveIds || []).filter(Boolean))]
 
   if (uniqueDevices.length) {
     const count = await prisma.device.count({
@@ -38,6 +60,15 @@ async function assertMembersInOrg(orgId, deviceIds = [], userIds = []) {
     })
     if (count !== uniqueDevices.length) {
       throw new AppError('One or more devices do not belong to this organization', 400)
+    }
+  }
+
+  if (uniqueSlaves.length) {
+    const count = await prisma.deviceConfigSlave.count({
+      where: { organizationId: orgId, id: { in: uniqueSlaves } },
+    })
+    if (count !== uniqueSlaves.length) {
+      throw new AppError('One or more slaves do not belong to this organization', 400)
     }
   }
 
@@ -55,7 +86,7 @@ async function assertMembersInOrg(orgId, deviceIds = [], userIds = []) {
     }
   }
 
-  return { deviceIds: uniqueDevices, userIds: uniqueUsers }
+  return { deviceIds: uniqueDevices, userIds: uniqueUsers, slaveIds: uniqueSlaves }
 }
 
 /**
@@ -104,12 +135,12 @@ const listDeviceGroups = async (req, res, next) => {
 
 const createDeviceGroup = async (req, res, next) => {
   try {
-    const { name, description, organizationId, deviceIds = [], userIds = [] } = req.body
+    const { name, description, organizationId, deviceIds = [], slaveIds = [], userIds = [] } = req.body
     const orgId = resolveOrgId(req, organizationId)
     if (!orgId) return next(new AppError('organizationId is required', 400))
     if (!name?.trim()) return next(new AppError('name is required', 400))
 
-    let members = await assertMembersInOrg(orgId, deviceIds, userIds)
+    let members = await assertMembersInOrg(orgId, deviceIds, userIds, slaveIds)
     members = {
       ...members,
       deviceIds: await enforceAdminDeviceCeiling(req, orgId, members.deviceIds),
@@ -122,6 +153,7 @@ const createDeviceGroup = async (req, res, next) => {
         organizationId: orgId,
         createdBy: req.user.id,
         devices: { create: members.deviceIds.map((deviceId) => ({ deviceId })) },
+        slaves: { create: members.slaveIds.map((slaveId) => ({ slaveId })) },
         users: { create: members.userIds.map((userId) => ({ userId })) },
       },
       include: includeMembers,
@@ -136,18 +168,21 @@ const updateDeviceGroup = async (req, res, next) => {
     const existing = await prisma.deviceGroup.findFirst({ where })
     if (!existing) return next(new AppError('Device group not found', 404))
 
-    const { name, description, deviceIds, userIds, isActive } = req.body
+    const { name, description, deviceIds, slaveIds, userIds, isActive } = req.body
     let safeDeviceIds = deviceIds
+    let safeSlaveIds = slaveIds
     let safeUserIds = userIds
-    if (Array.isArray(deviceIds) || Array.isArray(userIds)) {
+    if (Array.isArray(deviceIds) || Array.isArray(slaveIds) || Array.isArray(userIds)) {
       const members = await assertMembersInOrg(
         existing.organizationId,
         Array.isArray(deviceIds) ? deviceIds : [],
         Array.isArray(userIds) ? userIds : [],
+        Array.isArray(slaveIds) ? slaveIds : [],
       )
       if (Array.isArray(deviceIds)) {
         safeDeviceIds = await enforceAdminDeviceCeiling(req, existing.organizationId, members.deviceIds)
       }
+      if (Array.isArray(slaveIds)) safeSlaveIds = members.slaveIds
       if (Array.isArray(userIds)) safeUserIds = members.userIds
     }
 
@@ -157,6 +192,15 @@ const updateDeviceGroup = async (req, res, next) => {
         if (safeDeviceIds.length) {
           await tx.deviceGroupDevice.createMany({
             data: safeDeviceIds.map((deviceId) => ({ deviceGroupId: existing.id, deviceId })),
+            skipDuplicates: true,
+          })
+        }
+      }
+      if (Array.isArray(safeSlaveIds)) {
+        await tx.deviceGroupSlave.deleteMany({ where: { deviceGroupId: existing.id } })
+        if (safeSlaveIds.length) {
+          await tx.deviceGroupSlave.createMany({
+            data: safeSlaveIds.map((slaveId) => ({ deviceGroupId: existing.id, slaveId })),
             skipDuplicates: true,
           })
         }
