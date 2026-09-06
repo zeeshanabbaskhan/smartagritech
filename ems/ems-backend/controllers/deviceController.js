@@ -67,12 +67,19 @@ const attachLatestMetrics = async (devices) => {
 }
 
 const mapDeviceSlaves = (devices) => {
-  const OFFLINE_AFTER_MS = 5 * 60 * 1000
+  const OFFLINE_AFTER_MS = 10 * 60 * 1000
   return devices.map((d) => {
     const isSwitchOff = String(d.switchState || '').toUpperCase() === 'OFF'
+    const dLastTs = d.lastDataReceivedAt ? new Date(d.lastDataReceivedAt).getTime() : 0
     const configSlaves = (d.configSlaves || []).map((s) => {
       const lastVar = s.configVariables?.[0]?.lastUpdatedAt || null
-      const lastDataReceivedAt = lastVar || d.lastDataReceivedAt || null
+      const vLastTs = lastVar ? new Date(lastVar).getTime() : 0
+      let lastDataReceivedAt = lastVar
+      if (s.isDefault && dLastTs > vLastTs) {
+        lastDataReceivedAt = d.lastDataReceivedAt
+      } else if (!lastDataReceivedAt) {
+        lastDataReceivedAt = d.lastDataReceivedAt || null
+      }
       const age = lastDataReceivedAt ? Date.now() - new Date(lastDataReceivedAt).getTime() : Infinity
       const isOnline = !isSwitchOff && Number.isFinite(age) && age < OFFLINE_AFTER_MS
       return {

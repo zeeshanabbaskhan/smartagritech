@@ -8,8 +8,8 @@ const fmtDate = (d) => {
   return s.length > 16 ? s.slice(0, 16).replace('T', ' ') : s
 }
 
-/** Match backend DEVICE_OFFLINE_AFTER_MS (default 5 min). */
-const DEVICE_OFFLINE_AFTER_MS = 5 * 60_000
+/** Match backend DEVICE_OFFLINE_AFTER_MS (10 min). */
+const DEVICE_OFFLINE_AFTER_MS = 10 * 60_000
 
 const statusLabel = (s) => {
   if (!s) return '—'

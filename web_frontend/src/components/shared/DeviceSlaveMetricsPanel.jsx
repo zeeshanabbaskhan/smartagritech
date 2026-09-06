@@ -201,23 +201,37 @@ export default function DeviceSlaveMetricsPanel({
     <div className={`space-y-4 ${className}`}>
       {/* Slave tabs — always visible when device has slaves (legacy Data Nodes Overview) */}
       {slaves.length > 0 && (
-        <div>
-          <p className="text-xs font-bold text-surface-500 mb-2">Data Nodes Overview</p>
-          <div className="flex flex-wrap gap-0 border border-surface-200 dark:border-surface-700 rounded-lg overflow-hidden w-fit">
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-bold text-surface-500">Data Nodes Overview</p>
+            {activeSlave && (
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                activeSlave.status === 'ONLINE' || activeSlave.status === 'Online'
+                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
+                  : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20'
+              }`}>
+                {activeSlave.status === 'ONLINE' || activeSlave.status === 'Online' ? '● Live Streaming' : '○ Offline / Stale'}
+              </span>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-0 border border-surface-200 dark:border-surface-700 rounded-lg overflow-hidden w-fit max-w-full">
             {slaves.map((s) => {
               const active = s.id === activeSlaveId
+              const isOnline = s.status === 'ONLINE' || s.status === 'Online'
               return (
                 <button
                   key={s.id}
                   type="button"
                   onClick={() => setActiveSlaveId(s.id)}
-                  className={`px-4 py-2 text-sm font-semibold border-r last:border-r-0 border-surface-200 dark:border-surface-700 transition-colors ${
+                  className={`px-3 py-1.5 text-xs font-bold border-r last:border-r-0 border-surface-200 dark:border-surface-700 transition-colors flex items-center gap-1.5 ${
                     active
                       ? 'bg-primary-600 text-white'
                       : 'bg-surface-50 dark:bg-surface-900 text-surface-700 dark:text-surface-300 hover:bg-surface-100 dark:hover:bg-surface-800'
                   }`}
                 >
-                  {s.name ?? s.displayName ?? 'Slave'}
+                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${isOnline ? 'bg-emerald-400' : 'bg-surface-400'}`} />
+                  <span>{s.name ?? s.displayName ?? 'Slave'}</span>
+                  {s.isDefault && <span className="text-[9px] opacity-75 font-normal">(Default)</span>}
                 </button>
               )
             })}

@@ -26,20 +26,54 @@ const getFullConfig = async (req, res, next) => {
 // @access SUPER_ADMIN | ORG_ADMIN | USER
 const getConfigSlaves = async (req, res, next) => {
   try {
-<<<<<<< HEAD
     const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 100))
     const page  = Math.max(1, parseInt(req.query.page, 10) || 1)
     const skip  = (page - 1) * limit
     const where = { deviceId: req.params.deviceId, isActive: true }
+    const OFFLINE_AFTER_MS = 10 * 60 * 1000
 
-    const [data, total] = await Promise.all([
+    const [rawSlaves, total, device] = await Promise.all([
       prisma.deviceConfigSlave.findMany({
         where, skip, take: limit,
-        orderBy: { createdAt: 'asc' },
-        include: { _count: { select: { configVariables: true } } },
+        orderBy: { name: 'asc' },
+        include: {
+          _count: { select: { configVariables: true } },
+          configVariables: {
+            where: { isActive: true },
+            select: { lastUpdatedAt: true },
+            orderBy: { lastUpdatedAt: 'desc' },
+            take: 1,
+          },
+        },
       }),
       prisma.deviceConfigSlave.count({ where }),
+      prisma.device.findUnique({
+        where: { id: req.params.deviceId },
+        select: { switchState: true, lastDataReceivedAt: true },
+      }),
     ])
+
+    const isSwitchOff = String(device?.switchState || '').toUpperCase() === 'OFF'
+    const dLastTs = device?.lastDataReceivedAt ? new Date(device.lastDataReceivedAt).getTime() : 0
+
+    const data = rawSlaves.map((s) => {
+      const lastVar = s.configVariables?.[0]?.lastUpdatedAt || null
+      const vLastTs = lastVar ? new Date(lastVar).getTime() : 0
+      let lastDataReceivedAt = lastVar
+      if (s.isDefault && dLastTs > vLastTs) {
+        lastDataReceivedAt = device?.lastDataReceivedAt
+      } else if (!lastDataReceivedAt) {
+        lastDataReceivedAt = device?.lastDataReceivedAt || null
+      }
+      const age = lastDataReceivedAt ? Date.now() - new Date(lastDataReceivedAt).getTime() : Infinity
+      const isOnline = !isSwitchOff && Number.isFinite(age) && age < OFFLINE_AFTER_MS
+      return {
+        ...s,
+        status: isOnline ? 'ONLINE' : 'OFFLINE',
+        lastDataReceivedAt,
+      }
+    })
+
     res.json({ success: true, data, total, page, pages: Math.ceil(total / limit) })
   } catch (err) { next(err) }
 }

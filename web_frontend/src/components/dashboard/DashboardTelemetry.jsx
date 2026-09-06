@@ -195,6 +195,17 @@ export default function DashboardTelemetry({
 
   const kpiState = useMemo(() => computeDynamicKpis(activeDevices), [activeDevices])
 
+  const { onlineSlavesCount, totalSlavesCount } = useMemo(() => {
+    let online = 0
+    let total = 0
+    for (const d of activeDevices) {
+      const sList = d.slaves || d.configSlaves || []
+      total += sList.length
+      online += sList.filter((s) => s.status === 'Online' || s.status === 'ONLINE' || s.statusRaw === 'ONLINE').length
+    }
+    return { onlineSlavesCount: online, totalSlavesCount: total }
+  }, [activeDevices])
+
   const KPI_CONFIG = useMemo(() => {
     const colors = kpiColors()
     return kpiState.cards.map((c, i) => ({
@@ -412,7 +423,9 @@ export default function DashboardTelemetry({
                     {unit ? <span className="text-xs font-bold text-surface-400">{unit}</span> : null}
                   </div>
                   <div className="mt-2 flex items-center justify-between">
-                    <span className="text-[10px] text-surface-400 font-semibold">{agg} · {kpiState.onlineCount} online</span>
+                    <span className="text-[10px] text-surface-400 font-semibold">
+                      {agg} · {totalSlavesCount > 0 ? `${onlineSlavesCount} / ${totalSlavesCount} online slaves` : `${kpiState.onlineCount} online`}
+                    </span>
                     <ChevronRight size={11} className="text-surface-300 group-hover:text-primary-500 transition-colors flex-shrink-0" />
                   </div>
                 </button>
