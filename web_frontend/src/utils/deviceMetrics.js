@@ -2,8 +2,11 @@
 
 const ALIASES = {
   power:       ['Total Power', 'TotalPower', 'ActivePower', 'TotalActivePower', 'Active Power', 'Total Active Power', 'ActivePowerTotal', 'Power', 'Total kW', 'kW', 'PowerConsumption'],
-  current:     ['Current A', 'Current B', 'Current C', 'CurrentA', 'Ia', 'Current', 'TotalCurrent', 'CurrentTotal', 'AverageCurrent'],
-  voltage:     ['Voltage', 'VoltageA', 'VoltageB', 'VoltageC', 'Va', 'AverageVoltage', 'VoltageAvg', 'Vab'],
+  current:     ['Current A', 'Current B', 'Current C', 'CurrentA', 'CurrentB', 'CurrentC', 'Ia', 'Current', 'TotalCurrent', 'CurrentTotal', 'AverageCurrent', 'Total Current'],
+  currentA:    ['Current A', 'CurrentA', 'Current_A', 'Ia', 'Phase Current A', 'PhaseCurrentA', 'Phase CurrentA', 'Current 1', 'Current1', 'I1'],
+  currentB:    ['Current B', 'CurrentB', 'Current_B', 'Ib', 'Phase Current B', 'PhaseCurrentB', 'Phase CurrentB', 'Current 2', 'Current2', 'I2'],
+  currentC:    ['Current C', 'CurrentC', 'Current_C', 'Ic', 'Phase Current C', 'PhaseCurrentC', 'Phase CurrentC', 'Current 3', 'Current3', 'I3'],
+  voltage:     ['Voltage', 'VoltageA', 'VoltageB', 'VoltageC', 'Voltage A', 'Voltage B', 'Voltage C', 'Va', 'AverageVoltage', 'VoltageAvg', 'Vab'],
   pf:          ['Power Factor', 'PowerFactor', 'PF', 'pf', 'AveragePowerFactor', 'TotalPowerFactor'],
   consumption: ['Units', 'EnergyConsumption', 'ActiveEnergy', 'PowerConsumption', 'kWh', 'TotalEnergy', 'Energy'],
 }
@@ -111,26 +114,45 @@ export function readDeviceMetric(device, type) {
     if (!Number.isFinite(n)) return NaN
     const unit = raw && typeof raw === 'object' ? (raw.unit || '') : ''
     // Alias 'power' and ActivePower* readings → kW for org KPIs / charts
-    if (type === 'power' || (/activepower|totalactivepower/i.test(String(type)) && /activepower|totalactivepower/i.test(String(name)))) {
+    if (type === 'power' || (/activepower|totalactivepower|total power|totalpower/i.test(String(type)) && /activepower|totalactivepower|total power|totalpower/i.test(String(name)))) {
       return powerReadingToKw(name, n, unit)
     }
     return n
   }
 
-  // Direct variable name (dynamic path)
+  // 1. Direct variable name (exact match)
   if (metrics[type] != null && metrics[type] !== '') {
     const n = finish(type, metrics[type])
     if (Number.isFinite(n)) return n
   }
 
-  const keys = ALIASES[type] ?? [type]
-  for (const key of keys) {
-    const n = finish(key, metrics[key])
-    if (Number.isFinite(n) && n > 0) return n
+  // 2. Direct normalized match (case-insensitive, ignoring spaces and underscores)
+  const normType = String(type || '').toLowerCase().replace(/[\s_\-]/g, '')
+  for (const [k, v] of Object.entries(metrics)) {
+    if (k.toLowerCase().replace(/[\s_\-]/g, '') === normType) {
+      const n = finish(k, v)
+      if (Number.isFinite(n)) return n
+    }
   }
 
-  // 3-Phase summation fallback for meters split into phase powers
-  if (type === 'power') {
+  // 3. Known aliases lookup
+  const keys = ALIASES[type] ?? []
+  for (const key of keys) {
+    if (metrics[key] != null && metrics[key] !== '') {
+      const n = finish(key, metrics[key])
+      if (Number.isFinite(n) && n > 0) return n
+    }
+    const normKey = String(key).toLowerCase().replace(/[\s_\-]/g, '')
+    for (const [k, v] of Object.entries(metrics)) {
+      if (k.toLowerCase().replace(/[\s_\-]/g, '') === normKey) {
+        const n = finish(k, v)
+        if (Number.isFinite(n) && n > 0) return n
+      }
+    }
+  }
+
+  // 4. 3-Phase summation fallback for meters split into phase powers
+  if (type === 'power' || normType === 'power' || normType === 'activepower' || normType === 'totalpower') {
     const pA = parseMetricRaw(metrics['PowerA'] ?? metrics['Power A'] ?? metrics['Power_A'] ?? metrics['P1'])
     const pB = parseMetricRaw(metrics['PowerB'] ?? metrics['Power B'] ?? metrics['Power_B'] ?? metrics['P2'])
     const pC = parseMetricRaw(metrics['PowerC'] ?? metrics['Power C'] ?? metrics['Power_C'] ?? metrics['P3'])
@@ -140,7 +162,7 @@ export function readDeviceMetric(device, type) {
     }
   }
 
-  // First non-zero/valid alias if available
+  // 5. First non-zero/valid alias if available
   for (const key of keys) {
     const n = finish(key, metrics[key])
     if (Number.isFinite(n)) return n
@@ -160,22 +182,48 @@ export function formatDeviceMetric(device, type, { offline = false } = {}) {
 }
 
 const PRIMARY_KPI_PREFERENCE = [
+  'Total Power',
+  'TotalPower',
   'ActivePower',
   'TotalActivePower',
   'PowerConsumption',
   'Power',
+  'Active Power',
+  'Current A',
+  'Current B',
+  'Current C',
   'CurrentA',
   'CurrentB',
   'CurrentC',
+  'Phase Current A',
+  'Phase Current B',
+  'Phase Current C',
   'Current',
   'TotalCurrent',
+  'Voltage A',
+  'Voltage B',
+  'Voltage C',
   'VoltageA',
   'VoltageB',
   'VoltageC',
   'Voltage',
+  'Power Factor',
   'PowerFactor',
   'Frequency',
 ]
+
+export function formatCardLabel(name) {
+  const norm = String(name || '').toLowerCase().replace(/[\s_\-]/g, '')
+  if (norm === 'currenta' || norm === 'phasecurrenta' || norm === 'ia') return 'Current A'
+  if (norm === 'currentb' || norm === 'phasecurrentb' || norm === 'ib') return 'Current B'
+  if (norm === 'currentc' || norm === 'phasecurrentc' || norm === 'ic') return 'Current C'
+  if (norm === 'totalpower' || norm === 'activepower' || norm === 'totalactivepower' || norm === 'power') return 'Total Power'
+  if (norm === 'voltagea' || norm === 'phasevoltagea' || norm === 'va') return 'Voltage A'
+  if (norm === 'voltageb' || norm === 'phasevoltageb' || norm === 'vb') return 'Voltage B'
+  if (norm === 'voltagec' || norm === 'phasevoltagec' || norm === 'vc') return 'Voltage C'
+  if (norm === 'powerfactor' || norm === 'pf') return 'Power Factor'
+  return name
+}
 
 /**
  * Fleet KPIs from real shared variable names across online devices.
@@ -192,6 +240,23 @@ export function computeDynamicKpis(devices = []) {
     }
   }
 
+  const findMatchingKey = (candidates) => {
+    // 1. Exact match
+    for (const c of candidates) {
+      if (nameCounts.has(c)) return c
+    }
+    // 2. Normalized match against available keys
+    for (const c of candidates) {
+      const normC = c.toLowerCase().replace(/[\s_\-]/g, '')
+      for (const k of nameCounts.keys()) {
+        if (k.toLowerCase().replace(/[\s_\-]/g, '') === normC) {
+          return k
+        }
+      }
+    }
+    return null
+  }
+
   // Deterministically select top 4 KPI names:
   // 1. Preferred power variable
   // 2. Current A
@@ -199,51 +264,90 @@ export function computeDynamicKpis(devices = []) {
   // 4. Current C
   // Fall back to other available variables if any are missing.
   const chosenNames = []
-  const availableNames = new Set(nameCounts.keys())
+  const usedKeys = new Set()
 
   // Slot 1: Power variable
-  const powerCandidate = ['ActivePower', 'TotalActivePower', 'PowerConsumption', 'Power'].find((k) => availableNames.has(k))
+  const powerCandidate = findMatchingKey([
+    'Total Power',
+    'TotalPower',
+    'ActivePower',
+    'TotalActivePower',
+    'Active Power',
+    'Power',
+    'PowerConsumption',
+  ])
   if (powerCandidate) {
     chosenNames.push(powerCandidate)
-    availableNames.delete(powerCandidate)
+    usedKeys.add(powerCandidate)
   }
 
   // Slot 2: Current A
-  const curACandidate = ['CurrentA', 'Ia', 'Current', 'TotalCurrent'].find((k) => availableNames.has(k))
-  if (curACandidate) {
+  const curACandidate = findMatchingKey([
+    'Current A',
+    'CurrentA',
+    'Current_A',
+    'Phase Current A',
+    'Phase CurrentA',
+    'PhaseCurrentA',
+    'Ia',
+    'Current',
+    'TotalCurrent',
+  ])
+  if (curACandidate && !usedKeys.has(curACandidate)) {
     chosenNames.push(curACandidate)
-    availableNames.delete(curACandidate)
+    usedKeys.add(curACandidate)
   }
 
   // Slot 3: Current B
-  const curBCandidate = ['CurrentB', 'Ib'].find((k) => availableNames.has(k))
-  if (curBCandidate) {
+  const curBCandidate = findMatchingKey([
+    'Current B',
+    'CurrentB',
+    'Current_B',
+    'Phase Current B',
+    'Phase CurrentB',
+    'PhaseCurrentB',
+    'Ib',
+  ])
+  if (curBCandidate && !usedKeys.has(curBCandidate)) {
     chosenNames.push(curBCandidate)
-    availableNames.delete(curBCandidate)
+    usedKeys.add(curBCandidate)
   }
 
   // Slot 4: Current C
-  const curCCandidate = ['CurrentC', 'Ic'].find((k) => availableNames.has(k))
-  if (curCCandidate) {
+  const curCCandidate = findMatchingKey([
+    'Current C',
+    'CurrentC',
+    'Current_C',
+    'Phase Current C',
+    'Phase CurrentC',
+    'PhaseCurrentC',
+    'Ic',
+  ])
+  if (curCCandidate && !usedKeys.has(curCCandidate)) {
     chosenNames.push(curCCandidate)
-    availableNames.delete(curCCandidate)
+    usedKeys.add(curCCandidate)
   }
 
   // If fewer than 4 chosen, fill remaining from available sorted by PRIMARY_KPI_PREFERENCE then count
-  if (chosenNames.length < 4 && availableNames.size > 0) {
-    const remaining = [...availableNames].sort((a, b) => {
-      const idxA = PRIMARY_KPI_PREFERENCE.indexOf(a)
-      const idxB = PRIMARY_KPI_PREFERENCE.indexOf(b)
-      if (idxA >= 0 && idxB >= 0) return idxA - idxB
-      if (idxA >= 0) return -1
-      if (idxB >= 0) return 1
-      const countDiff = (nameCounts.get(b) || 0) - (nameCounts.get(a) || 0)
-      if (countDiff !== 0) return countDiff
-      return a.localeCompare(b)
-    })
+  if (chosenNames.length < 4 && nameCounts.size > usedKeys.size) {
+    const remaining = [...nameCounts.keys()]
+      .filter((k) => !usedKeys.has(k))
+      .sort((a, b) => {
+        const normA = a.toLowerCase().replace(/[\s_\-]/g, '')
+        const normB = b.toLowerCase().replace(/[\s_\-]/g, '')
+        const idxA = PRIMARY_KPI_PREFERENCE.findIndex((p) => p.toLowerCase().replace(/[\s_\-]/g, '') === normA)
+        const idxB = PRIMARY_KPI_PREFERENCE.findIndex((p) => p.toLowerCase().replace(/[\s_\-]/g, '') === normB)
+        if (idxA >= 0 && idxB >= 0) return idxA - idxB
+        if (idxA >= 0) return -1
+        if (idxB >= 0) return 1
+        const countDiff = (nameCounts.get(b) || 0) - (nameCounts.get(a) || 0)
+        if (countDiff !== 0) return countDiff
+        return a.localeCompare(b)
+      })
     for (const r of remaining) {
       if (chosenNames.length >= 4) break
       chosenNames.push(r)
+      usedKeys.add(r)
     }
   }
 
@@ -257,7 +361,7 @@ export function computeDynamicKpis(devices = []) {
       const useMean = /voltage|pf|powerfactor|frequency|temp|moist|battery/i.test(name)
       return {
         key: name,
-        label: name,
+        label: formatCardLabel(name),
         metric: name,
         unit: unitForVariable(name),
         value: useMean ? mean : sum,
@@ -278,9 +382,9 @@ export function computeDynamicKpis(devices = []) {
   return {
     cards: [
       { key: 'power', label: 'Total Power', metric: 'power', unit: 'kW', value: sum('power'), agg: 'Sum', gaugeMax: 135 },
-      { key: 'current', label: 'Total Current', metric: 'current', unit: 'A', value: sum('current'), agg: 'Sum', gaugeMax: 80 },
-      { key: 'voltage', label: 'Avg Voltage', metric: 'voltage', unit: 'V', value: mean('voltage'), agg: 'Mean', gaugeMax: 240 },
-      { key: 'pf', label: 'Avg Power Factor', metric: 'pf', unit: '', value: mean('pf'), agg: 'Mean', gaugeMax: 1 },
+      { key: 'currentA', label: 'Current A', metric: 'currentA', unit: 'A', value: sum('currentA'), agg: 'Sum', gaugeMax: 80 },
+      { key: 'currentB', label: 'Current B', metric: 'currentB', unit: 'A', value: sum('currentB'), agg: 'Sum', gaugeMax: 80 },
+      { key: 'currentC', label: 'Current C', metric: 'currentC', unit: 'A', value: sum('currentC'), agg: 'Sum', gaugeMax: 80 },
     ],
     onlineCount: online.length,
     dynamic: false,

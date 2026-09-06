@@ -237,6 +237,16 @@ export default function OrgDashboard() {
     })
   }, [powerFlow, liveDevices])
 
+  /** Total organization load: exact sum of active supply sources, or live fleet fallback. */
+  const totalOrgLoadKw = useMemo(() => {
+    const linkedSources = (liveSources || []).filter((s) => (s.deviceIds?.length || 0) + (s.slaveIds?.length || 0) > 0)
+    if (linkedSources.length > 0) {
+      const sum = linkedSources.reduce((s, src) => s + (Number(src.valueKw) || 0), 0)
+      return +sum.toFixed(2)
+    }
+    return liveFleetKw
+  }, [liveSources, liveFleetKw])
+
   const openGroup = useMemo(
     () => groupLoads.find((g) => g.id === openGroupId) || null,
     [groupLoads, openGroupId]
@@ -570,7 +580,7 @@ export default function OrgDashboard() {
                 savings={savings}
                 groups={groupLoads}
                 devices={liveDevices}
-                totalLoadKw={liveFleetKw}
+                totalLoadKw={totalOrgLoadKw}
                 orgName={orgName}
                 onSourcesChange={handleSourcesChange}
                 onGroupClick={setOpenGroupId}
