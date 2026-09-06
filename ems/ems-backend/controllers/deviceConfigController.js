@@ -55,22 +55,30 @@ const getConfigSlaves = async (req, res, next) => {
 
     const isSwitchOff = String(device?.switchState || '').toUpperCase() === 'OFF'
     const dLastTs = device?.lastDataReceivedAt ? new Date(device.lastDataReceivedAt).getTime() : 0
+    const dAge = device?.lastDataReceivedAt ? Date.now() - dLastTs : Infinity
+    const isDeviceStreaming = !isSwitchOff && Number.isFinite(dAge) && dAge < OFFLINE_AFTER_MS
 
     const data = rawSlaves.map((s) => {
       const lastVar = s.configVariables?.[0]?.lastUpdatedAt || null
       const vLastTs = lastVar ? new Date(lastVar).getTime() : 0
+
       let lastDataReceivedAt = lastVar
-      if (s.isDefault && dLastTs > vLastTs) {
-        lastDataReceivedAt = device?.lastDataReceivedAt
-      } else if (!lastDataReceivedAt) {
-        lastDataReceivedAt = device?.lastDataReceivedAt || null
+      if (dLastTs > vLastTs || !lastDataReceivedAt) {
+        lastDataReceivedAt = device?.lastDataReceivedAt || lastVar || null
       }
-      const age = lastDataReceivedAt ? Date.now() - new Date(lastDataReceivedAt).getTime() : Infinity
-      const isOnline = !isSwitchOff && Number.isFinite(age) && age < OFFLINE_AFTER_MS
+
+      const effectiveAge = lastDataReceivedAt ? Date.now() - new Date(lastDataReceivedAt).getTime() : Infinity
+      const isOnline = !isSwitchOff && (
+        (Number.isFinite(effectiveAge) && effectiveAge < OFFLINE_AFTER_MS) ||
+        isDeviceStreaming
+      )
+
       return {
         ...s,
         status: isOnline ? 'ONLINE' : 'OFFLINE',
-        lastDataReceivedAt,
+        lastDataReceivedAt: isOnline && (!lastDataReceivedAt || effectiveAge >= OFFLINE_AFTER_MS)
+          ? device?.lastDataReceivedAt
+          : lastDataReceivedAt,
       }
     })
 

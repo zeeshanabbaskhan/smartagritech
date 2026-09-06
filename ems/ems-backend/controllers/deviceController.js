@@ -71,24 +71,33 @@ const mapDeviceSlaves = (devices) => {
   return devices.map((d) => {
     const isSwitchOff = String(d.switchState || '').toUpperCase() === 'OFF'
     const dLastTs = d.lastDataReceivedAt ? new Date(d.lastDataReceivedAt).getTime() : 0
+    const dAge = d.lastDataReceivedAt ? Date.now() - dLastTs : Infinity
+    const isDeviceStreaming = !isSwitchOff && Number.isFinite(dAge) && dAge < OFFLINE_AFTER_MS
+
     const configSlaves = (d.configSlaves || []).map((s) => {
       const lastVar = s.configVariables?.[0]?.lastUpdatedAt || null
       const vLastTs = lastVar ? new Date(lastVar).getTime() : 0
+
       let lastDataReceivedAt = lastVar
-      if (s.isDefault && dLastTs > vLastTs) {
-        lastDataReceivedAt = d.lastDataReceivedAt
-      } else if (!lastDataReceivedAt) {
-        lastDataReceivedAt = d.lastDataReceivedAt || null
+      if (dLastTs > vLastTs || !lastDataReceivedAt) {
+        lastDataReceivedAt = d.lastDataReceivedAt || lastVar || null
       }
-      const age = lastDataReceivedAt ? Date.now() - new Date(lastDataReceivedAt).getTime() : Infinity
-      const isOnline = !isSwitchOff && Number.isFinite(age) && age < OFFLINE_AFTER_MS
+
+      const effectiveAge = lastDataReceivedAt ? Date.now() - new Date(lastDataReceivedAt).getTime() : Infinity
+      const isOnline = !isSwitchOff && (
+        (Number.isFinite(effectiveAge) && effectiveAge < OFFLINE_AFTER_MS) ||
+        isDeviceStreaming
+      )
+
       return {
         id: s.id,
         name: s.name,
         isDefault: s.isDefault,
         deviceId: s.deviceId,
         status: isOnline ? 'ONLINE' : 'OFFLINE',
-        lastDataReceivedAt,
+        lastDataReceivedAt: isOnline && (!lastDataReceivedAt || effectiveAge >= OFFLINE_AFTER_MS)
+          ? d.lastDataReceivedAt
+          : lastDataReceivedAt,
       }
     })
     return { ...d, configSlaves }

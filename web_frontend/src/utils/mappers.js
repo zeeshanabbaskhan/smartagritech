@@ -131,7 +131,14 @@ export const mapDevice = (d) => {
       const last = s.lastDataReceivedAt || d.lastDataReceivedAt
       const switchOff = d.switchState === 'OFF'
       const age = last ? Date.now() - new Date(last).getTime() : Infinity
-      const isOnline = !switchOff && (s.status === 'ONLINE' || s.statusRaw === 'ONLINE' || (Number.isFinite(age) && age < DEVICE_OFFLINE_AFTER_MS))
+      const isDeviceOnline = d.status === 'ONLINE' || d.status === 'Online' || d.statusRaw === 'ONLINE'
+      const isOnline = !switchOff && (
+        s.status === 'ONLINE' ||
+        s.status === 'Online' ||
+        s.statusRaw === 'ONLINE' ||
+        (Number.isFinite(age) && age < DEVICE_OFFLINE_AFTER_MS) ||
+        isDeviceOnline
+      )
       return {
         id: s.id,
         name: s.name,
