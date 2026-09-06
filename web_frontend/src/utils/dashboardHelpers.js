@@ -121,21 +121,27 @@ function resolveDeviceVariable(device, candidates, fallback = null) {
  * Uses ActivePower / PowerConsumption / etc. (not hardcoded dashboard-summary only).
  * grid = max(0, load − export), matching power-flow math. Values are kW.
  */
-export async function fetchOrgEnergyOverview(deviceIds = [], timeRange = '24h', maxDevices = 40) {
+export async function fetchOrgEnergyOverview(deviceIds = [], timeRange = '24h', maxDevices = 40, extraSlaveIds = []) {
   const ids = deviceIds.filter(Boolean).slice(0, maxDevices)
+  const slaveIds = (extraSlaveIds || []).filter(Boolean)
   const empty = {
     series: [],
     timestamps: [],
     loadByDevice: {},
+    solarByTs: new Map(),
     monthlyEnergyKwh: null,
     bucketHours: 0,
     loadVariableHint: null,
   }
-  if (!ids.length) return empty
+  if (!ids.length && !slaveIds.length) return empty
 
   const devicesRes = await emsApi.getDevices({ limit: 100, withMetrics: true }).catch(() => null)
   const devices = list(devicesRes).map(mapDevice)
   const byId = Object.fromEntries(devices.map((d) => [d.id, d]))
+
+  // Map each slave to its parent device
+  const allSlaves = devices.flatMap((d) => (d.slaves || []).map((s) => ({ ...s, parentDeviceId: d.id })))
+  const slaveById = Object.fromEntries(allSlaves.map((s) => [s.id, s]))
 
   const loadByTs = new Map()
   const solarByTs = new Map()
@@ -149,11 +155,12 @@ export async function fetchOrgEnergyOverview(deviceIds = [], timeRange = '24h', 
       const ts = new Date(p.timestamp).getTime()
       const value = powerReadingToKw(variableName, p.value)
       if (!Number.isFinite(ts) || !Number.isFinite(value)) continue
-      target.set(ts, (target.get(ts) ?? 0) + value)
+      if (target) target.set(ts, (target.get(ts) ?? 0) + value)
       if (perDevice) perDevice.set(ts, (perDevice.get(ts) ?? 0) + value)
     }
   }
 
+  // 1. Fetch aggregates for all device IDs
   await Promise.all(ids.map(async (id) => {
     const device = byId[id]
     const loadVar = resolveDeviceVariable(device, LOAD_VARS, 'ActivePower')
@@ -198,6 +205,30 @@ export async function fetchOrgEnergyOverview(deviceIds = [], timeRange = '24h', 
     if (deviceLoad.size) loadByDevice[id] = deviceLoad
   }))
 
+  // 2. Fetch aggregates for explicitly linked slave IDs (e.g. Solar, Generator, Grid, custom groups)
+  await Promise.all(slaveIds.map(async (sId) => {
+    const slave = slaveById[sId]
+    const devId = slave?.parentDeviceId || ids[0]
+    if (!devId) return
+
+    const slaveLoad = new Map()
+    const res = await emsApi.getSensorAggregate({ deviceId: devId, slaveId: sId, variableName: 'ActivePower', timeRange })
+      .catch(() => null)
+    
+    let points = res?.data ?? []
+    if (!points.length) {
+      const resTp = await emsApi.getSensorAggregate({ deviceId: devId, slaveId: sId, variableName: 'Total Power', timeRange })
+        .catch(() => null)
+      points = resTp?.data ?? []
+    }
+
+    const isSolar = slave?.name && /solar/i.test(slave.name)
+    addPoints(points, isSolar ? solarByTs : null, slaveLoad, 'ActivePower')
+    if (slaveLoad.size) {
+      loadByDevice[sId] = slaveLoad
+    }
+  }))
+
   // Legacy EMS fallback when aggregates returned nothing (PowerConsumption naming)
   const missing = ids.filter((id) => !loadByDevice[id])
   if (missing.length) {
@@ -220,7 +251,7 @@ export async function fetchOrgEnergyOverview(deviceIds = [], timeRange = '24h', 
     }
   }
 
-  const timestamps = [...new Set([...loadByTs.keys(), ...solarByTs.keys()])].sort((a, b) => a - b)
+  const timestamps = [...new Set([...loadByTs.keys(), ...solarByTs.keys(), ...Object.values(loadByDevice).flatMap(m => [...m.keys()])])].sort((a, b) => a - b)
   const series = timestamps.map((ts) => {
     const load = +(loadByTs.get(ts) ?? 0).toFixed(2)
     const solar = +(solarByTs.get(ts) ?? 0).toFixed(2)
@@ -252,6 +283,7 @@ export async function fetchOrgEnergyOverview(deviceIds = [], timeRange = '24h', 
     series,
     timestamps,
     loadByDevice,
+    solarByTs,
     monthlyEnergyKwh: monthlyEnergyKwh != null ? +Number(monthlyEnergyKwh).toFixed(1) : null,
     bucketHours,
     loadVariableHint,

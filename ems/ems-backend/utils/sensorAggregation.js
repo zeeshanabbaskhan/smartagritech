@@ -85,6 +85,29 @@ const getVariableAliases = (name) => {
   return [norm]
 }
 
+const RAW_VARIABLE_CANDIDATES = {
+  activepower: [
+    'ActivePower', 'Total Power', 'Total Active Power', 'Active Power',
+    'TotalPower', 'TotalActivePower', 'ActivePowerTotal', 'Power',
+    'kW', 'PowerConsumption', 'PowerA', 'PowerB', 'PowerC',
+  ],
+  exportpower: ['ExportPower', 'SolarPower', 'Export', 'Solar', 'ExportActivePower'],
+  powerconsumption: ['Units', 'PowerConsumption', 'EnergyConsumption', 'ActiveEnergy', 'kWh', 'TotalEnergy', 'Energy'],
+  currenta: ['Current A', 'CurrentA', 'PhaseCurrentA', 'Ia', 'Current 1'],
+  currentb: ['Current B', 'CurrentB', 'PhaseCurrentB', 'Ib', 'Current 2'],
+  currentc: ['Current C', 'CurrentC', 'PhaseCurrentC', 'Ic', 'Current 3'],
+  voltagea: ['Voltage', 'VoltageA', 'Voltage A', 'Phase VoltageA', 'PhaseVoltageA', 'Va', 'V1'],
+  voltageb: ['VoltageB', 'Voltage B', 'Phase VoltageB', 'PhaseVoltageB', 'Vb', 'V2'],
+  voltagec: ['VoltageC', 'Voltage C', 'Phase VoltageC', 'PhaseVoltageC', 'Vc', 'V3'],
+  powerfactor: ['Power Factor', 'PowerFactor', 'PF', 'pf', 'Average Power Factor'],
+}
+
+const getRawCandidateNames = (name) => {
+  const norm = String(name || '').toLowerCase().replace(/[\s_-]+/g, '')
+  const candidates = RAW_VARIABLE_CANDIDATES[norm] || []
+  return Array.from(new Set([name, ...candidates]))
+}
+
 const bucketVariable = async (prisma, opts) => {
   const db = readDb(prisma)
   if (useHourlyAggregate(opts.startDate) && (await probeHourlyView(db))) {
@@ -97,6 +120,41 @@ const bucketVariable = async (prisma, opts) => {
 
   const { deviceId, slaveId, variableName, startDate, endDate, bucketMs } = opts
   const aliases = getVariableAliases(variableName)
+  const rawNames = getRawCandidateNames(variableName)
+
+  // Try high-performance indexed query on sensor_reading_values first
+  try {
+    const endClause = endDate ? Prisma.sql`AND v."timestamp" <= ${endDate}` : Prisma.empty
+    const devClause = deviceId ? Prisma.sql`AND v."deviceId" = ${deviceId}` : Prisma.empty
+    const slvClause = slaveId ? Prisma.sql`AND v."deviceConfigSlaveId" = ${slaveId}` : Prisma.empty
+
+    const narrow = await db.$queryRaw`
+      SELECT
+        (floor(extract(epoch from v."timestamp") * 1000 / ${bucketMs}) * ${bucketMs})::bigint AS bucket_ms,
+        AVG(v.value)::double precision AS avg_val
+      FROM sensor_reading_values v
+      WHERE v."timestamp" >= ${startDate}
+        ${devClause}
+        ${slvClause}
+        ${endClause}
+        AND (
+          v."variableName" IN (${Prisma.join(rawNames)})
+          OR lower(regexp_replace(v."variableName", '[\\s_-]+', '', 'g')) IN (${Prisma.join(aliases)})
+        )
+        AND v.value > -10000000
+        AND v.value < 10000000
+      GROUP BY bucket_ms
+      ORDER BY bucket_ms ASC
+    `
+    if (Array.isArray(narrow)) {
+      return narrow.map((r) => ({
+        timestamp: new Date(Number(r.bucket_ms)),
+        value: parseFloat(Number(r.avg_val).toFixed(4)),
+      }))
+    }
+  } catch (_) {}
+
+  // Fallback to raw sensor_readings JSON table
   const rows = await db.$queryRaw`
     SELECT
       (floor(extract(epoch from sr."timestamp") * 1000 / ${bucketMs}) * ${bucketMs})::bigint AS bucket_ms,

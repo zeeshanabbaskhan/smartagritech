@@ -33,11 +33,11 @@ export function powerReadingToKw(variableName, value, unit = '') {
   const nm = String(variableName || '')
   if (/powerconsumption/i.test(nm) && !/active/i.test(nm)) return Math.abs(n)
   if (/activepower|^power$|totalactivepower|exportpower|solarpower|total power|totalpower|active power/i.test(nm)) {
-    // Backend formulas store kW-scale values (typically < 200000); raw micro-units or mega watts are much larger.
-    if (Math.abs(n) < 200000) return Math.abs(n)
-    return Math.abs(n) / 1000
+    // If raw value is >= 2500, it is in Watts (e.g. 55000 W = 55 kW, 132000 W = 132 kW, 340000 W = 340 kW)
+    if (Math.abs(n) >= 2500) return Math.abs(n) / 1000
+    return Math.abs(n)
   }
-  if (Math.abs(n) >= 200000) return Math.abs(n) / 1000
+  if (Math.abs(n) >= 2500) return Math.abs(n) / 1000
   return Math.abs(n)
 }
 

@@ -373,24 +373,32 @@ export default function OrgDashboard() {
     return ids.length ? ids.join(',') : (liveDevices.map((d) => d.id).join(',') || '')
   }, [stats?.devices, liveDevices])
 
+  const slaveIdKey = useMemo(() => {
+    const sourceSlaves = (powerFlow?.sources || []).flatMap((s) => s.slaveIds || [])
+    const groupSlaves = (powerFlow?.groups || []).flatMap((g) => g.slaveIds || [])
+    const fallbackSlaves = fallbackGroups.flatMap((g) => g.slaveIds || [])
+    return [...new Set([...sourceSlaves, ...groupSlaves, ...fallbackSlaves].filter(Boolean))].join(',')
+  }, [powerFlow?.sources, powerFlow?.groups, fallbackGroups])
+
   useEffect(() => {
     const ids = deviceIdKey ? deviceIdKey.split(',') : []
-    if (!ids.length) { setEnergy(null); return }
+    const slaveIds = slaveIdKey ? slaveIdKey.split(',') : []
+    if (!ids.length && !slaveIds.length) { setEnergy(null); return }
     let cancelled = false
-    fetchOrgEnergyOverview(ids, '24h')
+    fetchOrgEnergyOverview(ids, '24h', 40, slaveIds)
       .then((res) => { if (!cancelled) setEnergy(res) })
       .catch(() => { if (!cancelled) setEnergy(null) })
     return () => { cancelled = true }
-  }, [deviceIdKey])
+  }, [deviceIdKey, slaveIdKey])
 
   const orgName = user?.organization?.name ?? 'your organization'
   const sourceSeries = energy?.series ?? []
 
-  // Chart: only power sources that have linked devices (not fleet "Load")
+  // Chart: only power sources that have linked devices or slaves (not fleet "Load")
   const powerSourceChart = useMemo(() => {
     const loadByDevice = energy?.loadByDevice ?? {}
     const timestamps = energy?.timestamps ?? []
-    const linked = (liveSources || []).filter((s) => (s.deviceIds || []).length > 0)
+    const linked = (liveSources || []).filter((s) => (s.deviceIds?.length || 0) + (s.slaveIds?.length || 0) > 0)
     if (!timestamps.length || !linked.length) return { rows: [], series: [] }
 
     const series = linked.map((s, i) => ({
@@ -398,14 +406,35 @@ export default function OrgDashboard() {
       name: s.name || s.type || `Source ${i + 1}`,
       color: SOURCE_TYPE_COLORS[s.type] || GROUP_LINE_COLORS[i % GROUP_LINE_COLORS.length],
       deviceIds: s.deviceIds || [],
-    })).filter((s) => s.deviceIds.some((id) => loadByDevice[id]))
+      slaveIds: s.slaveIds || [],
+      type: s.type,
+      valueKw: s.valueKw || 0,
+    })).filter((s) => (
+      s.deviceIds.some((id) => loadByDevice[id]) ||
+      s.slaveIds.some((id) => loadByDevice[id]) ||
+      (s.type === 'solar' && energy?.solarByTs?.size > 0) ||
+      s.valueKw > 0
+    ))
 
     if (!series.length) return { rows: [], series: [] }
 
-    const rows = timestamps.map((ts) => {
+    const rows = timestamps.map((ts, idx) => {
+      const isLatest = idx === timestamps.length - 1
       const row = { time: sourceSeries.find((s) => s.ts === ts)?.time ?? '', ts }
       series.forEach((ser) => {
-        const total = ser.deviceIds.reduce((sum, id) => sum + (loadByDevice[id]?.get(ts) ?? 0), 0)
+        let total = 0
+        ser.deviceIds.forEach((id) => {
+          total += (loadByDevice[id]?.get(ts) ?? 0)
+        })
+        ser.slaveIds.forEach((id) => {
+          total += (loadByDevice[id]?.get(ts) ?? 0)
+        })
+        if (ser.type === 'solar' && total === 0 && energy?.solarByTs?.get(ts)) {
+          total = energy.solarByTs.get(ts)
+        }
+        if (isLatest && total === 0 && ser.valueKw > 0) {
+          total = ser.valueKw
+        }
         row[ser.key] = +total.toFixed(2)
       })
       return row
@@ -413,16 +442,30 @@ export default function OrgDashboard() {
     return { rows, series }
   }, [energy, liveSources, sourceSeries])
 
-  // One row per real bucket; a group only gets a series when its devices reported data
+  // One row per real bucket; a group gets a series when its devices or slaves reported data
   const groupSeriesData = useMemo(() => {
     const loadByDevice = energy?.loadByDevice ?? {}
     const timestamps = energy?.timestamps ?? []
     if (!timestamps.length) return { rows: [], groups: [] }
-    const plotted = groupLoads.filter((g) => (g.deviceIds || []).some((id) => loadByDevice[id]))
-    const rows = timestamps.map((ts) => {
+    const plotted = groupLoads.filter((g) => (
+      (g.deviceIds || []).some((id) => loadByDevice[id]) ||
+      (g.slaveIds || []).some((id) => loadByDevice[id]) ||
+      (g.load > 0)
+    ))
+    const rows = timestamps.map((ts, idx) => {
+      const isLatest = idx === timestamps.length - 1
       const row = { time: sourceSeries.find((s) => s.ts === ts)?.time ?? '' }
       plotted.forEach((g) => {
-        const total = (g.deviceIds || []).reduce((sum, id) => sum + (loadByDevice[id]?.get(ts) ?? 0), 0)
+        let total = 0
+        ;(g.deviceIds || []).forEach((id) => {
+          total += (loadByDevice[id]?.get(ts) ?? 0)
+        })
+        ;(g.slaveIds || []).forEach((id) => {
+          total += (loadByDevice[id]?.get(ts) ?? 0)
+        })
+        if (isLatest && total === 0 && g.load > 0) {
+          total = g.load
+        }
         row[g.id] = +total.toFixed(2)
       })
       return row
@@ -598,8 +641,8 @@ export default function OrgDashboard() {
             <p className="text-xs text-surface-400 mt-1 mb-4">
               Live history for each power source from its linked devices (ActivePower)
             </p>
-            {!(liveSources || []).some((s) => (s.deviceIds || []).length > 0) ? (
-              <EmptyChart>Link devices to Grid, Solar, Generator, or a custom source above to see their 24h history here.</EmptyChart>
+            {!(liveSources || []).some((s) => (s.deviceIds?.length || 0) + (s.slaveIds?.length || 0) > 0) ? (
+              <EmptyChart>Link devices or slaves to Grid, Solar, Generator, or a custom source above to see their 24h history here.</EmptyChart>
             ) : powerSourceChart.series.length === 0 ? (
               <EmptyChart>No logged readings for linked power sources in the last 24 hours yet.</EmptyChart>
             ) : (
