@@ -23,7 +23,7 @@ const SOURCE_TYPE_COLORS = {
   generator: '#22C55E',
 }
 const TARIFF_PKR_PER_KWH = 28
-const EMPTY_GROUP_FORM = { name: '', description: '', deviceIds: [], userIds: [] }
+const EMPTY_GROUP_FORM = { name: '', description: '', deviceIds: [], slaveIds: [], userIds: [] }
 
 function EmptyChart({ children }) {
   return (
@@ -267,6 +267,10 @@ export default function OrgDashboard() {
         ?? (full?.devices || []).map((d) => d.id ?? d.deviceId).filter(Boolean)
         ?? fallback?.deviceIds
         ?? []
+      const slaveIds = full?.slaveIds
+        ?? (full?.slaves || []).map((s) => s.id ?? s.slaveId).filter(Boolean)
+        ?? fallback?.slaveIds
+        ?? []
       const userIds = full?.userIds
         ?? (full?.users || []).map((u) => u.id ?? u.userId).filter(Boolean)
         ?? fallback?.userIds
@@ -276,6 +280,7 @@ export default function OrgDashboard() {
         name: full?.name || fallback?.name || '',
         description: full?.description || fallback?.description || '',
         deviceIds: [...deviceIds],
+        slaveIds: [...slaveIds],
         userIds: [...userIds],
       })
       setEditOpen(true)
@@ -290,6 +295,15 @@ export default function OrgDashboard() {
       deviceIds: prev.deviceIds.includes(id)
         ? prev.deviceIds.filter((x) => x !== id)
         : [...prev.deviceIds, id],
+    }))
+  }
+
+  const toggleEditSlave = (id) => {
+    setEditForm((prev) => ({
+      ...prev,
+      slaveIds: (prev.slaveIds || []).includes(id)
+        ? prev.slaveIds.filter((x) => x !== id)
+        : [...(prev.slaveIds || []), id],
     }))
   }
 
@@ -308,8 +322,9 @@ export default function OrgDashboard() {
       showToast('Group name is required', 'error')
       return
     }
-    if (!editForm.deviceIds.length) {
-      showToast('Select at least one device', 'error')
+    const hasMembers = (editForm.deviceIds?.length || 0) + (editForm.slaveIds?.length || 0) > 0
+    if (!hasMembers) {
+      showToast('Select at least one slave or device', 'error')
       return
     }
     setEditSaving(true)
@@ -317,8 +332,9 @@ export default function OrgDashboard() {
       await emsApi.updateDeviceGroup(editGroupId, {
         name: editForm.name.trim(),
         description: editForm.description.trim() || null,
-        deviceIds: editForm.deviceIds,
-        userIds: editForm.userIds,
+        deviceIds: editForm.deviceIds || [],
+        slaveIds: editForm.slaveIds || [],
+        userIds: editForm.userIds || [],
       })
       showToast('Device group updated', 'success')
       closeEditGroup()
@@ -459,12 +475,13 @@ export default function OrgDashboard() {
 
   async function handleSourcesChange(sources) {
     try {
-      // Persist linkage (deviceIds); live valueKw is recomputed on read
+      // Persist linkage (deviceIds and slaveIds); live valueKw is recomputed on read
       const toSave = (sources || []).map((s) => ({
         id: s.id,
         name: s.name,
         type: s.type,
         deviceIds: Array.isArray(s.deviceIds) ? s.deviceIds : [],
+        slaveIds: Array.isArray(s.slaveIds) ? s.slaveIds : [],
         from: s.from,
         to: s.to,
         iconIdx: s.iconIdx,
@@ -867,38 +884,97 @@ export default function OrgDashboard() {
             open={openGroup !== null && !editOpen}
             onClose={closeGroupDetails}
             size="lg"
-            title={openGroup ? `${openGroup.name} — Devices` : 'Devices'}
+            title={openGroup ? `${openGroup.name} — Members` : 'Members'}
           >
-            {openGroupDevices.length === 0 ? (
+            {openGroupDevices.length === 0 && (!openGroup?.slaves?.length && !openGroup?.slaveIds?.length) ? (
               <p className="text-xs text-surface-500 p-3 inset-panel">
-                This group has no devices assigned yet.
+                This group has no devices or slaves assigned yet.
               </p>
             ) : (
-              <div className="space-y-3">
-                {openGroupDevices.map((d) => {
-                  const off = isOffline(d)
-                  return (
-                    <div key={d.id} className="p-3 inset-panel">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-2">
-                          <Cpu size={13} className="text-surface-400" />
-                          <span className="text-xs font-black text-surface-800 dark:text-surface-100">{d.name}</span>
-                        </div>
-                        <span className={`badge ${off ? 'badge-neutral' : 'badge-success'} text-[9px]`}>{off ? 'Offline' : 'Online'}</span>
-                      </div>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                        {[{ key: 'power', label: 'Power', unit: 'kW' }, { key: 'current', label: 'Current', unit: 'A' }, { key: 'voltage', label: 'Voltage', unit: 'V' }, { key: 'pf', label: 'PF', unit: '' }].map(({ key, label, unit }) => (
-                          <div key={key} className="p-2 bg-white dark:bg-surface-900 rounded-lg border border-surface-100 dark:border-surface-800">
-                            <p className="text-[9px] text-surface-400 font-bold uppercase">{label}</p>
-                            <p className="device-metric-value text-xs font-black">
-                              {liveTile(d, key)} <span className="text-[9px] text-surface-400 font-semibold">{unit}</span>
-                            </p>
+              <div className="space-y-4">
+                {/* Slaves section if present */}
+                {(openGroup?.slaveIds?.length > 0 || openGroup?.slaves?.length > 0) && (
+                  <div>
+                    <p className="text-xs font-bold text-surface-500 uppercase tracking-wider mb-2">
+                      Linked Slaves ({openGroup.slaveIds?.length || openGroup.slaves?.length || 0})
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {(openGroup.slaves?.length ? openGroup.slaves : openGroup.slaveIds || []).map((item) => {
+                        const sId = typeof item === 'string' ? item : item.id
+                        const slaveObj = typeof item === 'object' ? item : openGroup.slaves?.find((s) => s.id === sId)
+                        let foundSlave = slaveObj
+                        let parentDev = liveDevices.find((d) => d.id === slaveObj?.deviceId)
+                        if (!foundSlave || !parentDev) {
+                          for (const d of liveDevices) {
+                            const sl = (d.slaves || []).find((s) => s.id === sId)
+                            if (sl) {
+                              foundSlave = sl
+                              parentDev = d
+                              break
+                            }
+                          }
+                        }
+                        const name = foundSlave?.name || 'Slave'
+                        const devName = parentDev?.name || foundSlave?.deviceName || 'Device'
+                        const isOff = parentDev ? isOffline(parentDev) : false
+                        return (
+                          <div
+                            key={sId}
+                            className="p-2.5 bg-white dark:bg-surface-900 rounded-xl border border-surface-200 dark:border-surface-800 flex items-center justify-between"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="w-2 h-2 rounded-full bg-primary-500 flex-shrink-0" />
+                              <div>
+                                <p className="text-xs font-bold text-surface-800 dark:text-surface-100">{name}</p>
+                                <p className="text-[10px] text-surface-400">Device: {devName}</p>
+                              </div>
+                            </div>
+                            <span className={`badge ${isOff ? 'badge-neutral' : 'badge-success'} text-[9px]`}>
+                              {isOff ? 'Offline' : 'Online'}
+                            </span>
                           </div>
-                        ))}
-                      </div>
+                        )
+                      })}
                     </div>
-                  )
-                })}
+                  </div>
+                )}
+
+                {/* Devices section if present */}
+                {openGroupDevices.length > 0 && (
+                  <div>
+                    {(openGroup?.slaveIds?.length > 0 || openGroup?.slaves?.length > 0) && (
+                      <p className="text-xs font-bold text-surface-500 uppercase tracking-wider mb-2">
+                        Linked Devices ({openGroupDevices.length})
+                      </p>
+                    )}
+                    <div className="space-y-3">
+                      {openGroupDevices.map((d) => {
+                        const off = isOffline(d)
+                        return (
+                          <div key={d.id} className="p-3 inset-panel">
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-2">
+                                <Cpu size={13} className="text-surface-400" />
+                                <span className="text-xs font-black text-surface-800 dark:text-surface-100">{d.name}</span>
+                              </div>
+                              <span className={`badge ${off ? 'badge-neutral' : 'badge-success'} text-[9px]`}>{off ? 'Offline' : 'Online'}</span>
+                            </div>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                              {[{ key: 'power', label: 'Power', unit: 'kW' }, { key: 'current', label: 'Current', unit: 'A' }, { key: 'voltage', label: 'Voltage', unit: 'V' }, { key: 'pf', label: 'PF', unit: '' }].map(({ key, label, unit }) => (
+                                <div key={key} className="p-2 bg-white dark:bg-surface-900 rounded-lg border border-surface-100 dark:border-surface-800">
+                                  <p className="text-[9px] text-surface-400 font-bold uppercase">{label}</p>
+                                  <p className="device-metric-value text-xs font-black">
+                                    {liveTile(d, key)} <span className="text-[9px] text-surface-400 font-semibold">{unit}</span>
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </Modal>
@@ -928,7 +1004,7 @@ export default function OrgDashboard() {
                   type="button"
                   className="btn-primary"
                   onClick={handleSaveGroupEdit}
-                  disabled={editSaving || !editForm.name.trim() || !editForm.deviceIds.length}
+                  disabled={editSaving || !editForm.name.trim() || (!editForm.deviceIds.length && !editForm.slaveIds?.length)}
                 >
                   {editSaving ? 'Saving...' : 'Save Changes'}
                 </button>
@@ -951,11 +1027,15 @@ export default function OrgDashboard() {
               />
 
               <div>
-                <label className="label">
-                  Add Devices
-                  <span className="text-danger-600 font-bold ml-0.5">*</span>
-                  <span className="ml-1 text-surface-400 font-normal">({editForm.deviceIds.length})</span>
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="label mb-0">
+                    Add Slaves & Devices
+                    <span className="text-danger-600 font-bold ml-0.5">*</span>
+                  </label>
+                  <span className="text-xs text-primary-600 font-bold">
+                    {(editForm.slaveIds?.length || 0) + (editForm.deviceIds?.length || 0)} selected
+                  </span>
+                </div>
                 {liveDevices.length === 0 ? (
                   <div className="p-3 inset-panel space-y-3">
                     <p className="text-xs text-surface-500">
@@ -974,26 +1054,61 @@ export default function OrgDashboard() {
                     </button>
                   </div>
                 ) : (
-                  <div className="border border-surface-200 dark:border-surface-700 rounded-xl overflow-hidden divide-y divide-surface-100 dark:divide-surface-800 max-h-56 overflow-y-auto">
-                    {liveDevices.map((d) => (
-                      <label key={d.id} className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-surface-50 dark:hover:bg-surface-800">
-                        <input
-                          type="checkbox"
-                          className="rounded border-surface-300 text-primary-600"
-                          checked={editForm.deviceIds.includes(d.id)}
-                          onChange={() => toggleEditDevice(d.id)}
-                        />
-                        <Cpu size={13} className="text-surface-400 flex-shrink-0" />
-                        <span className="text-sm text-surface-800 dark:text-surface-100 flex-1">{d.name}</span>
-                        <span className={`badge text-[9px] ${d.status === 'Online' ? 'badge-success' : 'badge-neutral'}`}>
-                          {d.status}
-                        </span>
-                      </label>
-                    ))}
+                  <div className="border border-surface-200 dark:border-surface-700 rounded-xl overflow-hidden divide-y divide-surface-100 dark:divide-surface-800 max-h-64 overflow-y-auto">
+                    {liveDevices.map((d) => {
+                      const dSlaves = d.slaves || d.configSlaves || d._raw?.configSlaves || []
+                      return (
+                        <div key={d.id} className="bg-white dark:bg-surface-900 divide-y divide-surface-50 dark:divide-surface-800/60">
+                          {/* Device header */}
+                          <div className="flex items-center gap-3 px-3 py-2 bg-surface-50/80 dark:bg-surface-800/40">
+                            <label className="flex items-center gap-2.5 flex-1 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                className="rounded border-surface-300 text-primary-600"
+                                checked={editForm.deviceIds.includes(d.id)}
+                                onChange={() => toggleEditDevice(d.id)}
+                              />
+                              <Cpu size={13} className="text-primary-600 flex-shrink-0" />
+                              <span className="text-xs font-bold text-surface-900 dark:text-surface-100">{d.name}</span>
+                              <span className="text-[10px] text-surface-400">({dSlaves.length} slaves)</span>
+                            </label>
+                            <span className={`badge text-[9px] ${d.status === 'Online' ? 'badge-success' : 'badge-neutral'}`}>
+                              {d.status}
+                            </span>
+                          </div>
+
+                          {/* Slaves under device */}
+                          {dSlaves.length > 0 && (
+                            <div className="pl-6 pr-3 py-1 space-y-1 bg-surface-50/30 dark:bg-surface-950/20">
+                              {dSlaves.map((slv) => (
+                                <label
+                                  key={slv.id}
+                                  className="flex items-center gap-2.5 py-1.5 px-2 rounded-lg cursor-pointer hover:bg-surface-100/60 dark:hover:bg-surface-800/60 transition-colors"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    className="rounded border-surface-300 text-primary-600"
+                                    checked={(editForm.slaveIds || []).includes(slv.id)}
+                                    onChange={() => toggleEditSlave(slv.id)}
+                                  />
+                                  <span className="text-xs text-surface-700 dark:text-surface-200 flex-1">
+                                    {slv.name}
+                                    {slv.isDefault && (
+                                      <span className="ml-1.5 text-[9px] text-surface-400 font-normal">(Default)</span>
+                                    )}
+                                  </span>
+                                  <span className="badge badge-info text-[8px] py-0 px-1.5">Slave</span>
+                                </label>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
                   </div>
                 )}
-                {liveDevices.length > 0 && editForm.deviceIds.length === 0 && (
-                  <p className="text-[11px] text-danger-600 mt-1.5 font-semibold">Select at least one device</p>
+                {liveDevices.length > 0 && editForm.deviceIds.length === 0 && (!editForm.slaveIds || editForm.slaveIds.length === 0) && (
+                  <p className="text-[11px] text-danger-600 mt-1.5 font-semibold">Select at least one slave or device</p>
                 )}
               </div>
 

@@ -247,7 +247,8 @@ export default function PowerFlowMindMap({
 
   const editingBuiltin = sourceModal && sourceModal !== 'create'
     && ['grid', 'solar', 'generator'].includes(sourceModal.type || sourceModal.id)
-  const canSaveSource = sourceForm.name.trim() && sourceForm.deviceIds.length > 0
+  const canSaveSource = sourceForm.name.trim()
+    && ((sourceForm.deviceIds?.length || 0) + (sourceForm.slaveIds?.length || 0) > 0)
 
   return (
     <div className="w-full select-none space-y-4">
