@@ -66,6 +66,28 @@ const attachLatestMetrics = async (devices) => {
   return enriched
 }
 
+const mapDeviceSlaves = (devices) => {
+  const OFFLINE_AFTER_MS = 5 * 60 * 1000
+  return devices.map((d) => {
+    const isSwitchOff = String(d.switchState || '').toUpperCase() === 'OFF'
+    const configSlaves = (d.configSlaves || []).map((s) => {
+      const lastVar = s.configVariables?.[0]?.lastUpdatedAt || null
+      const lastDataReceivedAt = lastVar || d.lastDataReceivedAt || null
+      const age = lastDataReceivedAt ? Date.now() - new Date(lastDataReceivedAt).getTime() : Infinity
+      const isOnline = !isSwitchOff && Number.isFinite(age) && age < OFFLINE_AFTER_MS
+      return {
+        id: s.id,
+        name: s.name,
+        isDefault: s.isDefault,
+        deviceId: s.deviceId,
+        status: isOnline ? 'ONLINE' : 'OFFLINE',
+        lastDataReceivedAt,
+      }
+    })
+    return { ...d, configSlaves }
+  })
+}
+
 const getDevices = async (req, res, next) => {
   try {
     const { page, limit, skip }    = paginate(req.query)
@@ -85,12 +107,24 @@ const getDevices = async (req, res, next) => {
         organization: { select: { id: true, name: true } },
         configSlaves: {
           where: { isActive: true },
-          select: { id: true, name: true, isDefault: true, deviceId: true },
+          select: {
+            id: true,
+            name: true,
+            isDefault: true,
+            deviceId: true,
+            configVariables: {
+              where: { isActive: true },
+              select: { lastUpdatedAt: true },
+              orderBy: { lastUpdatedAt: 'desc' },
+              take: 1,
+            },
+          },
           orderBy: { name: 'asc' },
         },
       },
     })
 
+    data = mapDeviceSlaves(data)
     if (withMetrics === 'true') data = await attachLatestMetrics(data)
 
     const total = await prisma.device.count({ where })
@@ -102,7 +136,7 @@ const getDevice = async (req, res, next) => {
   try {
     const where = await deviceWhereForUser(req.user, { id: req.params.id, ...orgScope(req.user) })
 
-    const data = await prisma.device.findFirst({
+    let data = await prisma.device.findFirst({
       where,
       include: {
         gateway:      { select: { id: true, name: true } },
@@ -110,12 +144,24 @@ const getDevice = async (req, res, next) => {
         organization: { select: { id: true, name: true } },
         configSlaves: {
           where: { isActive: true },
-          select: { id: true, name: true, isDefault: true, deviceId: true },
+          select: {
+            id: true,
+            name: true,
+            isDefault: true,
+            deviceId: true,
+            configVariables: {
+              where: { isActive: true },
+              select: { lastUpdatedAt: true },
+              orderBy: { lastUpdatedAt: 'desc' },
+              take: 1,
+            },
+          },
           orderBy: { name: 'asc' },
         },
       },
     })
     if (!data) return next(new AppError('Device not found', 404))
+    data = mapDeviceSlaves([data])[0]
     res.json({ success: true, data })
   } catch (err) { next(err) }
 }

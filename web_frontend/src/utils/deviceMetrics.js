@@ -141,9 +141,28 @@ export function formatDeviceMetric(device, type, { offline = false } = {}) {
   return Math.abs(n) >= 1000 ? n.toFixed(0) : n.toFixed(1)
 }
 
+const PRIMARY_KPI_PREFERENCE = [
+  'ActivePower',
+  'TotalActivePower',
+  'PowerConsumption',
+  'Power',
+  'CurrentA',
+  'CurrentB',
+  'CurrentC',
+  'Current',
+  'TotalCurrent',
+  'VoltageA',
+  'VoltageB',
+  'VoltageC',
+  'Voltage',
+  'PowerFactor',
+  'Frequency',
+]
+
 /**
  * Fleet KPIs from real shared variable names across online devices.
- * Falls back to classic EMS aliases when no live metrics yet.
+ * Uses deterministic electrical ordering (Power -> Current A -> Current B -> Current C)
+ * to avoid cards jumping or swapping when new metrics report.
  */
 export function computeDynamicKpis(devices = []) {
   const online = devices.filter((d) => isTelemetryActive(d))
@@ -155,13 +174,63 @@ export function computeDynamicKpis(devices = []) {
     }
   }
 
-  const topNames = [...nameCounts.entries()]
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .slice(0, 4)
-    .map(([n]) => n)
+  // Deterministically select top 4 KPI names:
+  // 1. Preferred power variable
+  // 2. Current A
+  // 3. Current B
+  // 4. Current C
+  // Fall back to other available variables if any are missing.
+  const chosenNames = []
+  const availableNames = new Set(nameCounts.keys())
 
-  if (topNames.length) {
-    const cards = topNames.map((name) => {
+  // Slot 1: Power variable
+  const powerCandidate = ['ActivePower', 'TotalActivePower', 'PowerConsumption', 'Power'].find((k) => availableNames.has(k))
+  if (powerCandidate) {
+    chosenNames.push(powerCandidate)
+    availableNames.delete(powerCandidate)
+  }
+
+  // Slot 2: Current A
+  const curACandidate = ['CurrentA', 'Ia', 'Current', 'TotalCurrent'].find((k) => availableNames.has(k))
+  if (curACandidate) {
+    chosenNames.push(curACandidate)
+    availableNames.delete(curACandidate)
+  }
+
+  // Slot 3: Current B
+  const curBCandidate = ['CurrentB', 'Ib'].find((k) => availableNames.has(k))
+  if (curBCandidate) {
+    chosenNames.push(curBCandidate)
+    availableNames.delete(curBCandidate)
+  }
+
+  // Slot 4: Current C
+  const curCCandidate = ['CurrentC', 'Ic'].find((k) => availableNames.has(k))
+  if (curCCandidate) {
+    chosenNames.push(curCCandidate)
+    availableNames.delete(curCCandidate)
+  }
+
+  // If fewer than 4 chosen, fill remaining from available sorted by PRIMARY_KPI_PREFERENCE then count
+  if (chosenNames.length < 4 && availableNames.size > 0) {
+    const remaining = [...availableNames].sort((a, b) => {
+      const idxA = PRIMARY_KPI_PREFERENCE.indexOf(a)
+      const idxB = PRIMARY_KPI_PREFERENCE.indexOf(b)
+      if (idxA >= 0 && idxB >= 0) return idxA - idxB
+      if (idxA >= 0) return -1
+      if (idxB >= 0) return 1
+      const countDiff = (nameCounts.get(b) || 0) - (nameCounts.get(a) || 0)
+      if (countDiff !== 0) return countDiff
+      return a.localeCompare(b)
+    })
+    for (const r of remaining) {
+      if (chosenNames.length >= 4) break
+      chosenNames.push(r)
+    }
+  }
+
+  if (chosenNames.length) {
+    const cards = chosenNames.map((name) => {
       const vals = online
         .map((d) => readDeviceMetric(d, name))
         .filter(Number.isFinite)

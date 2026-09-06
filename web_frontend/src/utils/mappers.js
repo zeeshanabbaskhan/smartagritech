@@ -127,13 +127,24 @@ export const mapDevice = (d) => {
     updatedAt: fmtDate(d.updatedAt),
     updatedAtRaw: d.updatedAt,
     latestMetrics: d.latestMetrics,
-    slaves: (d.configSlaves || d.slaves || []).map((s) => ({
-      id: s.id,
-      name: s.name,
-      deviceId: d.id,
-      deviceName: d.name,
-      isDefault: s.isDefault,
-    })),
+    slaves: (d.configSlaves || d.slaves || []).map((s) => {
+      const last = s.lastDataReceivedAt || d.lastDataReceivedAt
+      const switchOff = d.switchState === 'OFF'
+      const age = last ? Date.now() - new Date(last).getTime() : Infinity
+      const isOnline = !switchOff && (s.status === 'ONLINE' || s.statusRaw === 'ONLINE' || (Number.isFinite(age) && age < DEVICE_OFFLINE_AFTER_MS))
+      return {
+        id: s.id,
+        name: s.name,
+        deviceId: d.id,
+        deviceName: d.name,
+        isDefault: Boolean(s.isDefault),
+        status: isOnline ? 'Online' : 'Offline',
+        statusRaw: isOnline ? 'ONLINE' : 'OFFLINE',
+        lastDataReceivedAt: last || null,
+        lastSeen: fmtDate(last),
+        lastSeenRaw: last || null,
+      }
+    }),
     _raw: d,
   }
 }

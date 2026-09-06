@@ -48,7 +48,25 @@ export default function OrgDashboard() {
   const [deleting, setDeleting] = useState(false)
   const [energy, setEnergy] = useState(null)
   const [kpiScope, setKpiScope] = useState({ deviceId: null, device: null })
+  const [slaveModalOpen, setSlaveModalOpen] = useState(false)
+  const [slaveFilterTab, setSlaveFilterTab] = useState('all') // 'all' | 'online' | 'offline'
+  const [slaveSearchQuery, setSlaveSearchQuery] = useState('')
   const isDeviceKpiScoped = Boolean(kpiScope.deviceId)
+
+  function formatRelativeTime(dateStr) {
+    if (!dateStr) return 'Never received'
+    const ts = new Date(dateStr).getTime()
+    if (!Number.isFinite(ts)) return 'Never received'
+    const diffSec = Math.max(0, Math.floor((Date.now() - ts) / 1000))
+    if (diffSec < 10) return 'Just now'
+    if (diffSec < 60) return `${diffSec}s ago`
+    const diffMin = Math.floor(diffSec / 60)
+    if (diffMin < 60) return `${diffMin}m ago`
+    const diffHour = Math.floor(diffMin / 60)
+    if (diffHour < 24) return `${diffHour}h ${diffMin % 60}m ago`
+    const diffDay = Math.floor(diffHour / 24)
+    return `${diffDay}d ago`
+  }
 
   const { data: stats, loading, error, reload } = useFetch(async () => {
     const orgStats = await fetchOrgStats()
@@ -524,8 +542,32 @@ export default function OrgDashboard() {
 
           {/* 3. Stat cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <StatCard label="My Devices" value={stats?.totalDevices ?? 0} icon={Cpu} color="primary" />
-            <StatCard label="Online Devices" value={stats?.onlineDevices ?? 0} icon={CheckCircle} color="success" />
+            <div
+              onClick={() => { setSlaveFilterTab('all'); setSlaveModalOpen(true) }}
+              className="cursor-pointer transition-transform duration-200 hover:-translate-y-0.5"
+              title="Click to view all data nodes and slave statuses"
+            >
+              <StatCard
+                label="Total Slaves"
+                value={stats?.totalSlaves ?? 0}
+                icon={Cpu}
+                color="primary"
+                sub="Click to view slave nodes"
+              />
+            </div>
+            <div
+              onClick={() => { setSlaveFilterTab(stats?.offlineSlaves > 0 ? 'offline' : 'all'); setSlaveModalOpen(true) }}
+              className="cursor-pointer transition-transform duration-200 hover:-translate-y-0.5"
+              title="Click to inspect online/offline slave breakdown"
+            >
+              <StatCard
+                label="Online Slaves"
+                value={`${stats?.onlineSlaves ?? 0} / ${stats?.totalSlaves ?? 0}`}
+                icon={CheckCircle}
+                color="success"
+                sub={stats?.offlineSlaves > 0 ? `${stats.offlineSlaves} offline · Click to inspect` : 'All slaves online'}
+              />
+            </div>
             <StatCard label="Active Alarms" value={stats?.activeAlarms ?? 0} icon={AlertTriangle} color="warning" />
             <StatCard label="Monthly Energy" value={monthlyEnergy} icon={Zap} color="info" />
           </div>
@@ -678,6 +720,148 @@ export default function OrgDashboard() {
             showAccessFilter={false}
             telemetrySubtitle={`Showing 5 latest devices. Use the search bar to find past devices for ${orgName}.`}
           />
+
+          {/* 8. Slave Health & Diagnostic Inspector Modal */}
+          <Modal
+            open={slaveModalOpen}
+            onClose={() => setSlaveModalOpen(false)}
+            size="lg"
+            title="Data Nodes & Slaves Status"
+          >
+            <div className="space-y-4">
+              {/* Header summary & tabs */}
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-surface-100 dark:border-surface-800 pb-3">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSlaveFilterTab('all')}
+                    className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors ${
+                      slaveFilterTab === 'all'
+                        ? 'bg-primary-600 text-white shadow-sm'
+                        : 'bg-surface-100 dark:bg-surface-800 text-surface-600 dark:text-surface-300 hover:bg-surface-200'
+                    }`}
+                  >
+                    All Slaves ({stats?.totalSlaves ?? 0})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSlaveFilterTab('online')}
+                    className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors ${
+                      slaveFilterTab === 'online'
+                        ? 'bg-success-600 text-white shadow-sm'
+                        : 'bg-surface-100 dark:bg-surface-800 text-surface-600 dark:text-surface-300 hover:bg-surface-200'
+                    }`}
+                  >
+                    Online ({stats?.onlineSlaves ?? 0})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSlaveFilterTab('offline')}
+                    className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors ${
+                      slaveFilterTab === 'offline'
+                        ? 'bg-danger-600 text-white shadow-sm'
+                        : 'bg-surface-100 dark:bg-surface-800 text-surface-600 dark:text-surface-300 hover:bg-surface-200'
+                    }`}
+                  >
+                    Offline ({stats?.offlineSlaves ?? 0})
+                  </button>
+                </div>
+
+                <div className="relative w-full sm:w-56">
+                  <input
+                    type="text"
+                    className="input pl-3 pr-3 py-1 text-xs bg-surface-50 dark:bg-surface-950 border-surface-200 dark:border-surface-800 w-full"
+                    placeholder="Search slave or device..."
+                    value={slaveSearchQuery}
+                    onChange={(e) => setSlaveSearchQuery(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {/* Slaves List */}
+              {(() => {
+                const slaves = (stats?.slaves || []).filter((s) => {
+                  const isOnline = s.status === 'Online' || s.statusRaw === 'ONLINE'
+                  if (slaveFilterTab === 'online' && !isOnline) return false
+                  if (slaveFilterTab === 'offline' && isOnline) return false
+                  if (!slaveSearchQuery.trim()) return true
+                  const q = slaveSearchQuery.toLowerCase()
+                  return (
+                    (s.name || '').toLowerCase().includes(q) ||
+                    (s.deviceName || '').toLowerCase().includes(q)
+                  )
+                })
+
+                if (!slaves.length) {
+                  return (
+                    <div className="p-8 text-center text-xs text-surface-500 font-bold bg-surface-50/30 dark:bg-surface-900/40 rounded-xl border border-dashed border-surface-200 dark:border-surface-800">
+                      No slaves match the selected filter.
+                    </div>
+                  )
+                }
+
+                return (
+                  <div className="divide-y divide-surface-100 dark:divide-surface-800 max-h-[60vh] overflow-y-auto pr-1">
+                    {slaves.map((s) => {
+                      const isOnline = s.status === 'Online' || s.statusRaw === 'ONLINE'
+                      return (
+                        <div
+                          key={`${s.deviceId}-${s.id}`}
+                          className="py-3 px-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 hover:bg-surface-50/60 dark:hover:bg-surface-800/40 rounded-xl transition-colors"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div
+                              className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
+                                isOnline ? 'bg-success-500 shadow-[0_0_8px_rgba(34,197,94,0.6)] animate-pulse' : 'bg-danger-500'
+                              }`}
+                            />
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-bold text-surface-900 dark:text-surface-100">
+                                  {s.name}
+                                </span>
+                                {s.isDefault && (
+                                  <span className="text-[9px] px-1.5 py-0.2 bg-primary-100 dark:bg-primary-950/40 text-primary-700 dark:text-primary-300 rounded font-semibold">
+                                    Default
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[10px] text-surface-400 font-medium mt-0.5">
+                                Device: <strong className="text-surface-600 dark:text-surface-300">{s.deviceName}</strong>
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-4 sm:text-right pl-5 sm:pl-0">
+                            <div>
+                              <p className="text-[10px] font-bold text-surface-400 uppercase">
+                                {isOnline ? 'Last Reading' : 'Offline Since'}
+                              </p>
+                              <p className="text-xs font-semibold text-surface-700 dark:text-surface-200">
+                                {formatRelativeTime(s.lastDataReceivedAt)}
+                              </p>
+                              {s.lastDataReceivedAt && (
+                                <p className="text-[9px] text-surface-400 font-mono">
+                                  {new Date(s.lastDataReceivedAt).toLocaleTimeString()}
+                                </p>
+                              )}
+                            </div>
+                            <span
+                              className={`badge text-[9px] font-black uppercase tracking-wider ${
+                                isOnline ? 'badge-success' : 'badge-danger'
+                              }`}
+                            >
+                              {isOnline ? 'ONLINE' : 'OFFLINE'}
+                            </span>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              })()}
+            </div>
+          </Modal>
 
           <Modal
             open={openGroup !== null && !editOpen}

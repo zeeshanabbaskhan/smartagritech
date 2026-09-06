@@ -38,17 +38,31 @@ export async function fetchAdminStats() {
 
 export async function fetchOrgStats() {
   const [devicesRes, gatewaysRes, anomaliesRes] = await Promise.all([
-    emsApi.getDevices({ limit: 100 }).catch(() => ({ data: [], total: 0 })),
+    emsApi.getDevices({ limit: 100, withMetrics: true }).catch(() => ({ data: [], total: 0 })),
     emsApi.getGateways({ limit: 100 }).catch(() => ({ data: [], total: 0 })),
     emsApi.getAnomalies({ limit: 50 }).catch(() => ({ data: [], total: 0 })),
   ])
   const devices = list(devicesRes).map(mapDevice)
   const online = devices.filter((d) => d.statusRaw === 'ONLINE').length
+  
+  // Aggregate all slaves across all devices
+  const allSlaves = devices.flatMap((d) => (d.slaves || []).map((s) => ({
+    ...s,
+    deviceOrg: d.org,
+    deviceGateway: d.gateway,
+  })))
+  const onlineSlaves = allSlaves.filter((s) => s.statusRaw === 'ONLINE' || s.status === 'Online').length
+  const totalSlaves = allSlaves.length
+
   return {
     totalDevices: devicesRes?.total ?? devices.length,
     totalGateways: gatewaysRes?.total ?? list(gatewaysRes).length,
     onlineDevices: online,
     offlineDevices: devices.length - online,
+    totalSlaves,
+    onlineSlaves,
+    offlineSlaves: totalSlaves - onlineSlaves,
+    slaves: allSlaves,
     devices,
     anomalies: list(anomaliesRes),
   }
