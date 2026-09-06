@@ -84,10 +84,15 @@ export default function OrgDashboard() {
       ? payload.groups.map((g) => ({
           id: g.id,
           name: g.name,
+          description: g.description || '',
           deviceIds: g.deviceIds ?? (g.devices || []).map((d) => d.id ?? d.deviceId).filter(Boolean),
+          slaveIds: g.slaveIds ?? (g.slaves || []).map((s) => s.id ?? s.slaveId).filter(Boolean),
+          slaves: g.slaves || [],
           deviceCount: g.deviceCount ?? (g.deviceIds?.length ?? 0),
+          slaveCount: g.slaveCount ?? (g.slaveIds?.length ?? (g.slaves || []).length ?? 0),
+          loadKw: Number(g.loadKw ?? g.load) || 0,
           load: Number(g.loadKw ?? g.load) || 0,
-          active: (Number(g.loadKw ?? g.load) || 0) > 0,
+          active: (Number(g.loadKw ?? g.load) || 0) > 0 || ((g.slaveIds?.length || 0) > 0),
         }))
       : []
     return {
@@ -156,17 +161,19 @@ export default function OrgDashboard() {
           slaves: g.slaves || [],
           userIds: g.userIds || [],
           deviceCount: g.deviceIds?.length || 0,
-          slaveCount: g.slaveIds?.length || 0,
+          slaveCount: g.slaveIds?.length || (g.slaves || []).length || 0,
           load: 0,
+          loadKw: 0,
           active: false,
         }))
 
     return base.map((g) => {
       const ids = g.deviceIds || []
+      const sIds = g.slaveIds || []
       const groupDevices = liveDevices.filter((d) => ids.includes(d.id))
       const active = groupDevices.filter((d) => !isSwitchOff(d))
       let load = g.loadKw != null ? Number(g.loadKw) : (g.load != null ? Number(g.load) : 0)
-      if (!g.loadKw && !g.slaveIds?.length) {
+      if (!g.loadKw && !sIds.length) {
         load = active.reduce((s, d) => {
           const v = readDeviceMetric(d, 'power')
           return s + (Number.isFinite(v) ? v : 0)
@@ -175,11 +182,13 @@ export default function OrgDashboard() {
       return {
         ...g,
         deviceIds: ids,
-        slaveIds: g.slaveIds || [],
+        slaveIds: sIds,
+        slaves: g.slaves || [],
         deviceCount: groupDevices.length || g.deviceCount || ids.length,
-        slaveCount: (g.slaveIds || []).length || g.slaveCount || 0,
+        slaveCount: sIds.length || g.slaveCount || (g.slaves || []).length || 0,
         load: +load.toFixed(2),
-        active: active.some((d) => !isOffline(d)) || (g.slaveIds?.length > 0 && load > 0),
+        loadKw: +load.toFixed(2),
+        active: active.some((d) => !isOffline(d)) || (sIds.length > 0 && load > 0) || ((g.slaves || []).length > 0),
       }
     })
   }, [powerFlow, fallbackGroups, liveDevices])
@@ -385,10 +394,11 @@ export default function OrgDashboard() {
 
   const slaveIdKey = useMemo(() => {
     const sourceSlaves = (powerFlow?.sources || []).flatMap((s) => s.slaveIds || [])
-    const groupSlaves = (powerFlow?.groups || []).flatMap((g) => g.slaveIds || [])
+    const liveSourceSlaves = (liveSources || []).flatMap((s) => s.slaveIds || [])
+    const groupSlaves = (groupLoads || []).flatMap((g) => g.slaveIds || [])
     const fallbackSlaves = fallbackGroups.flatMap((g) => g.slaveIds || [])
-    return [...new Set([...sourceSlaves, ...groupSlaves, ...fallbackSlaves].filter(Boolean))].join(',')
-  }, [powerFlow?.sources, powerFlow?.groups, fallbackGroups])
+    return [...new Set([...sourceSlaves, ...liveSourceSlaves, ...groupSlaves, ...fallbackSlaves].filter(Boolean))].join(',')
+  }, [powerFlow?.sources, liveSources, groupLoads, fallbackGroups])
 
   useEffect(() => {
     const ids = deviceIdKey ? deviceIdKey.split(',') : []
@@ -420,8 +430,8 @@ export default function OrgDashboard() {
       type: s.type,
       valueKw: s.valueKw || 0,
     })).filter((s) => (
-      s.deviceIds.some((id) => loadByDevice[id]) ||
-      s.slaveIds.some((id) => loadByDevice[id]) ||
+      s.deviceIds.some((id) => loadByDevice[id]?.size > 0 || loadByDevice[id]) ||
+      s.slaveIds.some((id) => loadByDevice[id]?.size > 0 || loadByDevice[id]) ||
       (s.type === 'solar' && energy?.solarByTs?.size > 0) ||
       s.valueKw > 0
     ))
@@ -458,9 +468,10 @@ export default function OrgDashboard() {
     const timestamps = energy?.timestamps ?? []
     if (!timestamps.length) return { rows: [], groups: [] }
     const plotted = groupLoads.filter((g) => (
-      (g.deviceIds || []).some((id) => loadByDevice[id]) ||
-      (g.slaveIds || []).some((id) => loadByDevice[id]) ||
-      (g.load > 0)
+      (g.deviceIds || []).some((id) => loadByDevice[id]?.size > 0 || loadByDevice[id]) ||
+      (g.slaveIds || []).some((id) => loadByDevice[id]?.size > 0 || loadByDevice[id]) ||
+      (g.load > 0) ||
+      ((g.slaveIds || []).length > 0)
     ))
     const rows = timestamps.map((ts, idx) => {
       const isLatest = idx === timestamps.length - 1

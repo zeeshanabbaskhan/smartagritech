@@ -208,7 +208,7 @@ export async function fetchOrgEnergyOverview(deviceIds = [], timeRange = '24h', 
   // 2. Fetch aggregates for explicitly linked slave IDs (e.g. Solar, Generator, Grid, custom groups)
   await Promise.all(slaveIds.map(async (sId) => {
     const slave = slaveById[sId]
-    const devId = slave?.parentDeviceId || ids[0]
+    const devId = slave?.parentDeviceId || slave?.deviceId || ids[0]
     if (!devId) return
 
     const slaveLoad = new Map()
@@ -253,9 +253,12 @@ export async function fetchOrgEnergyOverview(deviceIds = [], timeRange = '24h', 
 
   const timestamps = [...new Set([...loadByTs.keys(), ...solarByTs.keys(), ...Object.values(loadByDevice).flatMap(m => [...m.keys()])])].sort((a, b) => a - b)
   const series = timestamps.map((ts) => {
-    const load = +(loadByTs.get(ts) ?? 0).toFixed(2)
+    let load = loadByTs.get(ts) ?? 0
+    if (load === 0 && Object.keys(loadByDevice).length > 0) {
+      load = Object.values(loadByDevice).reduce((sum, m) => sum + (m.get(ts) ?? 0), 0)
+    }
     const solar = +(solarByTs.get(ts) ?? 0).toFixed(2)
-    return { ts, time: formatChartTime(ts), load, solar, grid: +Math.max(0, load - solar).toFixed(2) }
+    return { ts, time: formatChartTime(ts), load: +load.toFixed(2), solar, grid: +Math.max(0, load - solar).toFixed(2) }
   })
   const bucketHours = timestamps.length > 1 ? (timestamps[1] - timestamps[0]) / 3_600_000 : 0
 
