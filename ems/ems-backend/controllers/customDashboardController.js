@@ -10,17 +10,107 @@ const resolveOrgId = (req, bodyOrgId) => {
   return req.user.organizationId
 }
 
-const LOAD_VAR_NAMES = ['ActivePower', 'TotalActivePower', 'ActivePowerTotal', 'Power', 'PowerConsumption']
+const POWER_PRIORITY_KEYS = [
+  'total power',
+  'activepower',
+  'total active power',
+  'totalactivepower',
+  'active power',
+  'activepowertotal',
+  'totalkw',
+  'power',
+  'kw',
+  'total_power',
+  'active_power',
+  'powerconsumption',
+  'power consumption',
+]
 
-/** Convert raw register power to kW (ActivePower from MQTT is typically watts). */
-const toLoadKw = (name, raw) => {
-  const n = parseFloat(raw)
-  if (Number.isNaN(n)) return 0
-  const nm = String(name || '')
-  if (/powerconsumption/i.test(nm) && !/active/i.test(nm)) return Math.max(0, n)
-  if (/activepower|^power$/i.test(nm)) return Math.max(0, n / 1000)
-  if (Math.abs(n) >= 200) return Math.max(0, n / 1000)
-  return Math.max(0, n)
+const EXPORT_PRIORITY_KEYS = [
+  'exportpower',
+  'export active power',
+  'exportactivepower',
+  'solarpower',
+  'solar power',
+  'export_power',
+  'solar_power',
+]
+
+/**
+ * Robust normalizer:
+ * Ingest formulas in this system store kW-scale values (e.g. 16.9 kW, 57.2 kW, 103.9 kW).
+ * If raw value is extremely high (>= 200,000), it indicates raw micro-units or milliwatts -> divide by 1000.
+ * Otherwise, preserve directly as kW.
+ * Use Math.abs to handle reverse CT clamp wiring.
+ */
+const normalizeToKw = (val) => {
+  const n = parseFloat(val)
+  if (!Number.isFinite(n)) return 0
+  const abs = Math.abs(n)
+  if (abs >= 200000) return +(abs / 1000).toFixed(3)
+  return +abs.toFixed(3)
+}
+
+/**
+ * Universal multi-tier extraction of instantaneous active power (kW) from any variable map.
+ */
+const extractKwFromVariables = (varMap = {}, isExport = false) => {
+  if (!varMap || typeof varMap !== 'object') return 0
+
+  // 1. Build a lowercased, trimmed lookup map
+  const normalized = {}
+  for (const [k, v] of Object.entries(varMap)) {
+    if (v != null && v !== '') {
+      normalized[k.trim().toLowerCase()] = v
+    }
+  }
+
+  const priorityKeys = isExport ? EXPORT_PRIORITY_KEYS : POWER_PRIORITY_KEYS
+
+  // Tier 1: Check primary total active power registers
+  for (const key of priorityKeys) {
+    if (normalized[key] != null) {
+      const kw = normalizeToKw(normalized[key])
+      if (kw > 0) return kw
+    }
+  }
+
+  // Tier 2: Check 3-phase split power registers (PowerA + PowerB + PowerC or Power1 + Power2 + Power3)
+  const pA = normalized['powera'] ?? normalized['power a'] ?? normalized['power_a'] ?? normalized['p1'] ?? normalized['power1']
+  const pB = normalized['powerb'] ?? normalized['power b'] ?? normalized['power_b'] ?? normalized['p2'] ?? normalized['power2']
+  const pC = normalized['powerc'] ?? normalized['power c'] ?? normalized['power_c'] ?? normalized['p3'] ?? normalized['power3']
+
+  if (pA != null || pB != null || pC != null) {
+    const sumPhase = (normalizeToKw(pA) || 0) + (normalizeToKw(pB) || 0) + (normalizeToKw(pC) || 0)
+    if (sumPhase > 0) return +sumPhase.toFixed(3)
+  }
+
+  // Tier 3: Check Apparent Power x Power Factor (S * PF)
+  const appPower = normalized['total apparent power'] ?? normalized['totalapparentpower'] ?? normalized['apparent power'] ?? normalized['apparentpower'] ?? normalized['s']
+  const pf = normalized['power factor'] ?? normalized['powerfactor'] ?? normalized['pf'] ?? normalized['total power factor']
+  if (appPower != null) {
+    const sVal = normalizeToKw(appPower)
+    const pfVal = pf != null ? Math.min(1, Math.max(0, Math.abs(parseFloat(pf)) || 1)) : 0.95
+    if (sVal > 0) return +(sVal * pfVal).toFixed(3)
+  }
+
+  // Tier 4: Check V x I calculation from live currents and voltages
+  const iA = parseFloat(normalized['current a'] ?? normalized['currenta'] ?? normalized['ia'] ?? normalized['current 1'] ?? 0) || 0
+  const iB = parseFloat(normalized['current b'] ?? normalized['currentb'] ?? normalized['ib'] ?? normalized['current 2'] ?? 0) || 0
+  const iC = parseFloat(normalized['current c'] ?? normalized['currentc'] ?? normalized['ic'] ?? normalized['current 3'] ?? 0) || 0
+
+  const totalCurrent = Math.abs(iA) + Math.abs(iB) + Math.abs(iC)
+  if (totalCurrent > 0.1) {
+    const vA = parseFloat(normalized['voltage'] ?? normalized['voltagea'] ?? normalized['va'] ?? normalized['voltage 1'] ?? 230) || 230
+    const vB = parseFloat(normalized['voltageb'] ?? normalized['vb'] ?? normalized['voltage 2'] ?? 230) || 230
+    const vC = parseFloat(normalized['voltagec'] ?? normalized['vc'] ?? normalized['voltage 3'] ?? 230) || 230
+
+    const pfVal = pf != null ? Math.min(1, Math.max(0, Math.abs(parseFloat(pf)) || 1)) : 0.9
+    const calcKw = ((Math.abs(iA) * Math.abs(vA) + Math.abs(iB) * Math.abs(vB) + Math.abs(iC) * Math.abs(vC)) * pfVal) / 1000
+    if (calcKw > 0) return +calcKw.toFixed(3)
+  }
+
+  return 0
 }
 
 /** Prefer ActivePower, then PowerConsumption from Redis or DB current values. */
@@ -31,27 +121,31 @@ const readDeviceLoadKw = async (deviceId) => {
   })
   if (String(device?.switchState || '').toUpperCase() === 'OFF') return 0
 
+  const varMap = {}
+
   const c = redis.getClient()
   if (c) {
     try {
       const hot = await readLatestMerged(deviceId)
-      for (const name of LOAD_VAR_NAMES) {
-        const raw = hot?.[name]
-        if (raw != null && raw !== '') return toLoadKw(name, raw)
+      if (hot && Object.keys(hot).length) {
+        Object.assign(varMap, hot)
       }
     } catch (_) {}
   }
-  const vars = await prisma.deviceConfigVariable.findMany({
-    where: { deviceId, name: { in: LOAD_VAR_NAMES }, isActive: true },
-    select: { name: true, currentValue: true },
-  })
-  const byName = Object.fromEntries(vars.map((v) => [v.name, v.currentValue]))
-  for (const name of LOAD_VAR_NAMES) {
-    const val = byName[name]
-    if (val == null || val === '') continue
-    return toLoadKw(name, val)
-  }
-  return 0
+
+  try {
+    const vars = await prisma.deviceConfigVariable.findMany({
+      where: { deviceId, isActive: true },
+      select: { name: true, currentValue: true },
+    })
+    for (const v of vars) {
+      if (v.currentValue != null && v.currentValue !== '' && varMap[v.name] === undefined) {
+        varMap[v.name] = v.currentValue
+      }
+    }
+  } catch (_) {}
+
+  return extractKwFromVariables(varMap)
 }
 
 /** Read ActivePower for a specific slave from Redis hot hash or DB variables. */
@@ -65,25 +159,31 @@ const readSlaveLoadKw = async (deviceId, slaveId) => {
     if (String(device?.switchState || '').toUpperCase() === 'OFF') return 0
   }
 
+  const varMap = {}
+
   const c = redis.getClient()
   if (c && deviceId) {
     try {
       const hot = await readLatestForSlave(deviceId, slaveId)
-      for (const name of LOAD_VAR_NAMES) {
-        const raw = hot?.[name]
-        if (raw != null && raw !== '') return toLoadKw(name, raw)
+      if (hot && Object.keys(hot).length) {
+        Object.assign(varMap, hot)
       }
     } catch (_) {}
   }
 
-  const v = await prisma.deviceConfigVariable.findFirst({
-    where: { deviceConfigSlaveId: slaveId, name: { in: LOAD_VAR_NAMES }, isActive: true },
-    select: { name: true, currentValue: true },
-  })
-  if (v?.currentValue != null && v.currentValue !== '') {
-    return toLoadKw(v.name, v.currentValue)
-  }
-  return 0
+  try {
+    const vars = await prisma.deviceConfigVariable.findMany({
+      where: { deviceConfigSlaveId: slaveId, isActive: true },
+      select: { name: true, currentValue: true },
+    })
+    for (const v of vars) {
+      if (v.currentValue != null && v.currentValue !== '' && varMap[v.name] === undefined) {
+        varMap[v.name] = v.currentValue
+      }
+    }
+  } catch (_) {}
+
+  return extractKwFromVariables(varMap)
 }
 
 const sumLoadsForSlavesAndDevices = async (deviceIds = [], slaveIds = []) => {
@@ -122,28 +222,31 @@ const readDeviceExportKw = async (deviceId) => {
   })
   if (String(device?.switchState || '').toUpperCase() === 'OFF') return 0
 
-  const EXPORT_NAMES = ['ExportPower', 'SolarPower', 'ExportActivePower']
+  const varMap = {}
+
   const c = redis.getClient()
   if (c) {
     try {
       const hot = await readLatestMerged(deviceId)
-      for (const name of EXPORT_NAMES) {
-        const raw = hot?.[name]
-        if (raw != null && raw !== '') return toLoadKw(name, raw)
+      if (hot && Object.keys(hot).length) {
+        Object.assign(varMap, hot)
       }
     } catch (_) {}
   }
-  const vars = await prisma.deviceConfigVariable.findMany({
-    where: { deviceId, name: { in: EXPORT_NAMES }, isActive: true },
-    select: { name: true, currentValue: true },
-  })
-  const byName = Object.fromEntries(vars.map((v) => [v.name, v.currentValue]))
-  for (const name of EXPORT_NAMES) {
-    const val = byName[name]
-    if (val == null || val === '') continue
-    return toLoadKw(name, val)
-  }
-  return 0
+
+  try {
+    const vars = await prisma.deviceConfigVariable.findMany({
+      where: { deviceId, isActive: true },
+      select: { name: true, currentValue: true },
+    })
+    for (const v of vars) {
+      if (v.currentValue != null && v.currentValue !== '' && varMap[v.name] === undefined) {
+        varMap[v.name] = v.currentValue
+      }
+    }
+  } catch (_) {}
+
+  return extractKwFromVariables(varMap, true)
 }
 
 const sumExportForDeviceIds = async (deviceIds) => {

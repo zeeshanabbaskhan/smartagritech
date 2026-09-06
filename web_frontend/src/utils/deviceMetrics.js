@@ -1,11 +1,11 @@
 // Live values from Redis hash device:{id}:latest (keyed by config variable names).
 
 const ALIASES = {
-  power:       ['ActivePower', 'PowerConsumption', 'TotalActivePower', 'ActivePowerTotal', 'Power', 'kW'],
-  current:     ['CurrentA', 'Ia', 'Current', 'TotalCurrent', 'CurrentTotal', 'AverageCurrent'],
-  voltage:     ['VoltageA', 'Va', 'Voltage', 'AverageVoltage', 'VoltageAvg', 'Vab'],
-  pf:          ['PowerFactor', 'PF', 'pf', 'AveragePowerFactor', 'TotalPowerFactor'],
-  consumption: ['EnergyConsumption', 'ActiveEnergy', 'PowerConsumption', 'kWh', 'TotalEnergy', 'Energy'],
+  power:       ['Total Power', 'TotalPower', 'ActivePower', 'TotalActivePower', 'Active Power', 'Total Active Power', 'ActivePowerTotal', 'Power', 'Total kW', 'kW', 'PowerConsumption'],
+  current:     ['Current A', 'Current B', 'Current C', 'CurrentA', 'Ia', 'Current', 'TotalCurrent', 'CurrentTotal', 'AverageCurrent'],
+  voltage:     ['Voltage', 'VoltageA', 'VoltageB', 'VoltageC', 'Va', 'AverageVoltage', 'VoltageAvg', 'Vab'],
+  pf:          ['Power Factor', 'PowerFactor', 'PF', 'pf', 'AveragePowerFactor', 'TotalPowerFactor'],
+  consumption: ['Units', 'EnergyConsumption', 'ActiveEnergy', 'PowerConsumption', 'kWh', 'TotalEnergy', 'Energy'],
 }
 
 const UNIT_HINTS = [
@@ -28,17 +28,17 @@ export function powerReadingToKw(variableName, value, unit = '') {
   const n = Number(value)
   if (!Number.isFinite(n)) return NaN
   const u = String(unit || '').toLowerCase().trim()
-  if (u === 'kw' || u === 'kilowatt') return n
-  if (u === 'w' || u === 'watt' || u === 'watts') return n / 1000
+  if (u === 'kw' || u === 'kilowatt') return Math.abs(n)
+  if (u === 'w' || u === 'watt' || u === 'watts') return Math.abs(n) / 1000
   const nm = String(variableName || '')
-  if (/powerconsumption/i.test(nm) && !/active/i.test(nm)) return n
-  if (/activepower|^power$|totalactivepower|exportpower|solarpower/i.test(nm)) {
-    // Backend formulas store kW-scale values (typically < 10000); raw watts are much larger.
-    if (Math.abs(n) <= 10000) return n
-    return n / 1000
+  if (/powerconsumption/i.test(nm) && !/active/i.test(nm)) return Math.abs(n)
+  if (/activepower|^power$|totalactivepower|exportpower|solarpower|total power|totalpower|active power/i.test(nm)) {
+    // Backend formulas store kW-scale values (typically < 200000); raw micro-units or mega watts are much larger.
+    if (Math.abs(n) < 200000) return Math.abs(n)
+    return Math.abs(n) / 1000
   }
-  if (Math.abs(n) >= 200000) return n / 1000
-  return n
+  if (Math.abs(n) >= 200000) return Math.abs(n) / 1000
+  return Math.abs(n)
 }
 
 /** Best-effort unit label from variable name. */
@@ -126,8 +126,26 @@ export function readDeviceMetric(device, type) {
   const keys = ALIASES[type] ?? [type]
   for (const key of keys) {
     const n = finish(key, metrics[key])
+    if (Number.isFinite(n) && n > 0) return n
+  }
+
+  // 3-Phase summation fallback for meters split into phase powers
+  if (type === 'power') {
+    const pA = parseMetricRaw(metrics['PowerA'] ?? metrics['Power A'] ?? metrics['Power_A'] ?? metrics['P1'])
+    const pB = parseMetricRaw(metrics['PowerB'] ?? metrics['Power B'] ?? metrics['Power_B'] ?? metrics['P2'])
+    const pC = parseMetricRaw(metrics['PowerC'] ?? metrics['Power C'] ?? metrics['Power_C'] ?? metrics['P3'])
+    if (Number.isFinite(pA) || Number.isFinite(pB) || Number.isFinite(pC)) {
+      const sum = (Number.isFinite(pA) ? Math.abs(pA) : 0) + (Number.isFinite(pB) ? Math.abs(pB) : 0) + (Number.isFinite(pC) ? Math.abs(pC) : 0)
+      if (sum > 0) return +sum.toFixed(2)
+    }
+  }
+
+  // First non-zero/valid alias if available
+  for (const key of keys) {
+    const n = finish(key, metrics[key])
     if (Number.isFinite(n)) return n
   }
+
   return NaN
 }
 
