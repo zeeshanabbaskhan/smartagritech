@@ -22,13 +22,25 @@ export async function fetchAdminStats() {
   const online = devices.filter((d) => d.statusRaw === 'ONLINE').length
   const offline = devices.filter((d) => d.statusRaw === 'OFFLINE').length
   const activeAlarms = anomalies.filter((a) => a.alarmState === 'ACTIVE' || a.processState === 'PENDING').length
+  const allSlaves = devices.flatMap((d) => (d.slaves || []).map((s) => ({
+    ...s,
+    deviceOrg: d.org,
+    deviceGateway: d.gateway,
+  })))
+  const onlineSlaves = allSlaves.filter((s) => s.statusRaw === 'ONLINE' || s.status === 'Online').length
+  const totalSlaves = allSlaves.length
+
   return {
     totalOrgs: orgs,
     totalUsers: users,
     totalDevices: devicesRes?.total ?? devices.length,
     totalGateways: gateways,
+    totalSlaves,
+    onlineSlaves,
+    offlineSlaves: Math.max(0, totalSlaves - onlineSlaves),
     onlineDevices: online,
     offlineDevices: offline,
+    slaves: allSlaves,
     activeAlarms,
     totalAlarms: anomaliesRes?.total ?? anomalies.length,
     devices,

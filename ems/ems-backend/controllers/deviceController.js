@@ -7,7 +7,7 @@ const { deviceWhereForUser, assertDeviceAccess } = require('../utils/deviceAcces
 const { hashKey, generateDeviceIngestKey } = require('../utils/ingestAuth')
 const { isDeleteQueueEnabled, enqueueDeviceDelete } = require('../workers/jobQueues')
 const refCache = require('../utils/referenceCache')
-const { readLatestMerged } = require('../utils/redisLatest')
+const { readLatestMerged, readLatestForSlave } = require('../utils/redisLatest')
 const { legacyDisplayValue } = require('../utils/legacyDisplayValue')
 
 // Creating / deleting a device changes the owning template's cached devices
@@ -25,7 +25,8 @@ const attachLatestMetrics = async (devices) => {
   for (const d of devices) {
     // Switch OFF — hide all live/current readings from API consumers.
     if (String(d.switchState || '').toUpperCase() === 'OFF') {
-      enriched.push({ ...d, latestMetrics: {} })
+      const configSlaves = (d.configSlaves || []).map((s) => ({ ...s, latestMetrics: {} }))
+      enriched.push({ ...d, latestMetrics: {}, configSlaves })
       continue
     }
     let hot = {}
@@ -40,7 +41,7 @@ const attachLatestMetrics = async (devices) => {
     try {
       vars = await prisma.deviceConfigVariable.findMany({
         where: { deviceId: d.id, isActive: true },
-        select: { name: true, currentValue: true, unit: true, displayName: true },
+        select: { id: true, name: true, currentValue: true, unit: true, displayName: true, deviceConfigSlaveId: true },
         orderBy: { name: 'asc' },
       })
     } catch (_) {
@@ -61,7 +62,39 @@ const attachLatestMetrics = async (devices) => {
         displayName: v.displayName || v.name,
       }
     }
-    enriched.push({ ...d, latestMetrics })
+
+    // Attach per-slave metrics if device has slaves
+    const configSlaves = []
+    for (const s of (d.configSlaves || [])) {
+      let slaveHot = {}
+      if (c && s.id) {
+        try {
+          slaveHot = await readLatestForSlave(d.id, s.id)
+        } catch (_) {
+          slaveHot = {}
+        }
+      }
+      const slaveVars = vars.filter((v) => v.deviceConfigSlaveId === s.id)
+      const slaveMetrics = {}
+      const targetVars = slaveVars.length ? slaveVars : vars
+      for (const sv of targetVars) {
+        if (!sv?.name) continue
+        const sRedisVal = slaveHot[sv.name] ?? hot[sv.name]
+        const sRaw = sRedisVal != null && sRedisVal !== '' ? sRedisVal : sv.currentValue
+        const sNum = sRaw != null && sRaw !== '' ? Number(sRaw) : NaN
+        const sMeta = { name: sv.name, displayName: sv.displayName, unit: sv.unit }
+        const sDisplayValue = Number.isFinite(sNum) ? legacyDisplayValue(sNum, sMeta) : null
+        slaveMetrics[sv.name] = {
+          value: sRaw ?? null,
+          displayValue: sDisplayValue,
+          unit: sv.unit ?? null,
+          displayName: sv.displayName || sv.name,
+        }
+      }
+      configSlaves.push({ ...s, latestMetrics: slaveMetrics })
+    }
+
+    enriched.push({ ...d, latestMetrics, configSlaves })
   }
   return enriched
 }
@@ -72,22 +105,19 @@ const mapDeviceSlaves = (devices) => {
     const isSwitchOff = String(d.switchState || '').toUpperCase() === 'OFF'
     const dLastTs = d.lastDataReceivedAt ? new Date(d.lastDataReceivedAt).getTime() : 0
     const dAge = d.lastDataReceivedAt ? Date.now() - dLastTs : Infinity
-    const isDeviceStreaming = !isSwitchOff && Number.isFinite(dAge) && dAge < OFFLINE_AFTER_MS
+    const totalSlaves = (d.configSlaves || []).length
 
     const configSlaves = (d.configSlaves || []).map((s) => {
       const lastVar = s.configVariables?.[0]?.lastUpdatedAt || null
       const vLastTs = lastVar ? new Date(lastVar).getTime() : 0
 
       let lastDataReceivedAt = lastVar
-      if (dLastTs > vLastTs || !lastDataReceivedAt) {
+      if (totalSlaves <= 1 && (!lastDataReceivedAt || dLastTs > vLastTs)) {
         lastDataReceivedAt = d.lastDataReceivedAt || lastVar || null
       }
 
       const effectiveAge = lastDataReceivedAt ? Date.now() - new Date(lastDataReceivedAt).getTime() : Infinity
-      const isOnline = !isSwitchOff && (
-        (Number.isFinite(effectiveAge) && effectiveAge < OFFLINE_AFTER_MS) ||
-        isDeviceStreaming
-      )
+      const isOnline = !isSwitchOff && Number.isFinite(effectiveAge) && effectiveAge < OFFLINE_AFTER_MS
 
       return {
         id: s.id,
@@ -95,9 +125,8 @@ const mapDeviceSlaves = (devices) => {
         isDefault: s.isDefault,
         deviceId: s.deviceId,
         status: isOnline ? 'ONLINE' : 'OFFLINE',
-        lastDataReceivedAt: isOnline && (!lastDataReceivedAt || effectiveAge >= OFFLINE_AFTER_MS)
-          ? d.lastDataReceivedAt
-          : lastDataReceivedAt,
+        lastDataReceivedAt,
+        latestMetrics: s.latestMetrics || {},
       }
     })
     return { ...d, configSlaves }

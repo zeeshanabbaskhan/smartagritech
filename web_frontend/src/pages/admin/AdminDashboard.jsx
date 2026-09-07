@@ -213,6 +213,21 @@ export default function AdminDashboard() {
     return contextDevices?.length ? contextDevices : (stats?.devices ?? [])
   }, [selectedOrg, scope.devices, contextDevices, stats?.devices])
 
+  const scopedSlaves = useMemo(() => {
+    const devs = selectedOrg && scope.devices?.length ? scope.devices : (stats?.devices ?? [])
+    const allSlaves = devs.flatMap((d) => (d.slaves || []).map((s) => ({
+      ...s,
+      deviceOrg: d.org,
+      deviceGateway: d.gateway,
+    })))
+    const online = allSlaves.filter((s) => s.statusRaw === 'ONLINE' || s.status === 'Online').length
+    return {
+      total: allSlaves.length,
+      online,
+      offline: Math.max(0, allSlaves.length - online),
+    }
+  }, [selectedOrg, scope.devices, stats?.devices])
+
   const statCards = (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
       <StatCard
@@ -228,10 +243,18 @@ export default function AdminDashboard() {
         color="info"
       />
       <StatCard
-        label="Total Devices"
-        value={selectedOrg ? (scope.devices?.length ?? 0) : (stats?.totalDevices ?? 0)}
+        label="Total Slaves"
+        value={scopedSlaves.total}
         icon={Cpu}
         color="neutral"
+        sub={`${selectedOrg ? (scope.devices?.length ?? 0) : (stats?.totalDevices ?? 0)} devices`}
+      />
+      <StatCard
+        label="Online Slaves"
+        value={`${scopedSlaves.online} / ${scopedSlaves.total}`}
+        icon={CheckCircle}
+        color="success"
+        sub={`${onlineCount} / ${(scope.devices || stats?.devices || []).length} devices online`}
       />
       <StatCard
         label="Total Gateways"
@@ -240,7 +263,6 @@ export default function AdminDashboard() {
         color="neutral"
       />
       <StatCard label="Online Devices" value={onlineCount} icon={CheckCircle} color="success" />
-      <StatCard label="Offline Devices" value={offlineCount} icon={XCircle} color="danger" />
       <StatCard
         label="Active Alarms"
         value={selectedOrg ? scopedAlarms.length : (stats?.activeAlarms ?? 0)}
