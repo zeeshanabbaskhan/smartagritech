@@ -118,8 +118,10 @@ const applyIngestFormulas = (configVars, readings, preferredSlaveId) => {
 
   // Map of "SlaveName$$VariableName" → computed numeric value
   const refValues = {}
-  // Map of config var name → computed value (string|number)
-  const computedByName = {}
+  // Map of `${slaveId}:${varName}` → computed value
+  const computedBySlaveVar = {}
+  // Map of config var name → computed value for the reporting slave
+  const computedForReportingSlave = {}
 
   const slaveNameOf = (cv) =>
     cv.templateVariable?.templateSlave?.name ||
@@ -144,23 +146,25 @@ const applyIngestFormulas = (configVars, readings, preferredSlaveId) => {
       }
     }
 
-    computedByName[r.variableName] = value
     if (cv) {
       const sn = slaveNameOf(cv)
       if (sn) refValues[`${sn}$$${cv.name}`] = Number(value)
+      computedBySlaveVar[`${cv.deviceConfigSlaveId}:${cv.name}`] = value
     }
+    computedForReportingSlave[r.variableName] = value
   }
 
   // Also seed refs from existing currentValue for vars not in this payload
   // (helps equations that span multiple slaves when only one slave reports)
   for (const cv of configVars || []) {
-    if (computedByName[cv.name] !== undefined) continue
+    const key = `${cv.deviceConfigSlaveId}:${cv.name}`
+    if (computedBySlaveVar[key] !== undefined) continue
     if (cv.currentValue == null || cv.currentValue === '') continue
     const num = Number(cv.currentValue)
     if (Number.isNaN(num)) continue
     const sn = slaveNameOf(cv)
     if (sn) refValues[`${sn}$$${cv.name}`] = num
-    computedByName[cv.name] = num
+    computedBySlaveVar[key] = num
   }
 
   // 2) Equation variables (after directs)
@@ -173,36 +177,48 @@ const applyIngestFormulas = (configVars, readings, preferredSlaveId) => {
     const result = applyEquationFormula(formula, (slave, variable) => {
       const key = `${slave}$$${variable}`
       if (refValues[key] != null) return refValues[key]
-      // Fallback: match by variable name only within same device
+      // Fallback: match within same slave or device
+      const peerKey = `${cv.deviceConfigSlaveId}:${variable}`
+      if (computedBySlaveVar[peerKey] != null) return Number(computedBySlaveVar[peerKey])
       const peer = byName[variable]
-      if (peer && computedByName[peer.name] != null) return Number(computedByName[peer.name])
+      if (peer && computedBySlaveVar[`${peer.deviceConfigSlaveId}:${peer.name}`] != null) {
+        return Number(computedBySlaveVar[`${peer.deviceConfigSlaveId}:${peer.name}`])
+      }
       return null
     })
 
     if (result == null) continue
-    computedByName[cv.name] = result
+    const key = `${cv.deviceConfigSlaveId}:${cv.name}`
+    computedBySlaveVar[key] = result
     const sn = slaveNameOf(cv)
     if (sn) refValues[`${sn}$$${cv.name}`] = result
+
+    if (preferredSlaveId && cv.deviceConfigSlaveId === preferredSlaveId) {
+      computedForReportingSlave[cv.name] = result
+    } else if (!preferredSlaveId) {
+      computedForReportingSlave[cv.name] = result
+    }
   }
 
-  // Build reading list: payload vars (computed) + newly computed equations not in payload
+  // Build reading list: payload vars (computed) + newly computed equations for reporting slave
   const out = []
   const seen = new Set()
   for (const r of readings || []) {
     if (r.variableName == null) continue
-    const value = computedByName[r.variableName] !== undefined
-      ? computedByName[r.variableName]
+    const value = computedForReportingSlave[r.variableName] !== undefined
+      ? computedForReportingSlave[r.variableName]
       : r.value
     out.push({ variableName: r.variableName, value })
     seen.add(r.variableName)
   }
   for (const cv of configVars || []) {
+    if (preferredSlaveId && cv.deviceConfigSlaveId !== preferredSlaveId) continue
     if (seen.has(cv.name)) continue
     if (cv.templateVariable?.variableType !== 'EQUATION') continue
-    if (computedByName[cv.name] === undefined) continue
-    // Only emit equation if it was freshly computable from this ingest
-    // (has a controlFormula and we got a result)
-    out.push({ variableName: cv.name, value: computedByName[cv.name] })
+    const val = computedBySlaveVar[`${cv.deviceConfigSlaveId}:${cv.name}`]
+    if (val === undefined) continue
+    out.push({ variableName: cv.name, value: val })
+    seen.add(cv.name)
   }
 
   return out

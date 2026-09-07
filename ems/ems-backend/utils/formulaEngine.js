@@ -155,7 +155,7 @@ const applyAcquisitionFormula = (formula, rawValue) => {
   }
 }
 
-const SLAVE_VAR_RE = /([A-Za-z0-9_]+)\$\$([A-Za-z0-9_]+)/g
+const SLAVE_VAR_RE = /([A-Za-z0-9_ -]+?)\$\$([A-Za-z0-9_ -]+?)(?=[+\-*/()]|$)/g
 
 /**
  * Evaluate an equation controlFormula.
@@ -166,12 +166,14 @@ const applyEquationFormula = (formula, lookup) => {
   let expr = String(formula).trim().replace(/^=/, '')
   let missing = false
   expr = expr.replace(SLAVE_VAR_RE, (_, slave, variable) => {
-    const v = lookup(slave, variable)
-    if (v == null || Number.isNaN(Number(v))) {
+    const s = String(slave || '').trim()
+    const v = String(variable || '').trim()
+    const val = lookup(s, v)
+    if (val == null || Number.isNaN(Number(val))) {
       missing = true
       return '0'
     }
-    return String(Number(v))
+    return String(Number(val))
   })
   if (missing) return null
   try {
