@@ -255,9 +255,6 @@ export default function DeviceSlaveMetricsPanel({
               <p className="text-sm font-semibold text-surface-700 dark:text-surface-200 truncate" title={labelFor(r)}>
                 {labelFor(r)}
               </p>
-              {r.registerAddress ? (
-                <p className="text-[10px] text-surface-400 font-mono mt-0.5">Reg {r.registerAddress}</p>
-              ) : null}
               <p className="text-lg font-bold mt-1">
                   {formatMetricValue(r.rawValue, r.value, r.name, r.unit)}
                 {r.unit ? <span className="text-xs font-normal text-surface-400 ml-1">{r.unit}</span> : null}
