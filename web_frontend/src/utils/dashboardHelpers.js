@@ -116,6 +116,21 @@ function resolveDeviceVariable(device, candidates, fallback = null) {
   return fallback
 }
 
+// In-memory cache for aggregate series with 30s TTL to eliminate redundant network roundtrips
+const aggregateCache = new Map()
+const AGG_CACHE_TTL = 30000 // 30s in-memory cache
+
+async function fetchCachedSensorAggregate(params) {
+  const key = JSON.stringify(params)
+  const entry = aggregateCache.get(key)
+  if (entry && Date.now() - entry.ts < AGG_CACHE_TTL) {
+    return entry.promise
+  }
+  const promise = emsApi.getSensorAggregate(params).catch(() => ({ data: [] }))
+  aggregateCache.set(key, { promise, ts: Date.now() })
+  return promise
+}
+
 /**
  * Org-wide power history from each device's real sensor aggregates.
  * Uses ActivePower / PowerConsumption / etc. (not hardcoded dashboard-summary only).
@@ -160,7 +175,7 @@ export async function fetchOrgEnergyOverview(deviceIds = [], timeRange = '24h', 
     }
   }
 
-  // 1. Fetch aggregates for all device IDs
+  // 1. Fetch aggregates for all device IDs (cached & parallel)
   await Promise.all(ids.map(async (id) => {
     const device = byId[id]
     const loadVar = resolveDeviceVariable(device, LOAD_VARS, 'ActivePower')
@@ -169,22 +184,19 @@ export async function fetchOrgEnergyOverview(deviceIds = [], timeRange = '24h', 
     if (loadVar && !loadVariableHint) loadVariableHint = loadVar
 
     const tasks = [
-      emsApi.getSensorAggregate({ deviceId: id, variableName: loadVar, timeRange })
-        .then((res) => ({ kind: 'load', varName: loadVar, points: res?.data ?? [] }))
-        .catch(() => ({ kind: 'load', varName: loadVar, points: [] })),
+      fetchCachedSensorAggregate({ deviceId: id, variableName: loadVar, timeRange })
+        .then((res) => ({ kind: 'load', varName: loadVar, points: res?.data ?? [] })),
     ]
     if (exportVar) {
       tasks.push(
-        emsApi.getSensorAggregate({ deviceId: id, variableName: exportVar, timeRange })
-          .then((res) => ({ kind: 'export', varName: exportVar, points: res?.data ?? [] }))
-          .catch(() => ({ kind: 'export', varName: exportVar, points: [] })),
+        fetchCachedSensorAggregate({ deviceId: id, variableName: exportVar, timeRange })
+          .then((res) => ({ kind: 'export', varName: exportVar, points: res?.data ?? [] })),
       )
     }
     if (energyVar) {
       tasks.push(
-        emsApi.getSensorAggregate({ deviceId: id, variableName: energyVar, timeRange: '30d' })
-          .then((res) => ({ kind: 'energy', varName: energyVar, points: res?.data ?? [] }))
-          .catch(() => ({ kind: 'energy', varName: energyVar, points: [] })),
+        fetchCachedSensorAggregate({ deviceId: id, variableName: energyVar, timeRange: '30d' })
+          .then((res) => ({ kind: 'energy', varName: energyVar, points: res?.data ?? [] })),
       )
     }
 
@@ -212,13 +224,11 @@ export async function fetchOrgEnergyOverview(deviceIds = [], timeRange = '24h', 
     if (!devId) return
 
     const slaveLoad = new Map()
-    const res = await emsApi.getSensorAggregate({ deviceId: devId, slaveId: sId, variableName: 'ActivePower', timeRange })
-      .catch(() => null)
+    const res = await fetchCachedSensorAggregate({ deviceId: devId, slaveId: sId, variableName: 'ActivePower', timeRange })
     
     let points = res?.data ?? []
     if (!points.length) {
-      const resTp = await emsApi.getSensorAggregate({ deviceId: devId, slaveId: sId, variableName: 'Total Power', timeRange })
-        .catch(() => null)
+      const resTp = await fetchCachedSensorAggregate({ deviceId: devId, slaveId: sId, variableName: 'Total Power', timeRange })
       points = resTp?.data ?? []
     }
 

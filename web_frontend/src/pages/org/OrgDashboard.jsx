@@ -388,9 +388,13 @@ export default function OrgDashboard() {
   }
 
   const deviceIdKey = useMemo(() => {
+    const sourceDevs = (liveSources || []).flatMap((s) => s.deviceIds || [])
+    const groupDevs = (groupLoads || []).flatMap((g) => g.deviceIds || [])
+    const linked = [...new Set([...sourceDevs, ...groupDevs].filter(Boolean))]
+    if (linked.length) return linked.join(',')
     const ids = (stats?.devices ?? []).map((d) => d.id).filter(Boolean)
-    return ids.length ? ids.join(',') : (liveDevices.map((d) => d.id).join(',') || '')
-  }, [stats?.devices, liveDevices])
+    return ids.slice(0, 3).join(',')
+  }, [liveSources, groupLoads, stats?.devices])
 
   const slaveIdKey = useMemo(() => {
     const sourceSlaves = (powerFlow?.sources || []).flatMap((s) => s.slaveIds || [])
