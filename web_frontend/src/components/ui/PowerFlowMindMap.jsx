@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import Modal from './Modal'
 import { TextInput, SelectInput } from './FormFields'
+import { readDeviceMetric } from '../../utils/deviceMetrics'
 
 function iconForGroup(name = '') {
   const n = name.toLowerCase()
@@ -207,9 +208,27 @@ export default function PowerFlowMindMap({
     closeSourceModal()
   }
 
-  const load = totalLoadKw != null && Number.isFinite(Number(totalLoadKw))
+  const calculatedFleetDemand = devices && devices.length > 0
+    ? devices.reduce((sum, d) => {
+        if (d.switchOn === false || String(d.switchState || '').toUpperCase() === 'OFF') return sum
+        const slaves = d.slaves || d.configSlaves || []
+        if (slaves.length > 1) {
+          let devSum = 0
+          for (const s of slaves) {
+            if (/solar/i.test(s.name || '')) continue
+            const v = readDeviceMetric(s, 'power')
+            if (Number.isFinite(v) && v > 0) devSum += v
+          }
+          return sum + devSum
+        }
+        const v = readDeviceMetric(d, 'power')
+        return sum + (Number.isFinite(v) && v > 0 ? v : 0)
+      }, 0)
+    : 0
+
+  const load = totalLoadKw != null && Number.isFinite(Number(totalLoadKw)) && Number(totalLoadKw) > 0
     ? Number(totalLoadKw)
-    : localSources.reduce((sum, s) => sum + (Number(s.valueKw) || 0), 0)
+    : calculatedFleetDemand
 
   const builtin = ['grid', 'solar', 'generator'].map((type) => {
     const found = localSources.find((s) => s.type === type || s.id === type)
@@ -235,15 +254,21 @@ export default function PowerFlowMindMap({
   const solarKw = Number(
     localSources.find((s) => s.type === 'solar' || s.id === 'solar')?.valueKw,
   ) || 0
-  const fallbackDailyKWh = +(solarKw * 24).toFixed(1)
+  const SOLAR_PEAK_SUN_HOURS = 5.5
+  const fallbackDailyKWh = +(solarKw * SOLAR_PEAK_SUN_HOURS).toFixed(1)
+  const dailyKWh = Number(savings?.dailyKWh) > 0 ? Number(savings.dailyKWh) : fallbackDailyKWh
+  const dailySavings = Number(savings?.daily) > 0 ? Number(savings.daily) : Math.round(dailyKWh * TARIFF_PKR_PER_KWH)
+  const weeklySavings = Number(savings?.weekly) > 0 ? Number(savings.weekly) : Math.round(dailyKWh * 7 * TARIFF_PKR_PER_KWH)
+  const monthlySavings = Number(savings?.monthly) > 0 ? Number(savings.monthly) : Math.round(dailyKWh * 30 * TARIFF_PKR_PER_KWH)
+
   const savingsView = {
-    daily: Number(savings?.daily) || Math.round(fallbackDailyKWh * TARIFF_PKR_PER_KWH),
-    weekly: Number(savings?.weekly) || Math.round(fallbackDailyKWh * 7 * TARIFF_PKR_PER_KWH),
-    monthly: Number(savings?.monthly) || Math.round(fallbackDailyKWh * 30 * TARIFF_PKR_PER_KWH),
-    dailyKWh: Number(savings?.dailyKWh) || fallbackDailyKWh,
+    daily: dailySavings,
+    weekly: weeklySavings,
+    monthly: monthlySavings,
+    dailyKWh,
   }
-  const weeklyKWh = +(savingsView.dailyKWh * 7).toFixed(1)
-  const monthlyKWh = +(savingsView.dailyKWh * 30).toFixed(1)
+  const weeklyKWh = +(dailyKWh * 7).toFixed(1)
+  const monthlyKWh = +(dailyKWh * 30).toFixed(1)
 
   const editingBuiltin = sourceModal && sourceModal !== 'create'
     && ['grid', 'solar', 'generator'].includes(sourceModal.type || sourceModal.id)
@@ -436,7 +461,7 @@ export default function PowerFlowMindMap({
             <div className="leading-tight">
               <p className="text-[11px] font-bold opacity-90">Total Organization Load</p>
               <p className="text-xl font-black">{load.toFixed(1)} kW</p>
-              <p className="text-[9px] font-semibold opacity-75 mt-0.5">Live from device ActivePower</p>
+              <p className="text-[9px] font-semibold opacity-75 mt-0.5">Live consumer demand across organization</p>
             </div>
           </div>
         </div>

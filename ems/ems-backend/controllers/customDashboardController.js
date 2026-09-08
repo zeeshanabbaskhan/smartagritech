@@ -498,17 +498,34 @@ const getPowerFlow = async (req, res, next) => {
       })
     }
 
-    // Also include org devices not in groups for source totals (ACL-filtered for USER)
+    // Calculate true Total Organization Load (Demand) across all consumer devices and slaves
     const orgDevices = await prisma.device.findMany({
       where: {
         organizationId: orgId,
         ...(allowedSet ? { id: { in: [...allowedSet] } } : {}),
       },
-      select: { id: true },
+      include: {
+        configSlaves: {
+          where: { isActive: true },
+          select: { id: true, name: true, deviceId: true },
+        },
+      },
+      orderBy: { name: 'asc' },
     })
-    orgDevices.forEach((d) => allDeviceIds.add(d.id))
-    const allIds = [...allDeviceIds]
-    const totalLoadKw = await sumLoadsForDeviceIds(allIds)
+
+    let totalLoadKw = 0
+    for (const d of orgDevices) {
+      const slaves = d.configSlaves || []
+      if (slaves.length > 1) {
+        for (const s of slaves) {
+          if (/solar/i.test(s.name || '')) continue
+          totalLoadKw += await readSlaveLoadKw(d.id, s.id)
+        }
+      } else {
+        totalLoadKw += await readDeviceLoadKw(d.id)
+      }
+    }
+    totalLoadKw = Math.round(totalLoadKw * 100) / 100
 
     let sources = Array.isArray(config.sources) ? config.sources.map((s) => ({ ...s })) : []
     // Ensure builtins exist
@@ -543,11 +560,24 @@ const getPowerFlow = async (req, res, next) => {
     const solarKw = Number(sources.find((s) => s.type === 'solar' || s.id === 'solar')?.valueKw) || 0
     const gridKw = Number(sources.find((s) => s.type === 'grid' || s.id === 'grid')?.valueKw) || 0
 
+    const SOLAR_PEAK_SUN_HOURS = 5.5
+    const TARIFF_PKR = 28
+    const liveDailyKWh = +(solarKw * SOLAR_PEAK_SUN_HOURS).toFixed(1)
+    const effectiveSavings = (config.savings && (Number(config.savings.daily) > 0 || Number(config.savings.dailyKWh) > 0))
+      ? config.savings
+      : {
+          daily: Math.round(liveDailyKWh * TARIFF_PKR),
+          weekly: Math.round(liveDailyKWh * 7 * TARIFF_PKR),
+          monthly: Math.round(liveDailyKWh * 30 * TARIFF_PKR),
+          dailyKWh: liveDailyKWh,
+          unit: 'PKR',
+        }
+
     res.json({
       success: true,
       data: {
         sources,
-        savings: config.savings,
+        savings: effectiveSavings,
         groups: mappedGroups,
         totalLoadKw,
         solarKw,

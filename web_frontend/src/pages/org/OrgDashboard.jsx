@@ -193,14 +193,25 @@ export default function OrgDashboard() {
     })
   }, [powerFlow, fallbackGroups, liveDevices])
 
-  /** Sum of all org devices' live ActivePower (kW) — true total load. */
+  /** Sum of all org consumer devices & slaves' live ActivePower (kW) — true total organization load. */
   const liveFleetKw = useMemo(() => {
-    const total = liveDevices
-      .filter((d) => !isSwitchOff(d))
-      .reduce((s, d) => {
+    let total = 0
+    for (const d of liveDevices) {
+      if (isSwitchOff(d)) continue
+      const slaves = d.slaves || d.configSlaves || []
+      if (slaves.length > 1) {
+        let devSum = 0
+        for (const s of slaves) {
+          if (/solar/i.test(s.name || '')) continue
+          const v = readDeviceMetric(s, 'power')
+          if (Number.isFinite(v) && v > 0) devSum += v
+        }
+        total += devSum
+      } else {
         const v = readDeviceMetric(d, 'power')
-        return s + (Number.isFinite(v) ? v : 0)
-      }, 0)
+        if (Number.isFinite(v) && v > 0) total += v
+      }
+    }
     return +total.toFixed(2)
   }, [liveDevices])
 
@@ -246,15 +257,10 @@ export default function OrgDashboard() {
     })
   }, [powerFlow, liveDevices])
 
-  /** Total organization load: exact sum of active supply sources, or live fleet fallback. */
+  /** True total organization load (demand across all plant consumer assets). */
   const totalOrgLoadKw = useMemo(() => {
-    const linkedSources = (liveSources || []).filter((s) => (s.deviceIds?.length || 0) + (s.slaveIds?.length || 0) > 0)
-    if (linkedSources.length > 0) {
-      const sum = linkedSources.reduce((s, src) => s + (Number(src.valueKw) || 0), 0)
-      return +sum.toFixed(2)
-    }
     return liveFleetKw
-  }, [liveSources, liveFleetKw])
+  }, [liveFleetKw])
 
   const openGroup = useMemo(
     () => groupLoads.find((g) => g.id === openGroupId) || null,
@@ -502,11 +508,12 @@ export default function OrgDashboard() {
     ? `${Math.round(energy.monthlyEnergyKwh).toLocaleString()} kWh`
     : '—'
 
-  // Savings: stored config → solar export history → live solarKw estimate (always an object so the card shows)
+  // Savings: real-time solar energy generation x tariff rate (standard 5.5h peak sun hours model)
   const savings = useMemo(() => {
+    const SOLAR_PEAK_SUN_HOURS = 5.5
     const stored = powerFlow?.savings
     const storedTotal = (Number(stored?.daily) || 0) + (Number(stored?.weekly) || 0) + (Number(stored?.monthly) || 0)
-    if (storedTotal > 0) {
+    if (storedTotal > 0 && Number(stored?.dailyKWh) > 0) {
       return { dailyKWh: Number(stored.dailyKWh) || 0, ...stored, unit: stored.unit || 'PKR' }
     }
     const bucketHours = energy?.bucketHours || 0
@@ -525,7 +532,7 @@ export default function OrgDashboard() {
     const solarKw = Number(powerFlow?.solarKw)
       || Number((powerFlow?.sources || []).find((s) => s.type === 'solar' || s.id === 'solar')?.valueKw)
       || 0
-    const dailyKWh = +(solarKw * 24).toFixed(1)
+    const dailyKWh = +(solarKw * SOLAR_PEAK_SUN_HOURS).toFixed(1)
     return {
       dailyKWh,
       daily: Math.round(dailyKWh * TARIFF_PKR_PER_KWH),
