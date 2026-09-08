@@ -7,14 +7,17 @@ const { AppError } = require('../middleware/errorHandler')
 const { paginate, buildDateRange } = require('../utils/helpers')
 const { readLatestForSlave } = require('../utils/redisLatest')
 const { legacyDisplayString } = require('../utils/legacyDisplayValue')
+const { assertDeviceAccess, slaveWhereForUser, assertSlaveAccess } = require('../utils/deviceAccess')
 
 // @desc  Return the full nested config tree for a device
 //        (all slaves with their active variables)
 // @access SUPER_ADMIN | ORG_ADMIN | USER
 const getFullConfig = async (req, res, next) => {
   try {
+    await assertDeviceAccess(req.params.deviceId, req.user)
+    const slaveWhere = await slaveWhereForUser(req.user, req.params.deviceId)
     const data = await prisma.deviceConfigSlave.findMany({
-      where:   { deviceId: req.params.deviceId, isActive: true },
+      where:   { deviceId: req.params.deviceId, ...slaveWhere },
       orderBy: { createdAt: 'asc' },
       include: { configVariables: { where: { isActive: true }, orderBy: { createdAt: 'asc' } } },
     })
@@ -26,10 +29,12 @@ const getFullConfig = async (req, res, next) => {
 // @access SUPER_ADMIN | ORG_ADMIN | USER
 const getConfigSlaves = async (req, res, next) => {
   try {
+    await assertDeviceAccess(req.params.deviceId, req.user)
     const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 100))
     const page  = Math.max(1, parseInt(req.query.page, 10) || 1)
     const skip  = (page - 1) * limit
-    const where = { deviceId: req.params.deviceId, isActive: true }
+    const slaveWhere = await slaveWhereForUser(req.user, req.params.deviceId)
+    const where = { deviceId: req.params.deviceId, ...slaveWhere }
     const OFFLINE_AFTER_MS = 10 * 60 * 1000
 
     const [rawSlaves, total, device] = await Promise.all([
@@ -82,6 +87,36 @@ const getConfigSlaves = async (req, res, next) => {
       }
     })
 
+    if (req.query.withMetrics === 'true') {
+      const c = redis.getClient()
+      for (const s of data) {
+        let hot = {}
+        if (c) {
+          try {
+            hot = await readLatestForSlave(req.params.deviceId, s.id)
+          } catch (_) {}
+        }
+        const vars = await prisma.deviceConfigVariable.findMany({
+          where: { deviceId: req.params.deviceId, deviceConfigSlaveId: s.id, isActive: true },
+          select: { name: true, displayName: true, unit: true, currentValue: true },
+        })
+        const latestMetrics = {}
+        for (const v of vars) {
+          const raw = (hot[v.name] != null && hot[v.name] !== '') ? hot[v.name] : v.currentValue
+          const num = raw != null && raw !== '' ? Number(raw) : NaN
+          const meta = { name: v.name, displayName: v.displayName, unit: v.unit }
+          const displayValue = Number.isFinite(num) ? legacyDisplayString(num, meta) : null
+          latestMetrics[v.name] = {
+            value: raw ?? null,
+            displayValue,
+            unit: v.unit ?? null,
+            displayName: v.displayName || v.name,
+          }
+        }
+        s.latestMetrics = latestMetrics
+      }
+    }
+
     res.json({ success: true, data, total, page, pages: Math.ceil(total / limit) })
   } catch (err) { next(err) }
 }
@@ -90,6 +125,7 @@ const getConfigSlaves = async (req, res, next) => {
 // @access SUPER_ADMIN | ORG_ADMIN | USER
 const getConfigSlaveVariables = async (req, res, next) => {
   try {
+    await assertSlaveAccess(req.params.deviceId, req.params.configSlaveId, req.user)
     const page = Math.max(1, parseInt(req.query.page, 10) || 1)
     const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 200))
     const skip = (page - 1) * limit

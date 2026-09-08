@@ -28,6 +28,19 @@ const userDeviceAccessWhere = (userId) => ({
         },
       },
     },
+    {
+      configSlaves: {
+        some: {
+          deviceGroups: {
+            some: {
+              deviceGroup: {
+                users: { some: { userId } },
+              },
+            },
+          },
+        },
+      },
+    },
   ],
 })
 
@@ -108,10 +121,73 @@ const assertDeviceAccess = async (deviceId, user) => {
   return device
 }
 
+/**
+ * Resolve where clause for configSlaves for a USER.
+ * Returns {} (all active slaves) if user has whole-device/unconstrained access,
+ * or scopes to specific deviceGroupSlaves if user is assigned via slave groups.
+ */
+const slaveWhereForUser = async (user, deviceId) => {
+  if (!user || user.role === 'SUPER_ADMIN' || user.role === 'ORG_ADMIN') {
+    return { isActive: true }
+  }
+  const constrained = await userHasExplicitDeviceGrants(user.id)
+  if (!constrained) {
+    return { isActive: true }
+  }
+
+  // Check if user has whole-device access to this specific device
+  const wholeDeviceAccess = await prisma.device.findFirst({
+    where: {
+      id: deviceId,
+      OR: [
+        { deviceUsers: { some: { userId: user.id } } },
+        { accessGroupDevices: { some: { accessGroup: { users: { some: { userId: user.id } } } } } },
+        { deviceGroupDevices: { some: { deviceGroup: { users: { some: { userId: user.id } } } } } },
+      ],
+    },
+    select: { id: true },
+  })
+
+  if (wholeDeviceAccess) {
+    return { isActive: true }
+  }
+
+  // User is constrained to specific slaves
+  return {
+    isActive: true,
+    deviceGroups: {
+      some: {
+        deviceGroup: {
+          users: { some: { userId: user.id } },
+        },
+      },
+    },
+  }
+}
+
+/**
+ * Verify access to a specific slave for USER role.
+ */
+const assertSlaveAccess = async (deviceId, slaveId, user) => {
+  const device = await assertDeviceAccess(deviceId, user)
+  if (user.role === 'SUPER_ADMIN' || user.role === 'ORG_ADMIN') return device
+
+  const slaveWhere = await slaveWhereForUser(user, deviceId)
+  const slave = await prisma.deviceConfigSlave.findFirst({
+    where: { id: slaveId, deviceId, ...slaveWhere },
+    select: { id: true },
+  })
+  if (!slave) throw new AppError('Access denied to this slave', 403)
+  return device
+}
+
 module.exports = {
   userDeviceAccessWhere,
   userHasExplicitDeviceGrants,
   deviceWhereForUser,
   listAccessibleDeviceIds,
   assertDeviceAccess,
+  slaveWhereForUser,
+  assertSlaveAccess,
 }
+

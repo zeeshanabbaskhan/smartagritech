@@ -3,7 +3,7 @@ const prisma      = require('../config/database')
 const redis       = require('../config/redis')
 const { AppError } = require('../middleware/errorHandler')
 const { orgScope, paginate } = require('../utils/helpers')
-const { deviceWhereForUser, assertDeviceAccess } = require('../utils/deviceAccess')
+const { deviceWhereForUser, assertDeviceAccess, userHasExplicitDeviceGrants } = require('../utils/deviceAccess')
 const { hashKey, generateDeviceIngestKey } = require('../utils/ingestAuth')
 const { isDeleteQueueEnabled, enqueueDeviceDelete } = require('../workers/jobQueues')
 const refCache = require('../utils/referenceCache')
@@ -138,6 +138,36 @@ const mapDeviceSlaves = (devices) => {
   })
 }
 
+const filterSlavesForUser = async (devices, user) => {
+  if (!user || user.role !== 'USER') return devices
+  const constrained = await userHasExplicitDeviceGrants(user.id)
+  if (!constrained) return devices
+
+  return Promise.all(
+    devices.map(async (d) => {
+      const wholeAccess = await prisma.device.findFirst({
+        where: {
+          id: d.id,
+          OR: [
+            { deviceUsers: { some: { userId: user.id } } },
+            { accessGroupDevices: { some: { accessGroup: { users: { some: { userId: user.id } } } } } },
+            { deviceGroupDevices: { some: { deviceGroup: { users: { some: { userId: user.id } } } } } },
+          ],
+        },
+        select: { id: true },
+      })
+      if (wholeAccess) return d
+
+      const filteredSlaves = (d.configSlaves || []).filter((s) =>
+        s.deviceGroups?.some((dg) =>
+          dg.deviceGroup?.users?.some((u) => u.userId === user.id)
+        )
+      )
+      return { ...d, configSlaves: filteredSlaves }
+    })
+  )
+}
+
 const getDevices = async (req, res, next) => {
   try {
     const { page, limit, skip }    = paginate(req.query)
@@ -162,6 +192,15 @@ const getDevices = async (req, res, next) => {
             name: true,
             isDefault: true,
             deviceId: true,
+            deviceGroups: {
+              select: {
+                deviceGroup: {
+                  select: {
+                    users: { select: { userId: true } },
+                  },
+                },
+              },
+            },
             configVariables: {
               where: { isActive: true },
               select: { lastUpdatedAt: true },
@@ -174,6 +213,7 @@ const getDevices = async (req, res, next) => {
       },
     })
 
+    data = await filterSlavesForUser(data, req.user)
     data = mapDeviceSlaves(data)
     if (withMetrics === 'true') data = await attachLatestMetrics(data)
 
@@ -199,6 +239,15 @@ const getDevice = async (req, res, next) => {
             name: true,
             isDefault: true,
             deviceId: true,
+            deviceGroups: {
+              select: {
+                deviceGroup: {
+                  select: {
+                    users: { select: { userId: true } },
+                  },
+                },
+              },
+            },
             configVariables: {
               where: { isActive: true },
               select: { lastUpdatedAt: true },
@@ -211,7 +260,8 @@ const getDevice = async (req, res, next) => {
       },
     })
     if (!data) return next(new AppError('Device not found', 404))
-    data = mapDeviceSlaves([data])[0]
+    const filtered = (await filterSlavesForUser([data], req.user))[0]
+    data = mapDeviceSlaves([filtered])[0]
     res.json({ success: true, data })
   } catch (err) { next(err) }
 }

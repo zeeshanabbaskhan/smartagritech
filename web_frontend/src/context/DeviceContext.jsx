@@ -38,7 +38,7 @@ export function DeviceProvider({ children }) {
       return
     }
     try {
-      const res = await emsApi.getDeviceConfig(deviceId)
+      const res = await emsApi.getDeviceConfig(deviceId, { withMetrics: 'true' })
       const slaveList = list(res)
       setSlaves(slaveList)
       setSelectedSlaveId((prev) => {
