@@ -123,6 +123,10 @@ export function resolveDeviceId(widget, dashboardContext) {
   return widget?.targetDeviceId || dashboardContext?.targetDeviceId || null
 }
 
+export function resolveSlaveId(widget) {
+  return widget?.targetSlaveId || widget?.slaveId || null
+}
+
 function resolveScope(widget, dashboardContext) {
   return widget.scopeOverride || {
     level: dashboardContext?.level,
@@ -145,6 +149,7 @@ export async function fetchWidgetLiveBundle({ widget, dashboardContext, hierarch
     : widget.timeRange
   const apiRange = WIDGET_TIME_TO_API[timeRange] || '24h'
   const deviceId = resolveDeviceId(widget, dashboardContext)
+  const slaveId = resolveSlaveId(widget)
   const tariffRate = await resolveTariffRate()
   const scope = resolveScope(widget, dashboardContext)
   const scaleMetric = metric === 'cost' || metric === 'carbonEmissions' ? metric : 'raw'
@@ -288,9 +293,9 @@ export async function fetchWidgetLiveBundle({ widget, dashboardContext, hierarch
   }
 
   const [latestRes, aggRes, summaryRes] = await Promise.all([
-    emsApi.getLatestReadings({ deviceId: effectiveDeviceId }).catch(() => null),
-    emsApi.getSensorAggregate({ deviceId: effectiveDeviceId, variableName, timeRange: apiRange }).catch(() => null),
-    emsApi.getDashboardSummary({ deviceId: effectiveDeviceId, timeRange: apiRange === '365d' ? '30d' : apiRange }).catch(() => null),
+    emsApi.getLatestReadings({ deviceId: effectiveDeviceId, slaveId: slaveId || undefined }).catch(() => null),
+    emsApi.getSensorAggregate({ deviceId: effectiveDeviceId, slaveId: slaveId || undefined, variableName, timeRange: apiRange }).catch(() => null),
+    emsApi.getDashboardSummary({ deviceId: effectiveDeviceId, slaveId: slaveId || undefined, timeRange: apiRange === '365d' ? '30d' : apiRange }).catch(() => null),
   ])
 
   const latestMap = one(latestRes) || {}
@@ -349,6 +354,7 @@ export async function fetchWidgetLiveBundle({ widget, dashboardContext, hierarch
       const vName = METRIC_TO_VARIABLE[key] || key
       const res = await emsApi.getSensorAggregate({
         deviceId: effectiveDeviceId,
+        slaveId: slaveId || undefined,
         variableName: vName,
         timeRange: apiRange,
       }).catch(() => null)
@@ -363,6 +369,7 @@ export async function fetchWidgetLiveBundle({ widget, dashboardContext, hierarch
   if (widget.type === 'heatmap') {
     const heatAgg = list(await emsApi.getSensorAggregate({
       deviceId: effectiveDeviceId,
+      slaveId: slaveId || undefined,
       variableName,
       timeRange: '7d',
     }).catch(() => null))

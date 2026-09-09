@@ -17,11 +17,14 @@ export default function AddWidgetModal({ open, onClose, onAdd, devices = [], das
   const [groupBy, setGroupBy] = useState('none')
   const [color, setColor] = useState('primary')
   const [targetDeviceId, setTargetDeviceId] = useState('')
+  const [targetSlaveId, setTargetSlaveId] = useState('')
   const [deviceVars, setDeviceVars] = useState([])
   const [varsLoading, setVarsLoading] = useState(false)
 
   const supportsGroupBy = ['bar', 'pie', 'table'].includes(type)
   const effectiveDeviceId = targetDeviceId || dashboardDeviceId || ''
+  const selectedDevice = devices.find((d) => d.id === effectiveDeviceId)
+  const availableSlaves = selectedDevice?.slaves || []
 
   useEffect(() => {
     if (!open) return
@@ -31,35 +34,38 @@ export default function AddWidgetModal({ open, onClose, onAdd, devices = [], das
       return undefined
     }
     setVarsLoading(true)
-    fetchDeviceVariables(effectiveDeviceId)
+    fetchDeviceVariables(effectiveDeviceId, targetSlaveId || null)
       .then((vars) => {
         if (cancelled) return
         setDeviceVars(vars)
         if (vars[0]?.name) {
           setVariableName((prev) => prev || vars[0].name)
-          setMetric(vars[0].name)
+          setMetric((prev) => (SYSTEM_METRICS.some((m) => m.value === prev) ? prev : (prev || vars[0].name)))
         }
       })
       .catch(() => { if (!cancelled) setDeviceVars([]) })
       .finally(() => { if (!cancelled) setVarsLoading(false) })
     return () => { cancelled = true }
-  }, [open, effectiveDeviceId])
+  }, [open, effectiveDeviceId, targetSlaveId])
 
   const metricOptions = useMemo(() => {
     const fromDevice = deviceVars.map((v) => ({
       value: v.name,
       label: `${v.name}${v.unit ? ` (${v.unit})` : ''}${v.slaveName ? ` · ${v.slaveName}` : ''}`,
       unit: v.unit || '',
+      slaveId: v.slaveId,
+      slaveName: v.slaveName,
     }))
     return [...fromDevice, ...SYSTEM_METRICS]
   }, [deviceVars])
 
   function handleAdd() {
     const meta = widgetTypeMeta(type)
-    const device = devices.find((d) => d.id === targetDeviceId)
+    const device = devices.find((d) => d.id === (targetDeviceId || dashboardDeviceId))
     const selected = metricOptions.find((m) => m.value === metric)
     const isSystem = SYSTEM_METRICS.some((m) => m.value === metric)
     const resolvedVar = isSystem ? null : (variableName || metric)
+    const slave = availableSlaves.find((s) => s.id === targetSlaveId) || (selected?.slaveId ? availableSlaves.find((s) => s.id === selected.slaveId) : null)
     onAdd({
       type,
       title: title.trim() || `${meta.label} — ${selected?.label || metric}`,
@@ -70,9 +76,12 @@ export default function AddWidgetModal({ open, onClose, onAdd, devices = [], das
       color,
       targetDeviceId: targetDeviceId || null,
       targetDevice: device?.name || null,
+      targetSlaveId: targetSlaveId || slave?.id || null,
+      targetSlave: slave?.name || null,
     })
     setTitle('')
     setTargetDeviceId('')
+    setTargetSlaveId('')
     setVariableName('')
     onClose()
   }
@@ -119,19 +128,44 @@ export default function AddWidgetModal({ open, onClose, onAdd, devices = [], das
           <input className="input" placeholder="e.g. VoltageA live" value={title} onChange={(e) => setTitle(e.target.value)} />
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
             <label className="label flex items-center gap-1.5">
               <Cpu size={12} className="text-primary-600" />
               Target Device
             </label>
-            <select className="select" value={targetDeviceId} onChange={(e) => setTargetDeviceId(e.target.value)}>
+            <select
+              className="select"
+              value={targetDeviceId}
+              onChange={(e) => {
+                setTargetDeviceId(e.target.value)
+                setTargetSlaveId('')
+              }}
+            >
               <option value="">Inherit Dashboard Device</option>
               {devices.map((d) => (
                 <option key={d.id} value={d.id}>{d.name}</option>
               ))}
             </select>
           </div>
+
+          <div>
+            <label className="label flex items-center gap-1.5">
+              Target Slave
+            </label>
+            <select
+              className="select"
+              value={targetSlaveId}
+              onChange={(e) => setTargetSlaveId(e.target.value)}
+              disabled={!effectiveDeviceId || availableSlaves.length <= 1}
+            >
+              <option value="">All Slaves / Primary</option>
+              {availableSlaves.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+          </div>
+
           <div>
             <label className="label">Device Variable / Metric</label>
             <select

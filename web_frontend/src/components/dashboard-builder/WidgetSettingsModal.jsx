@@ -48,6 +48,7 @@ export default function WidgetSettingsModal({ open, onClose, widget, hierarchy, 
         color: widget.color,
         timeRange: widget.timeRange || 'inherit',
         targetDeviceId: widget.targetDeviceId || '',
+        targetSlaveId: widget.targetSlaveId || widget.slaveId || '',
         overrideScope: !!widget.scopeOverride,
         nodeId: nodeId || '',
       })
@@ -55,6 +56,8 @@ export default function WidgetSettingsModal({ open, onClose, widget, hierarchy, 
   }, [widget])
 
   const effectiveDeviceId = form?.targetDeviceId || dashboardDeviceId || ''
+  const selectedDevice = devices.find((d) => d.id === effectiveDeviceId)
+  const availableSlaves = selectedDevice?.slaves || []
 
   useEffect(() => {
     if (!open || !effectiveDeviceId) {
@@ -62,17 +65,19 @@ export default function WidgetSettingsModal({ open, onClose, widget, hierarchy, 
       return undefined
     }
     let cancelled = false
-    fetchDeviceVariables(effectiveDeviceId)
+    fetchDeviceVariables(effectiveDeviceId, form?.targetSlaveId || null)
       .then((vars) => { if (!cancelled) setDeviceVars(vars) })
       .catch(() => { if (!cancelled) setDeviceVars([]) })
     return () => { cancelled = true }
-  }, [open, effectiveDeviceId])
+  }, [open, effectiveDeviceId, form?.targetSlaveId])
 
   const metricOptions = useMemo(() => {
     const fromDevice = deviceVars.map((v) => ({
       value: v.name,
-      label: `${v.name}${v.unit ? ` (${v.unit})` : ''}`,
+      label: `${v.name}${v.unit ? ` (${v.unit})` : ''}${v.slaveName ? ` · ${v.slaveName}` : ''}`,
       unit: v.unit || '',
+      slaveId: v.slaveId,
+      slaveName: v.slaveName,
     }))
     const system = METRIC_OPTIONS.filter((m) =>
       ['devicesOnline', 'activeAlarms', '_none', 'cost', 'carbonEmissions'].includes(m.value)
@@ -133,10 +138,11 @@ export default function WidgetSettingsModal({ open, onClose, widget, hierarchy, 
       scopeOverride = { level: 'organization', nodeId: null }
     }
 
-    const device = devices.find((d) => d.id === form.targetDeviceId)
+    const device = devices.find((d) => d.id === (form.targetDeviceId || dashboardDeviceId))
     const selected = metricOptions.find((m) => m.value === form.metric)
     const isSystem = ['devicesOnline', 'activeAlarms', '_none', 'cost', 'carbonEmissions'].includes(form.metric)
     const resolvedVar = isSystem ? null : (form.variableName || form.metric)
+    const slave = availableSlaves.find((s) => s.id === form.targetSlaveId) || (selected?.slaveId ? availableSlaves.find((s) => s.id === selected.slaveId) : null)
     onSave({
       type: form.type,
       title: form.title,
@@ -151,6 +157,8 @@ export default function WidgetSettingsModal({ open, onClose, widget, hierarchy, 
       timeRange: form.timeRange,
       targetDeviceId: form.targetDeviceId || null,
       targetDevice: device?.name || null,
+      targetSlaveId: form.targetSlaveId || slave?.id || null,
+      targetSlave: slave?.name || null,
       scopeOverride,
     })
     onClose()
@@ -323,15 +331,35 @@ export default function WidgetSettingsModal({ open, onClose, widget, hierarchy, 
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
             <label className="label flex items-center gap-1.5">
               <Cpu size={12} className="text-primary-600" /> Target Device
             </label>
-            <select className="select" value={form.targetDeviceId} onChange={(e) => setForm((f) => ({ ...f, targetDeviceId: e.target.value }))}>
+            <select
+              className="select"
+              value={form.targetDeviceId}
+              onChange={(e) => setForm((f) => ({ ...f, targetDeviceId: e.target.value, targetSlaveId: '' }))}
+            >
               <option value="">Inherit Dashboard Device</option>
               {devices.map((d) => (
                 <option key={d.id} value={d.id}>{d.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label flex items-center gap-1.5">
+              Target Slave
+            </label>
+            <select
+              className="select"
+              value={form.targetSlaveId || ''}
+              onChange={(e) => setForm((f) => ({ ...f, targetSlaveId: e.target.value }))}
+              disabled={!effectiveDeviceId || availableSlaves.length <= 1}
+            >
+              <option value="">All Slaves / Primary</option>
+              {availableSlaves.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
               ))}
             </select>
           </div>

@@ -19,6 +19,8 @@ export function makeWidget(partial = {}) {
     scopeOverride: partial.scopeOverride || null,
     targetDevice: partial.targetDevice || null,
     targetDeviceId: partial.targetDeviceId || null,
+    targetSlave: partial.targetSlave || null,
+    targetSlaveId: partial.targetSlaveId || partial.slaveId || null,
     content: partial.content || '',
     thresholds: partial.thresholds || [],
     metrics: partial.metrics || null,
