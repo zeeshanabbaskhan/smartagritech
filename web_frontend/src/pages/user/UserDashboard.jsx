@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import {
   Download,
   Zap,
@@ -18,6 +18,7 @@ import PageState, { useFetch } from '../../components/ui/PageState'
 import { useDevices } from '../../context/DeviceContext'
 import emsApi, { list } from '../../api/emsApi'
 import { mapAnomaly } from '../../utils/mappers'
+import { onSocketEvent, subscribeDevice } from '../../services/socketService'
 
 function fmt(v, digits = 2) {
   if (v == null || Number.isNaN(Number(v))) return '0.00'
@@ -38,6 +39,10 @@ function pickValue(block) {
   return block.value ?? block.current ?? null
 }
 
+function norm(s) {
+  return String(s || '').replace(/[\s_\-()]+/g, '').toLowerCase()
+}
+
 function pickMetric(metrics = {}, candidateNames = []) {
   if (!metrics || typeof metrics !== 'object') return null
   for (const name of candidateNames) {
@@ -48,7 +53,8 @@ function pickMetric(metrics = {}, candidateNames = []) {
   }
   const keys = Object.keys(metrics)
   for (const name of candidateNames) {
-    const found = keys.find((k) => k.toLowerCase() === name.toLowerCase())
+    const target = norm(name)
+    const found = keys.find((k) => norm(k) === target)
     if (found && metrics[found]?.value != null && metrics[found]?.value !== '') {
       const num = Number(metrics[found].value)
       if (Number.isFinite(num)) return num
@@ -101,6 +107,32 @@ export default function UserDashboard() {
       anomalyCount: anomalies.length,
     }
   }, [selectedDeviceId, selectedSlaveId])
+
+  // Real-time device room subscription
+  useEffect(() => {
+    if (selectedDeviceId) {
+      subscribeDevice(selectedDeviceId)
+    }
+  }, [selectedDeviceId])
+
+  // Live telemetry streaming on socket event
+  useEffect(() => {
+    const unsub = onSocketEvent((event, payload) => {
+      if (event === 'reading:new' && payload?.deviceId === selectedDeviceId) {
+        reload({ silent: true })
+      }
+    })
+    return () => unsub?.()
+  }, [selectedDeviceId, reload])
+
+  // 10s auto-refresh fallback
+  useEffect(() => {
+    if (!selectedDeviceId) return
+    const interval = setInterval(() => {
+      reload({ silent: true })
+    }, 10000)
+    return () => clearInterval(interval)
+  }, [selectedDeviceId, reload])
 
   const m = data?.metrics ?? {}
   const charts = m.charts ?? {}

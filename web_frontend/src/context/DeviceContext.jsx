@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useCallback, useEffect, useRef } f
 import emsApi, { list } from '../api/emsApi'
 import { mapDevice } from '../utils/mappers'
 import { useAuth } from './AuthContext'
+import { onSocketEvent } from '../services/socketService'
 
 const DeviceContext = createContext(null)
 
@@ -65,6 +66,9 @@ export function DeviceProvider({ children }) {
         if (prev && mapped.some((d) => sameId(d.id, prev))) return prev
         return mapped[0]?.id ?? null
       })
+      if (selectedDeviceIdRef.current) {
+        await loadSlavesForDevice(selectedDeviceIdRef.current)
+      }
       return mapped
     } catch {
       setDevices([])
@@ -72,7 +76,7 @@ export function DeviceProvider({ children }) {
     } finally {
       if (!silent) setLoading(false)
     }
-  }, [user])
+  }, [user, loadSlavesForDevice])
 
   /** Select a device; empty/null falls back to the first available device. */
   const selectDevice = useCallback(async (deviceId) => {
@@ -117,6 +121,17 @@ export function DeviceProvider({ children }) {
   useEffect(() => {
     if (selectedDeviceId) loadSlavesForDevice(selectedDeviceId)
   }, [selectedDeviceId, loadSlavesForDevice])
+
+  useEffect(() => {
+    const unsub = onSocketEvent((event, payload) => {
+      if ((event === 'reading:new' || event === 'device:status') && selectedDeviceIdRef.current) {
+        if (!payload?.deviceId || sameId(payload.deviceId, selectedDeviceIdRef.current)) {
+          loadSlavesForDevice(selectedDeviceIdRef.current)
+        }
+      }
+    })
+    return () => unsub?.()
+  }, [loadSlavesForDevice])
 
   const deviceSlaves = selectedDeviceId
     ? slaves.filter((s) => !s.deviceId || sameId(s.deviceId, selectedDeviceId))
