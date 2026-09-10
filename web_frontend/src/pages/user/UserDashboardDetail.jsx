@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   AlertTriangle, Gauge, Activity, Zap, PieChart, Package,
   Waves, TrendingUp, TrendingDown, Minus, Download, Loader2,
+  LayoutTemplate,
 } from 'lucide-react'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -404,6 +406,7 @@ function emptySavings() {
 }
 
 export default function UserDashboardDetail() {
+  const navigate = useNavigate()
   const { selectedDeviceId, selectedSlaveId, slaves, selectedDevice, loading: devicesLoading } = useDevices()
   const { showToast } = useToast()
 
@@ -728,6 +731,15 @@ export default function UserDashboardDetail() {
         <div>
           <h2 className="page-title">Dashboard Detail</h2>
           <p className="breadcrumb">Manage Dashboard / Detail</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => navigate('/user/custom-dashboard')}
+          >
+            <LayoutTemplate size={14} /> Custom Dashboards
+          </button>
         </div>
       </div>
 

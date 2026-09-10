@@ -1,4 +1,5 @@
 import { useEffect, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Download,
   Zap,
@@ -10,6 +11,7 @@ import {
   Radio,
   Cpu,
   Layers,
+  LayoutTemplate,
   Image as ImageIcon,
 } from 'lucide-react'
 import MetricRangeCard from '../../components/ui/MetricRangeCard'
@@ -64,6 +66,7 @@ function pickMetric(metrics = {}, candidateNames = []) {
 }
 
 export default function UserDashboard() {
+  const navigate = useNavigate()
   const { devices, slaves, selectedDeviceId, selectedSlaveId, setSelectedSlaveId } = useDevices()
 
   const { data, loading, error, reload } = useFetch(async () => {
@@ -172,6 +175,15 @@ export default function UserDashboard() {
             <p className="text-xs text-surface-400 mt-1">
               Real-time monitoring and analytics for your assigned equipment and slaves.
             </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => navigate('/user/custom-dashboard')}
+            >
+              <LayoutTemplate size={14} /> Custom Dashboards
+            </button>
           </div>
         </div>
 

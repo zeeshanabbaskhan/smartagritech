@@ -92,8 +92,9 @@ export const userNav = [
     label: 'Manage Dashboard',
     icon: LayoutDashboard,
     children: [
-      { to: '/user',        label: 'Dashboard', icon: LayoutDashboard },
-      { to: '/user/detail', label: 'Detail',     icon: Gauge },
+      { to: '/user',                  label: 'Dashboard',         icon: LayoutDashboard },
+      { to: '/user/detail',           label: 'Detail',            icon: Gauge },
+      { to: '/user/custom-dashboard', label: 'Custom Dashboards', icon: LayoutTemplate },
     ],
   },
   { to: '/user/subscription',      label: 'Subscription',       icon: CreditCard },
@@ -129,7 +130,5 @@ export const parkedNav = {
     { to: '/org/device-timestamps',  label: 'Device Connectivity',icon: Timer },
     { to: '/org/alarm-history',      label: 'Alarm History',      icon: History },
   ],
-  user: [
-    { to: '/user/custom-dashboard',  label: 'Custom Dashboards', icon: LayoutTemplate },
-  ],
+  user: [],
 }

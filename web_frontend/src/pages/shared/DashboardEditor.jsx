@@ -106,7 +106,7 @@ export default function DashboardEditor() {
   const canEditDash = (dash) => {
     if (!user || !dash) return false
     if (user.role === 'admin' || user.role === 'org') return true
-    return dash.ownerUserId === user.id
+    return dash.ownerUserId === user.id || dash.ownerEmail === user.email
   }
 
   if (loading) return <PageState loading />
