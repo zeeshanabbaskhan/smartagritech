@@ -171,9 +171,20 @@ const slaveBlocks = (payload) => {
   return blocks
 }
 
+const normalizeSlave = (s) => (s ? String(s).toLowerCase().replace(/[\s_-]+/g, '').replace(/floor/g, '') : '')
+
 const mapReadings = (device, slaveName, registers) => {
+  const targetNorm = normalizeSlave(slaveName)
   const slave =
     device.configSlaves.find((s) => s.name.trim().toLowerCase() === slaveName.trim().toLowerCase()) ||
+    device.configSlaves.find((s) => normalizeSlave(s.name) === targetNorm) ||
+    device.configSlaves.find((s) => {
+      const sn = normalizeSlave(s.name)
+      if (sn === targetNorm) return true
+      if (sn.includes('ground') && targetNorm.includes('ground') && sn.slice(-1) === targetNorm.slice(-1)) return true
+      if (sn.includes('1st') && targetNorm.includes('1st') && (sn.includes('pr') || sn.includes('rp')) && (targetNorm.includes('pr') || targetNorm.includes('rp'))) return true
+      return false
+    }) ||
     (device.configSlaves.length === 1 ? device.configSlaves[0] : null) ||
     device.configSlaves.find((s) => s.name.trim().toLowerCase() === 'main') ||
     device.configSlaves.find((s) => s.name.trim().toLowerCase() === 'incoming') ||
