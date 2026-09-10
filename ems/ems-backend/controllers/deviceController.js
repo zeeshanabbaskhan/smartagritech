@@ -21,14 +21,35 @@ const invalidateTemplateCaches = async (organizationId) => {
 const attachLatestMetrics = async (devices) => {
   if (!devices?.length) return devices
   const c = redis.getClient()
-  const enriched = []
-  for (const d of devices) {
+  const activeDevices = devices.filter((d) => String(d.switchState || '').toUpperCase() !== 'OFF')
+  const activeDeviceIds = activeDevices.map((d) => d.id)
+
+  let allVars = []
+  if (activeDeviceIds.length) {
+    try {
+      allVars = await prisma.deviceConfigVariable.findMany({
+        where: { deviceId: { in: activeDeviceIds }, isActive: true },
+        select: { id: true, deviceId: true, name: true, currentValue: true, unit: true, displayName: true, deviceConfigSlaveId: true },
+        orderBy: { name: 'asc' },
+      })
+    } catch (_) {
+      allVars = []
+    }
+  }
+
+  const varsByDevice = new Map()
+  for (const v of allVars) {
+    if (!varsByDevice.has(v.deviceId)) varsByDevice.set(v.deviceId, [])
+    varsByDevice.get(v.deviceId).push(v)
+  }
+
+  const enriched = await Promise.all(devices.map(async (d) => {
     // Switch OFF — hide all live/current readings from API consumers.
     if (String(d.switchState || '').toUpperCase() === 'OFF') {
       const configSlaves = (d.configSlaves || []).map((s) => ({ ...s, latestMetrics: {} }))
-      enriched.push({ ...d, latestMetrics: {}, configSlaves })
-      continue
+      return { ...d, latestMetrics: {}, configSlaves }
     }
+
     let hot = {}
     if (c) {
       try {
@@ -37,16 +58,8 @@ const attachLatestMetrics = async (devices) => {
         hot = {}
       }
     }
-    let vars = []
-    try {
-      vars = await prisma.deviceConfigVariable.findMany({
-        where: { deviceId: d.id, isActive: true },
-        select: { id: true, name: true, currentValue: true, unit: true, displayName: true, deviceConfigSlaveId: true },
-        orderBy: { name: 'asc' },
-      })
-    } catch (_) {
-      vars = []
-    }
+
+    const vars = varsByDevice.get(d.id) || []
     const latestMetrics = {}
     for (const v of vars) {
       if (!v?.name) continue
@@ -64,8 +77,8 @@ const attachLatestMetrics = async (devices) => {
     }
 
     // Attach per-slave metrics if device has slaves
-    const configSlaves = []
-    for (const s of (d.configSlaves || [])) {
+    const slaves = d.configSlaves || []
+    const configSlaves = await Promise.all(slaves.map(async (s) => {
       let slaveHot = {}
       if (c && s.id) {
         try {
@@ -91,11 +104,12 @@ const attachLatestMetrics = async (devices) => {
           displayName: sv.displayName || sv.name,
         }
       }
-      configSlaves.push({ ...s, latestMetrics: slaveMetrics })
-    }
+      return { ...s, latestMetrics: slaveMetrics }
+    }))
 
-    enriched.push({ ...d, latestMetrics, configSlaves })
-  }
+    return { ...d, latestMetrics, configSlaves }
+  }))
+
   return enriched
 }
 

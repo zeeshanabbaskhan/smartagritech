@@ -118,22 +118,37 @@ export default function UserDashboard() {
     }
   }, [selectedDeviceId])
 
-  // Live telemetry streaming on socket event
+  // Live telemetry streaming on socket event (debounced 5s to avoid API spam)
   useEffect(() => {
+    let lastReload = 0
+    let timeoutId = null
     const unsub = onSocketEvent((event, payload) => {
       if (event === 'reading:new' && payload?.deviceId === selectedDeviceId) {
-        reload({ silent: true })
+        const now = Date.now()
+        if (now - lastReload >= 5000) {
+          lastReload = now
+          reload({ silent: true })
+        } else if (!timeoutId) {
+          timeoutId = setTimeout(() => {
+            timeoutId = null
+            lastReload = Date.now()
+            reload({ silent: true })
+          }, 5000 - (now - lastReload))
+        }
       }
     })
-    return () => unsub?.()
+    return () => {
+      unsub?.()
+      if (timeoutId) clearTimeout(timeoutId)
+    }
   }, [selectedDeviceId, reload])
 
-  // 10s auto-refresh fallback
+  // 15s auto-refresh fallback
   useEffect(() => {
     if (!selectedDeviceId) return
     const interval = setInterval(() => {
       reload({ silent: true })
-    }, 10000)
+    }, 15000)
     return () => clearInterval(interval)
   }, [selectedDeviceId, reload])
 

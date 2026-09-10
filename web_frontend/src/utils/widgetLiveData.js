@@ -67,6 +67,37 @@ async function resolveTariffRate() {
   return cachedTariff.rate
 }
 
+// In-flight and short-TTL request deduplication across multiple widgets
+const inFlightRequests = new Map()
+
+export async function deduplicatedFetch(key, fetcher, ttlMs = 4000) {
+  const now = Date.now()
+  const existing = inFlightRequests.get(key)
+  if (existing && now - existing.at < ttlMs) {
+    return existing.promise
+  }
+  const promise = (async () => {
+    try {
+      return await fetcher()
+    } finally {
+      setTimeout(() => {
+        if (inFlightRequests.get(key)?.promise === promise) {
+          inFlightRequests.delete(key)
+        }
+      }, ttlMs)
+    }
+  })()
+  inFlightRequests.set(key, { promise, at: now })
+  return promise
+}
+
+export async function fetchDevicesWithMetricsShared() {
+  return deduplicatedFetch('shared:devices:withMetrics', async () => {
+    const res = await emsApi.getDevices({ limit: 100, withMetrics: 'true' }).catch(() => null)
+    return res ? list(res) : []
+  }, 5000)
+}
+
 function applyMetricScaleSync(metric, value, tariffRate) {
   if (value == null || Number.isNaN(Number(value))) return 0
   const n = Number(value)
@@ -205,8 +236,7 @@ export async function fetchWidgetLiveBundle({ widget, dashboardContext, hierarch
     }
   }
 
-  const devicesRes = await emsApi.getDevices({ limit: 100, withMetrics: 'true' }).catch(() => null)
-  const devices = devicesRes ? list(devicesRes) : []
+  const devices = await fetchDevicesWithMetricsShared()
   const deviceById = Object.fromEntries(devices.map((d) => [d.id, d]))
   const hotKey = variableName || metric
   const isDevSwitchOff = (d) => String(d?.switchState || '').toUpperCase() === 'OFF'
@@ -214,7 +244,7 @@ export async function fetchWidgetLiveBundle({ widget, dashboardContext, hierarch
   if (deviceId) {
     let target = deviceById[deviceId]
     if (!target) {
-      target = one(await emsApi.getDevice(deviceId).catch(() => null))
+      target = one(await deduplicatedFetch(`dev:${deviceId}`, () => emsApi.getDevice(deviceId).catch(() => null), 10000))
     }
     if (isDevSwitchOff(target)) {
       return {
@@ -263,11 +293,11 @@ export async function fetchWidgetLiveBundle({ widget, dashboardContext, hierarch
     comparison = tableRows.map((r) => ({ name: r.device, value: r.value, unit: r.unit }))
   }
 
-  const alarmsRaw = list(await emsApi.getAnomalies({
+  const alarmsRaw = list(await deduplicatedFetch(`anom:${deviceId || 'all'}`, () => emsApi.getAnomalies({
     limit: 20,
     alarmState: 'ACTIVE',
     ...(deviceId ? { deviceId } : {}),
-  }).catch(() => ({ data: [] })))
+  }).catch(() => ({ data: [] })), 10000))
 
   // Prefer explicit device; else first device in facility scope
   const scopeDeviceIds = resolveScopeDeviceIds(hierarchy, scope)
@@ -292,10 +322,14 @@ export async function fetchWidgetLiveBundle({ widget, dashboardContext, hierarch
     }
   }
 
+  const latestKey = `latest:${effectiveDeviceId}:${slaveId || ''}`
+  const aggKey = `agg:${effectiveDeviceId}:${slaveId || ''}:${variableName}:${apiRange}`
+  const summaryKey = `sum:${effectiveDeviceId}:${slaveId || ''}:${apiRange === '365d' ? '30d' : apiRange}`
+
   const [latestRes, aggRes, summaryRes] = await Promise.all([
-    emsApi.getLatestReadings({ deviceId: effectiveDeviceId, slaveId: slaveId || undefined }).catch(() => null),
-    emsApi.getSensorAggregate({ deviceId: effectiveDeviceId, slaveId: slaveId || undefined, variableName, timeRange: apiRange }).catch(() => null),
-    emsApi.getDashboardSummary({ deviceId: effectiveDeviceId, slaveId: slaveId || undefined, timeRange: apiRange === '365d' ? '30d' : apiRange }).catch(() => null),
+    deduplicatedFetch(latestKey, () => emsApi.getLatestReadings({ deviceId: effectiveDeviceId, slaveId: slaveId || undefined }).catch(() => null), 4000),
+    deduplicatedFetch(aggKey, () => emsApi.getSensorAggregate({ deviceId: effectiveDeviceId, slaveId: slaveId || undefined, variableName, timeRange: apiRange }).catch(() => null), 4000),
+    deduplicatedFetch(summaryKey, () => emsApi.getDashboardSummary({ deviceId: effectiveDeviceId, slaveId: slaveId || undefined, timeRange: apiRange === '365d' ? '30d' : apiRange }).catch(() => null), 4000),
   ])
 
   const latestMap = one(latestRes) || {}

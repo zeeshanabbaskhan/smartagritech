@@ -50,7 +50,7 @@ export async function fetchAdminStats() {
 
 export async function fetchOrgStats() {
   const [devicesRes, gatewaysRes, anomaliesRes] = await Promise.all([
-    emsApi.getDevices({ limit: 100, withMetrics: true }).catch(() => ({ data: [], total: 0 })),
+    emsApi.getDevices({ limit: 100 }).catch(() => ({ data: [], total: 0 })),
     emsApi.getGateways({ limit: 100 }).catch(() => ({ data: [], total: 0 })),
     emsApi.getAnomalies({ limit: 50 }).catch(() => ({ data: [], total: 0 })),
   ])

@@ -44,9 +44,27 @@ export default function DashboardDetailPage({ title = 'Dashboard Detail', breadc
   useEffect(() => { load() }, [load])
 
   useEffect(() => {
-    return onSocketEvent((event, data) => {
-      if (event === 'reading:new' && data?.deviceId === selectedDeviceId) load()
+    let lastReload = 0
+    let timeoutId = null
+    const unsub = onSocketEvent((event, data) => {
+      if (event === 'reading:new' && data?.deviceId === selectedDeviceId) {
+        const now = Date.now()
+        if (now - lastReload >= 5000) {
+          lastReload = now
+          load()
+        } else if (!timeoutId) {
+          timeoutId = setTimeout(() => {
+            timeoutId = null
+            lastReload = Date.now()
+            load()
+          }, 5000 - (now - lastReload))
+        }
+      }
     })
+    return () => {
+      unsub?.()
+      if (timeoutId) clearTimeout(timeoutId)
+    }
   }, [selectedDeviceId, load])
 
   const summaryCards = SUMMARY_CARDS

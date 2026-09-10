@@ -5,7 +5,7 @@ const prisma      = require('../config/database')
 const redis       = require('../config/redis')
 const { AppError } = require('../middleware/errorHandler')
 const { TIME_RANGE_MS, BUCKET_MS, paginate, parseDateBound } = require('../utils/helpers')
-const { bucketVariable, sumVariable, periodEnergyKwh } = require('../utils/sensorAggregation')
+const { bucketVariable, bucketManyCombined, sumVariable, periodEnergyKwh } = require('../utils/sensorAggregation')
 const { cached } = require('../utils/responseCache')
 const { assertDeviceAccess } = require('../utils/deviceAccess')
 const { readLatest } = require('../utils/redisLatest')
@@ -259,15 +259,15 @@ const getAggregate = async (req, res, next) => {
       bucketMs = BUCKET_MS[timeRange]
     }
 
-    // Prefer SQL bucketing (Timescale hourly / raw) so long ranges stay bounded for any device.
-    const data = await bucketVariable(prisma, {
+    const cacheKey = `agg:${deviceId}:${slaveId || 'all'}:${variableName}:${timeRange || `${startDate}_${endDate}`}`
+    const data = await cached(cacheKey, 30, () => bucketVariable(prisma, {
       deviceId,
       slaveId: slaveId || null,
       variableName,
       startDate: rangeStart,
       endDate: rangeEnd,
       bucketMs,
-    })
+    }))
 
     res.json({
       success: true,
@@ -292,14 +292,8 @@ const buildDashboardSummary = async (deviceId, slaveId, timeRange) => {
     'PowerFactor', 'THD_V', 'THD_I', 'Frequency', 'Energy',
   ]
 
-  const [charts, totalPower, totalActive, totalExport, latestVars, hotLatest] = await Promise.all([
-    Promise.all(metricNames.map(async (name) => [
-      name,
-      await bucketVariable(prisma, { ...base, variableName: name, bucketMs }),
-    ])),
-    sumVariable(prisma, { ...base, variableName: 'PowerConsumption' }),
-    sumVariable(prisma, { ...base, variableName: 'ActivePower' }),
-    sumVariable(prisma, { ...base, variableName: 'ExportPower' }),
+  const [chartMap, latestVars, hotLatest] = await Promise.all([
+    bucketManyCombined(prisma, { ...base, bucketMs, metricNames }),
     prisma.deviceConfigVariable.findMany({
       where:  { deviceId, isActive: true, ...(slaveId ? { deviceConfigSlaveId: slaveId } : {}) },
       select: { name: true, currentValue: true },
@@ -307,7 +301,10 @@ const buildDashboardSummary = async (deviceId, slaveId, timeRange) => {
     readLatest(deviceId, slaveId || null).catch(() => ({})),
   ])
 
-  const chartMap = Object.fromEntries(charts)
+  const totalPower  = (chartMap.PowerConsumption || []).reduce((acc, p) => acc + (Number(p.value) || 0), 0)
+  const totalActive = (chartMap.ActivePower || []).reduce((acc, p) => acc + (Number(p.value) || 0), 0)
+  const totalExport = (chartMap.ExportPower || []).reduce((acc, p) => acc + (Number(p.value) || 0), 0)
+
   const latest = Object.fromEntries(latestVars.map((v) => {
     const live = hotLatest?.[v.name]
     const val = live != null && live !== '' ? live : v.currentValue
@@ -353,6 +350,12 @@ const buildDashboardSummary = async (deviceId, slaveId, timeRange) => {
     }
   }
 
+  const [dailySavings, weeklySavings, monthlySavings] = await Promise.all([
+    savingsBlock(new Date(now - 86_400_000),   new Date(now), new Date(now - 172_800_000),   new Date(now - 86_400_000)),
+    savingsBlock(new Date(now - 604_800_000),  new Date(now), new Date(now - 1_209_600_000), new Date(now - 604_800_000)),
+    savingsBlock(new Date(now - 2_592_000_000),new Date(now), new Date(now - 5_184_000_000), new Date(now - 2_592_000_000)),
+  ])
+
   const summary = {
     totalPowerConsumption: { value: powerValue, chartData: powerChartRaw },
     totalExportPower:      { value: totalExport, chartData: chartMap.ExportPower ?? [] },
@@ -364,9 +367,9 @@ const buildDashboardSummary = async (deviceId, slaveId, timeRange) => {
     frequency:             { value: latestNum('Frequency'),        chartData: chartMap.Frequency ?? [] },
     anomalies: { count: 0, breakdown: [], chartData: [] },
     energySavingsComparison: {
-      daily:   await savingsBlock(new Date(now - 86_400_000),   new Date(now), new Date(now - 172_800_000),   new Date(now - 86_400_000)),
-      weekly:  await savingsBlock(new Date(now - 604_800_000),  new Date(now), new Date(now - 1_209_600_000), new Date(now - 604_800_000)),
-      monthly: await savingsBlock(new Date(now - 2_592_000_000),new Date(now), new Date(now - 5_184_000_000), new Date(now - 2_592_000_000)),
+      daily:   dailySavings,
+      weekly:  weeklySavings,
+      monthly: monthlySavings,
     },
   }
 
@@ -403,7 +406,7 @@ const getDashboardSummary = async (req, res, next) => {
     }
 
     const cacheKey = `dash:${deviceId}:${slaveId || 'all'}:${timeRange}`
-    const summary  = await cached(cacheKey, 45, () => buildDashboardSummary(deviceId, slaveId, timeRange))
+    const summary  = await cached(cacheKey, 30, () => buildDashboardSummary(deviceId, slaveId, timeRange))
 
     res.json({ success: true, timeRange, data: summary })
   } catch (err) { next(err) }
