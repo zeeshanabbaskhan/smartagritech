@@ -30,23 +30,54 @@ export function makeWidget(partial = {}) {
   }
 }
 
+export function findNextAvailablePosition(layout = [], w = 6, h = 8, maxCols = 12) {
+  const width = Math.min(Math.max(1, w), maxCols)
+  const height = Math.max(1, h)
+
+  if (!layout || !layout.length) {
+    return { x: 0, y: 0, w: width, h: height }
+  }
+
+  let maxY = 0
+  for (const item of layout) {
+    if (item && Number.isFinite(item.y) && Number.isFinite(item.h)) {
+      maxY = Math.max(maxY, item.y + item.h)
+    }
+  }
+
+  const overlaps = (x1, y1, w1, h1, x2, y2, w2, h2) => {
+    return x1 < x2 + w2 && x1 + w1 > x2 && y1 < y2 + h2 && y1 + h1 > y2
+  }
+
+  for (let y = 0; y <= maxY + 1; y++) {
+    for (let x = 0; x <= maxCols - width; x++) {
+      let collides = false
+      for (const item of layout) {
+        if (!item || !Number.isFinite(item.x) || !Number.isFinite(item.y)) continue
+        const itemW = item.w || 1
+        const itemH = item.h || 1
+        if (overlaps(x, y, width, height, item.x, item.y, itemW, itemH)) {
+          collides = true
+          break
+        }
+      }
+      if (!collides) {
+        return { x, y, w: width, h: height }
+      }
+    }
+  }
+
+  return { x: 0, y: maxY, w: width, h: height }
+}
+
 export function layoutForWidgets(widgets) {
   const cols = 12
-  let cursorX = 0
-  let cursorY = 0
-  let rowH = 0
-  return widgets.map((w) => {
-    const width = Math.min(w.w, cols)
-    if (cursorX + width > cols) {
-      cursorX = 0
-      cursorY += rowH
-      rowH = 0
-    }
-    const item = { i: w.id, x: cursorX, y: cursorY, w: width, h: w.h, minW: 2, minH: 4 }
-    cursorX += width
-    rowH = Math.max(rowH, w.h)
-    return item
+  const layout = []
+  widgets.forEach((w) => {
+    const pos = findNextAvailablePosition(layout, w.w, w.h, cols)
+    layout.push({ i: w.id, x: pos.x, y: pos.y, w: pos.w, h: pos.h, minW: 2, minH: 3 })
   })
+  return layout
 }
 
 export function buildFromTemplate(templateId, name, targetDeviceId = null, { visibility = 'PRIVATE' } = {}) {

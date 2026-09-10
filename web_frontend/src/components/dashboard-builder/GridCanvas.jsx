@@ -42,17 +42,21 @@ export default function GridCanvas({
   const handleLayoutChange = useCallback((current, all) => {
     // Keep dragging smooth on the lg/md breakpoints; ignore the derived
     // single-column sm layout so it never gets persisted as the source of truth.
-    setLocalLayout(prev => (all?.lg && all.lg.length ? all.lg : prev))
+    setLocalLayout(prev => (all?.lg && all.lg.length ? all.lg : (current && current.length ? current : prev)))
   }, [])
 
-  const commitLayout = useCallback(() => {
-    if (editing) onLayoutChange(localLayout)
+  const commitLayout = useCallback((updatedLayout) => {
+    if (editing) {
+      const toSave = Array.isArray(updatedLayout) && updatedLayout.length ? updatedLayout : localLayout
+      setLocalLayout(toSave)
+      onLayoutChange(toSave)
+    }
   }, [editing, localLayout, onLayoutChange])
 
   if (!dashboard.widgets.length) {
     return (
       <div className="card flex flex-col items-center justify-center py-20 text-center border-dashed">
-        <p className="text-sm font-bold text-surface-700">This dashboard is empty</p>
+        <p className="text-sm font-bold text-surface-700 dark:text-surface-200">This dashboard is empty</p>
         <p className="text-xs text-surface-400 mt-1">Use "Add Widget" to build out your view.</p>
       </div>
     )
@@ -60,7 +64,7 @@ export default function GridCanvas({
 
   return (
     <ResponsiveGridLayout
-      className="layout"
+      className={`layout ${editing ? 'layout-editing' : ''}`}
       layouts={layouts}
       breakpoints={BREAKPOINTS}
       cols={COLS}
@@ -69,9 +73,11 @@ export default function GridCanvas({
       isDraggable={editing}
       isResizable={editing}
       draggableHandle=".widget-drag-handle"
+      draggableCancel=".no-drag, input, select, button, textarea"
+      resizeHandles={['se', 's', 'e']}
       onLayoutChange={handleLayoutChange}
-      onDragStop={commitLayout}
-      onResizeStop={commitLayout}
+      onDragStop={(layout) => commitLayout(layout)}
+      onResizeStop={(layout) => commitLayout(layout)}
       compactType="vertical"
       useCSSTransforms
     >

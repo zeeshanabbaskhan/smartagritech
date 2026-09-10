@@ -11,7 +11,7 @@ import { useToast } from '../../context/ToastContext'
 import emsApi, { list, one } from '../../api/emsApi'
 import { mapDevice, mapOrganization } from '../../utils/mappers'
 import { mapTreeFromApi, scopeLabel } from '../../data/facilitiesHierarchy'
-import { mapDashboard, makeWidget, toApiVisibility, toggleFavoriteContext } from '../../utils/customDashboardHelpers'
+import { mapDashboard, makeWidget, toApiVisibility, toggleFavoriteContext, findNextAvailablePosition } from '../../utils/customDashboardHelpers'
 
 const GridCanvas = lazy(() => import('../../components/dashboard-builder/GridCanvas'))
 
@@ -193,9 +193,10 @@ export default function DashboardEditor() {
   async function handleAddWidget(partial) {
     const widget = makeWidget(partial)
     const widgets = [...dashboard.widgets, widget]
+    const pos = findNextAvailablePosition(dashboard.layout, widget.w, widget.h, 12)
     const layout = [
       ...dashboard.layout,
-      { i: widget.id, x: 0, y: Infinity, w: widget.w, h: widget.h, minW: 2, minH: 4 },
+      { i: widget.id, x: pos.x, y: pos.y, w: pos.w, h: pos.h, minW: 2, minH: 3 },
     ]
     setLocalDash((d) => ({ ...d, widgets, layout }))
     await persist({ widgets, layout })
