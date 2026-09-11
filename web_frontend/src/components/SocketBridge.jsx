@@ -14,8 +14,8 @@ export default function SocketBridge({ onAlarm }) {
     }
     connectSocket()
     const unsub = onSocketEvent((event, data) => {
-      // Silent refresh — never toggle DeviceContext.loading (that blinks the DEVICE select).
-      if (event === 'reading:new' || event === 'device:switch' || event === 'device:status') {
+      // Refresh devices only on structural or status events — never on continuous telemetry packet
+      if (event === 'device:switch' || event === 'device:status') {
         loadDevices({ silent: true })
       }
       if (event === 'alarm:new') onAlarm?.(data)

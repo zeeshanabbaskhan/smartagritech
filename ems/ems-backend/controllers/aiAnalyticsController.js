@@ -2,7 +2,7 @@
 const prisma      = require('../config/database')
 const { AppError } = require('../middleware/errorHandler')
 const { orgScope, TIME_RANGE_MS, BUCKET_MS } = require('../utils/helpers')
-const { bucketVariable, sumVariable, periodEnergyKwh } = require('../utils/sensorAggregation')
+const { bucketVariable, bucketManyCombined, sumVariable, periodEnergyKwh } = require('../utils/sensorAggregation')
 const { cached } = require('../utils/responseCache')
 const { assertDeviceAccess } = require('../utils/deviceAccess')
 
@@ -25,8 +25,8 @@ const buildVoltageAnalysis = async (deviceId, slaveId, timeRange) => {
 
   const names = ['VoltageA', 'VoltageB', 'VoltageC', 'VoltageImbalance', 'THD_V']
 
-  const [chartEntries, alarms, allVars] = await Promise.all([
-    Promise.all(names.map(async (name) => [name, await bucketVariable(prisma, { ...base, variableName: name })])),
+  const [charts, alarms, allVars] = await Promise.all([
+    bucketManyCombined(prisma, { ...base, metricNames: names }),
     prisma.deviceVariableAlarmHistory.findMany({
       where:  { deviceId, alarmTime: { gte: startDate } },
       select: { triggerType: true, variableName: true, alarmTime: true },
@@ -37,7 +37,6 @@ const buildVoltageAnalysis = async (deviceId, slaveId, timeRange) => {
     }),
   ])
 
-  const charts  = Object.fromEntries(chartEntries)
   const current = mapCurrentVars(allVars, names)
 
   return {
@@ -60,7 +59,7 @@ const getVoltageAnalysis = async (req, res, next) => {
     await assertDeviceAccess(deviceId, req.user)
 
     const cacheKey = `ai:voltage:${deviceId}:${slaveId || 'all'}:${timeRange}`
-    const data = await cached(cacheKey, 45, () => buildVoltageAnalysis(deviceId, slaveId, timeRange))
+    const data = await cached(cacheKey, 60, () => buildVoltageAnalysis(deviceId, slaveId, timeRange))
     res.json({ success: true, data })
   } catch (err) { next(err) }
 }
@@ -71,15 +70,14 @@ const buildCurrentAnalysis = async (deviceId, slaveId, timeRange) => {
   const base      = { deviceId, slaveId: slaveId || null, startDate, bucketMs }
   const names     = ['CurrentA', 'CurrentB', 'CurrentC', 'CurrentImbalance', 'THD_I']
 
-  const [chartEntries, allVars] = await Promise.all([
-    Promise.all(names.map(async (name) => [name, await bucketVariable(prisma, { ...base, variableName: name })])),
+  const [charts, allVars] = await Promise.all([
+    bucketManyCombined(prisma, { ...base, metricNames: names }),
     prisma.deviceConfigVariable.findMany({
       where:  { deviceId, isActive: true },
       select: { name: true, currentValue: true },
     }),
   ])
 
-  const charts  = Object.fromEntries(chartEntries)
   const current = mapCurrentVars(allVars, names)
 
   return {
@@ -101,7 +99,7 @@ const getCurrentAnalysis = async (req, res, next) => {
     await assertDeviceAccess(deviceId, req.user)
 
     const cacheKey = `ai:current:${deviceId}:${slaveId || 'all'}:${timeRange}`
-    const data = await cached(cacheKey, 45, () => buildCurrentAnalysis(deviceId, slaveId, timeRange))
+    const data = await cached(cacheKey, 60, () => buildCurrentAnalysis(deviceId, slaveId, timeRange))
     res.json({ success: true, data })
   } catch (err) { next(err) }
 }
@@ -122,7 +120,7 @@ const buildPowerFactorAnalysis = async (deviceId, slaveId, timeRange) => {
     prisma.aIForecastReading.findFirst({ where: { deviceId, variableName: 'PowerFactor' }, orderBy: { generatedAt: 'desc' } }),
   ])
 
-  const current = mapCurrentVars(allVars, ['PowerFactor']).PowerFactor
+  const current = allVars.find((v) => v.name.toLowerCase().includes('power factor') || v.name === 'PowerFactor')?.currentValue ?? null
 
   return {
     current,
@@ -139,7 +137,7 @@ const getPowerFactorAnalysis = async (req, res, next) => {
     await assertDeviceAccess(deviceId, req.user)
 
     const cacheKey = `ai:pf:${deviceId}:${slaveId || 'all'}:${timeRange}`
-    const data = await cached(cacheKey, 45, () => buildPowerFactorAnalysis(deviceId, slaveId, timeRange))
+    const data = await cached(cacheKey, 60, () => buildPowerFactorAnalysis(deviceId, slaveId, timeRange))
     res.json({ success: true, data })
   } catch (err) { next(err) }
 }
@@ -166,23 +164,27 @@ const buildEnergyAnalysis = async (deviceId, slaveId, timeRange) => {
     }
   }
 
-  const [chartData, totalConsumption, energyDelta, currentVars, forecast, dailyComparison, weeklyComparison, monthlyComparison] = await Promise.all([
-    bucketVariable(prisma, { ...base, variableName: 'PowerConsumption' }),
-    sumVariable(prisma, { ...base, variableName: 'PowerConsumption' }),
-    periodEnergyKwh(prisma, { deviceId, slaveId: slave, startDate }),
+  const [charts, energyDelta, currentVars, forecast, [dailyComparison, weeklyComparison, monthlyComparison]] = await Promise.all([
+    bucketManyCombined(prisma, { ...base, metricNames: ['PowerConsumption', 'ActivePower', 'Energy'] }),
+    periodEnergyKwh(prisma, { deviceId, slaveId: slave, startDate, endDate: new Date() }),
     prisma.deviceConfigVariable.findMany({
       where:  { deviceId, name: { in: ['PowerConsumption', 'ActivePower', 'Energy'] } },
       select: { name: true, currentValue: true },
     }),
     prisma.aIForecastReading.findFirst({ where: { deviceId, variableName: 'PowerConsumption' }, orderBy: { generatedAt: 'desc' } }),
-    savingsBlock(new Date(now - 86_400_000),   new Date(now), new Date(now - 172_800_000),   new Date(now - 86_400_000)),
-    savingsBlock(new Date(now - 604_800_000),  new Date(now), new Date(now - 1_209_600_000), new Date(now - 604_800_000)),
-    savingsBlock(new Date(now - 2_592_000_000),new Date(now), new Date(now - 5_184_000_000), new Date(now - 2_592_000_000)),
+    Promise.all([
+      savingsBlock(new Date(now - 86_400_000),   new Date(now), new Date(now - 172_800_000),   new Date(now - 86_400_000)),
+      savingsBlock(new Date(now - 604_800_000),  new Date(now), new Date(now - 1_209_600_000), new Date(now - 604_800_000)),
+      savingsBlock(new Date(now - 2_592_000_000),new Date(now), new Date(now - 5_184_000_000), new Date(now - 2_592_000_000)),
+    ]),
   ])
+
+  const chartData = charts.PowerConsumption?.length ? charts.PowerConsumption : (charts.ActivePower || [])
+  const totalConsumption = energyDelta > 0 ? energyDelta : (chartData || []).reduce((acc, p) => acc + (Number(p.value) || 0), 0)
 
   return {
     current:          Object.fromEntries(currentVars.map((v) => [v.name, v.currentValue])),
-    totalConsumption: energyDelta > 0 ? energyDelta : totalConsumption,
+    totalConsumption,
     chartData,
     predictedChart:   forecast ? (Array.isArray(forecast.predictions) ? forecast.predictions : []) : [],
     dailyComparison,
@@ -198,7 +200,7 @@ const getEnergyAnalysis = async (req, res, next) => {
     await assertDeviceAccess(deviceId, req.user)
 
     const cacheKey = `ai:energy:${deviceId}:${slaveId || 'all'}:${timeRange}`
-    const data = await cached(cacheKey, 45, () => buildEnergyAnalysis(deviceId, slaveId, timeRange))
+    const data = await cached(cacheKey, 60, () => buildEnergyAnalysis(deviceId, slaveId, timeRange))
     res.json({ success: true, data })
   } catch (err) { next(err) }
 }

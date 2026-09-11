@@ -143,15 +143,32 @@ function useLiveBundle(widget, orgName, hierarchy, dashboardContext) {
     return () => clearInterval(id)
   }, [load])
 
-  // Socket push when readings arrive for the widget's device
+  // Socket push when readings arrive for the widget's device (throttled to 5s)
   useEffect(() => {
     if (!isSocketEnabled() || !deviceId) return undefined
     subscribeDevice(deviceId)
+    let lastLoad = 0
+    let timeoutId = null
     const off = onSocketEvent((event, data) => {
-      if (event === 'reading:new' && data?.deviceId === deviceId) load(true)
+      if (event === 'reading:new' && data?.deviceId === deviceId) {
+        const now = Date.now()
+        if (now - lastLoad >= 5000) {
+          lastLoad = now
+          load(true)
+        } else if (!timeoutId) {
+          timeoutId = setTimeout(() => {
+            timeoutId = null
+            lastLoad = Date.now()
+            load(true)
+          }, 5000 - (now - lastLoad))
+        }
+      }
       if (event === 'alarm:new') load(true)
     })
-    return off
+    return () => {
+      off?.()
+      if (timeoutId) clearTimeout(timeoutId)
+    }
   }, [deviceId, load])
 
   return { bundle, loading }

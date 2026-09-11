@@ -124,7 +124,7 @@ export function DeviceProvider({ children }) {
 
   useEffect(() => {
     const unsub = onSocketEvent((event, payload) => {
-      if ((event === 'reading:new' || event === 'device:status') && selectedDeviceIdRef.current) {
+      if (event === 'device:status' && selectedDeviceIdRef.current) {
         if (!payload?.deviceId || sameId(payload.deviceId, selectedDeviceIdRef.current)) {
           loadSlavesForDevice(selectedDeviceIdRef.current)
         }

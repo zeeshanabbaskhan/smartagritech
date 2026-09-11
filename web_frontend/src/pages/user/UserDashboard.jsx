@@ -74,33 +74,29 @@ export default function UserDashboard() {
       return { metrics: {}, anomalyCount: 0 }
     }
     const q = { deviceId: selectedDeviceId, slaveId: selectedSlaveId || undefined, timeRange: '24h' }
-    const [summaryRes, voltRes, curRes, pfRes, energyRes, anomRes] = await Promise.all([
+    const [summaryRes, anomRes] = await Promise.all([
       emsApi.getDashboardSummary(q).catch(() => null),
-      emsApi.getAiVoltage(q).catch(() => null),
-      emsApi.getAiCurrent(q).catch(() => null),
-      emsApi.getAiPowerFactor(q).catch(() => null),
-      emsApi.getAiEnergy(q).catch(() => null),
       emsApi.getAnomalies({ limit: 50 }).catch(() => null),
     ])
     const s = summaryRes?.data ?? {}
     const anomalies = list(anomRes).map(mapAnomaly).filter((a) => !a.deviceId || a.deviceId === selectedDeviceId)
     return {
       metrics: {
-        totalPower: pickValue(s.totalPowerConsumption) ?? energyRes?.data?.totalConsumption,
-        exportPower: pickValue(s.totalExportPower) ?? energyRes?.data?.totalExport,
-        voltageImbalance: voltRes?.data?.current ?? pickValue(s.voltageImbalance),
-        currentImbalance: curRes?.data?.current ?? pickValue(s.currentImbalance),
-        powerFactor: pfRes?.data?.current ?? pickValue(s.powerFactor),
+        totalPower: pickValue(s.totalPowerConsumption),
+        exportPower: pickValue(s.totalExportPower),
+        voltageImbalance: pickValue(s.voltageImbalance),
+        currentImbalance: pickValue(s.currentImbalance),
+        powerFactor: pickValue(s.powerFactor),
         predicted: pickValue(s.predictedConsumption),
         thdV: pickValue(s.thdV),
         thdI: pickValue(s.thdI),
         frequency: pickValue(s.frequency),
         charts: {
-          totalPower: toRangeSeries(s.totalPowerConsumption?.chartData ?? energyRes?.data?.chartData),
+          totalPower: toRangeSeries(s.totalPowerConsumption?.chartData),
           exportPower: toRangeSeries(s.totalExportPower?.chartData),
-          voltageImbalance: toRangeSeries(voltRes?.data?.chartData?.voltageImbalance ?? s.voltageImbalance?.chartData),
-          currentImbalance: toRangeSeries(curRes?.data?.chartData?.currentImbalance ?? s.currentImbalance?.chartData),
-          powerFactor: toRangeSeries(pfRes?.data?.chartData ?? s.powerFactor?.chartData),
+          voltageImbalance: toRangeSeries(s.voltageImbalance?.chartData),
+          currentImbalance: toRangeSeries(s.currentImbalance?.chartData),
+          powerFactor: toRangeSeries(s.powerFactor?.chartData),
           predicted: toRangeSeries(s.predictedConsumption?.chartData),
           thdV: toRangeSeries(s.thdV?.chartData),
           thdI: toRangeSeries(s.thdI?.chartData),
