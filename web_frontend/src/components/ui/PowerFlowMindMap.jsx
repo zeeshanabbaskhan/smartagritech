@@ -226,9 +226,10 @@ export default function PowerFlowMindMap({
       }, 0)
     : 0
 
-  const load = totalLoadKw != null && Number.isFinite(Number(totalLoadKw)) && Number(totalLoadKw) > 0
+  const sourcesSum = (localSources || []).reduce((acc, s) => acc + (Number(s.valueKw) || 0), 0)
+  const load = totalLoadKw != null && Number.isFinite(Number(totalLoadKw)) && Number(totalLoadKw) >= 0
     ? Number(totalLoadKw)
-    : calculatedFleetDemand
+    : sourcesSum
 
   const builtin = ['grid', 'solar', 'generator'].map((type) => {
     const found = localSources.find((s) => s.type === type || s.id === type)
@@ -461,7 +462,7 @@ export default function PowerFlowMindMap({
             <div className="leading-tight">
               <p className="text-[11px] font-bold opacity-90">Total Organization Load</p>
               <p className="text-xl font-black">{load.toFixed(1)} kW</p>
-              <p className="text-[9px] font-semibold opacity-75 mt-0.5">Live consumer demand across organization</p>
+              <p className="text-[9px] font-semibold opacity-75 mt-0.5">Total supply from all active energy sources</p>
             </div>
           </div>
         </div>

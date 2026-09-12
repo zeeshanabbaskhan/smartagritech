@@ -498,35 +498,6 @@ const getPowerFlow = async (req, res, next) => {
       })
     }
 
-    // Calculate true Total Organization Load (Demand) across all consumer devices and slaves
-    const orgDevices = await prisma.device.findMany({
-      where: {
-        organizationId: orgId,
-        ...(allowedSet ? { id: { in: [...allowedSet] } } : {}),
-      },
-      include: {
-        configSlaves: {
-          where: { isActive: true },
-          select: { id: true, name: true, deviceId: true },
-        },
-      },
-      orderBy: { name: 'asc' },
-    })
-
-    let totalLoadKw = 0
-    for (const d of orgDevices) {
-      const slaves = d.configSlaves || []
-      if (slaves.length > 1) {
-        for (const s of slaves) {
-          if (/solar/i.test(s.name || '')) continue
-          totalLoadKw += await readSlaveLoadKw(d.id, s.id)
-        }
-      } else {
-        totalLoadKw += await readDeviceLoadKw(d.id)
-      }
-    }
-    totalLoadKw = Math.round(totalLoadKw * 100) / 100
-
     let sources = Array.isArray(config.sources) ? config.sources.map((s) => ({ ...s })) : []
     // Ensure builtins exist
     for (const b of [
@@ -556,6 +527,11 @@ const getPowerFlow = async (req, res, next) => {
         s.derived = false
       }
     }
+
+    // Total Organization Load: exact sum of active supply sources
+    const totalLoadKw = Math.round(
+      sources.reduce((sum, s) => sum + (Number(s.valueKw) || 0), 0) * 100
+    ) / 100
 
     const solarKw = Number(sources.find((s) => s.type === 'solar' || s.id === 'solar')?.valueKw) || 0
     const gridKw = Number(sources.find((s) => s.type === 'grid' || s.id === 'grid')?.valueKw) || 0

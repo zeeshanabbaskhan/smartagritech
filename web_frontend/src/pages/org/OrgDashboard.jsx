@@ -257,10 +257,11 @@ export default function OrgDashboard() {
     })
   }, [powerFlow, liveDevices])
 
-  /** True total organization load (demand across all plant consumer assets). */
+  /** Total organization load: exact sum of active supply sources. */
   const totalOrgLoadKw = useMemo(() => {
-    return liveFleetKw
-  }, [liveFleetKw])
+    const sum = (liveSources || []).reduce((acc, s) => acc + (Number(s.valueKw) || 0), 0)
+    return +sum.toFixed(2)
+  }, [liveSources])
 
   const openGroup = useMemo(
     () => groupLoads.find((g) => g.id === openGroupId) || null,
