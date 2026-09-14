@@ -66,7 +66,7 @@ const buildVoltageAnalysis = async (deviceId, slaveId, timeRange) => {
   const bucketMs  = BUCKET_MS[timeRange] || BUCKET_MS['24h']
   const base      = { deviceId, slaveId: slaveId || null, startDate, bucketMs }
 
-  const names = ['VoltageA', 'VoltageB', 'VoltageC', 'VoltageImbalance', 'THD_V']
+  const names = ['PhaseVoltageA', 'PhaseVoltageB', 'PhaseVoltageC', 'VoltageA', 'VoltageB', 'VoltageC', 'VoltageImbalance', 'THD_V']
 
   const [charts, alarms, allVars] = await Promise.all([
     bucketManyCombined(prisma, { ...base, metricNames: names }),
@@ -82,7 +82,15 @@ const buildVoltageAnalysis = async (deviceId, slaveId, timeRange) => {
 
   const current = mapCurrentVars(allVars, names)
   if (current.VoltageImbalance == null) {
-    current.VoltageImbalance = computeImbalance(current.VoltageA, current.VoltageB, current.VoltageC)
+    const llA = current.PhaseVoltageA
+    const llB = current.PhaseVoltageB
+    const llC = current.PhaseVoltageC
+    const llImb = computeImbalance(llA, llB, llC)
+    if (llImb != null) {
+      current.VoltageImbalance = llImb
+    } else {
+      current.VoltageImbalance = computeImbalance(current.VoltageA, current.VoltageB, current.VoltageC)
+    }
   }
 
   const voltImbalanceChart = (charts.VoltageImbalance?.length ? charts.VoltageImbalance : null)

@@ -399,21 +399,32 @@ const buildDashboardSummary = async (deviceId, slaveId, timeRange) => {
     ? totalPower
     : (rawLivePower != null ? powerReadingToKw('ActivePower', rawLivePower) : (totalActive > 0 ? powerReadingToKw('ActivePower', totalActive) : 0))
 
-  // Live Voltage Imbalance (with IEEE fallback from Phase Voltage A/B/C)
+  // Live Voltage Imbalance (with IEEE fallback from Phase Voltage A/B/C or Voltage A/B/C)
   let liveVoltImbalance = latestNum('VoltageImbalance')
   if (liveVoltImbalance == null) {
-    const vA = latestNum('VoltageA') ?? latestNum('Phase VoltageA') ?? latestNum('Voltage')
-    const vB = latestNum('VoltageB') ?? latestNum('Phase VoltageB')
-    const vC = latestNum('VoltageC') ?? latestNum('Phase VoltageC')
-    liveVoltImbalance = computeImbalance(vA, vB, vC)
+    // Try Line-to-Line voltages first (400V)
+    const llA = latestNum('Phase VoltageA') ?? latestNum('Phase Voltage A') ?? latestNum('PhaseVoltageA')
+    const llB = latestNum('Phase VoltageB') ?? latestNum('Phase Voltage B') ?? latestNum('PhaseVoltageB')
+    const llC = latestNum('Phase VoltageC') ?? latestNum('Phase Voltage C') ?? latestNum('PhaseVoltageC')
+    const llImb = computeImbalance(llA, llB, llC)
+
+    if (llImb != null) {
+      liveVoltImbalance = llImb
+    } else {
+      // Try Line-to-Neutral voltages (230V)
+      const lnA = latestNum('VoltageA') ?? latestNum('Voltage A') ?? latestNum('Voltage')
+      const lnB = latestNum('VoltageB') ?? latestNum('Voltage B')
+      const lnC = latestNum('VoltageC') ?? latestNum('Voltage C')
+      liveVoltImbalance = computeImbalance(lnA, lnB, lnC)
+    }
   }
 
   // Live Current Imbalance (with IEEE fallback from Current A/B/C)
   let liveCurrImbalance = latestNum('CurrentImbalance')
   if (liveCurrImbalance == null) {
-    const iA = latestNum('CurrentA') ?? latestNum('Current A')
-    const iB = latestNum('CurrentB') ?? latestNum('Current B')
-    const iC = latestNum('CurrentC') ?? latestNum('Current C')
+    const iA = latestNum('Current A') ?? latestNum('CurrentA') ?? latestNum('Phase Current A')
+    const iB = latestNum('Current B') ?? latestNum('CurrentB') ?? latestNum('Phase Current B')
+    const iC = latestNum('Current C') ?? latestNum('CurrentC') ?? latestNum('Phase Current C')
     liveCurrImbalance = computeImbalance(iA, iB, iC)
   }
 
@@ -450,18 +461,21 @@ const buildDashboardSummary = async (deviceId, slaveId, timeRange) => {
     predictedChart = forecastRow.predictions
     predictedVal = predictedChart.reduce((acc, p) => acc + (Number(p.value) || 0), 0)
   } else {
-    const activeKw = powerValue > 0 ? powerValue : (rawLivePower != null ? powerReadingToKw('ActivePower', rawLivePower) : 0)
-    if (activeKw > 0) {
-      predictedVal = parseFloat((activeKw * 24).toFixed(2))
+    const liveKw = rawLivePower != null ? powerReadingToKw('ActivePower', rawLivePower) : 0
+    if (liveKw > 0) {
+      predictedVal = parseFloat((liveKw * 24).toFixed(2))
       const stepMs = bucketMs || 3_600_000
       const steps = Math.min(24, Math.max(6, Math.floor(86_400_000 / stepMs)))
-      const kwhPerStep = (activeKw * (stepMs / 3_600_000))
+      const kwhPerStep = (liveKw * (stepMs / 3_600_000))
       for (let i = 0; i < steps; i++) {
         predictedChart.push({
           timestamp: new Date(startDate.getTime() + i * stepMs),
           value: parseFloat(kwhPerStep.toFixed(2)),
         })
       }
+    } else if (totalPower > 0) {
+      predictedVal = parseFloat(totalPower.toFixed(2))
+      predictedChart = powerChartRaw
     } else if (dailySavings?.current > 0) {
       predictedVal = parseFloat(dailySavings.current.toFixed(2))
     }
