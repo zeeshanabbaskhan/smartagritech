@@ -165,6 +165,7 @@ export default function UserDashboard() {
       `voltage_imbalance,${fmt(m.voltageImbalance)}`,
       `current_imbalance,${fmt(m.currentImbalance)}`,
       `power_factor,${fmt(m.powerFactor)}`,
+      `predicted_consumption_kwh,${fmt(m.predicted)}`,
       `frequency_hz,${fmt(m.frequency)}`,
       `anomalies,${anomalyCount}`,
     ]
@@ -326,10 +327,10 @@ export default function UserDashboard() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             <MetricRangeCard icon={Zap} title="Total Power Consumption" value={fmt(m.totalPower)} unit="kWh" data={charts.totalPower} />
             <MetricRangeCard icon={Zap} title="Total Export Power" value={fmt(m.exportPower)} unit="kWh" data={charts.exportPower} />
-            <MetricRangeCard icon={Zap} title="Voltage Imbalance (%)" value={fmt(m.voltageImbalance)} data={charts.voltageImbalance} />
-            <MetricRangeCard icon={Activity} title="Current Imbalance" value={fmt(m.currentImbalance)} data={charts.currentImbalance} />
+            <MetricRangeCard icon={Zap} title="Voltage Imbalance" value={fmt(m.voltageImbalance)} unit="%" data={charts.voltageImbalance} />
+            <MetricRangeCard icon={Activity} title="Current Imbalance" value={fmt(m.currentImbalance)} unit="%" data={charts.currentImbalance} />
             <MetricRangeCard icon={Heart} title="Real Time Power Factor (Avg & Trend)" value={fmt(m.powerFactor)} data={charts.powerFactor} />
-            <MetricRangeCard icon={TrendingUp} title="Predicted Consumption" value={fmt(m.predicted)} data={charts.predicted} />
+            <MetricRangeCard icon={TrendingUp} title="Predicted Consumption" value={fmt(m.predicted)} unit="kWh" data={charts.predicted} />
             <MetricRangeCard
               icon={AlertTriangle}
               title="Anomalies Detected (Count & Type)"

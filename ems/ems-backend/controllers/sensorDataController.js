@@ -289,16 +289,21 @@ const buildDashboardSummary = async (deviceId, slaveId, timeRange) => {
 
   const metricNames = [
     'ActivePower', 'PowerConsumption', 'ExportPower', 'VoltageImbalance', 'CurrentImbalance',
+    'VoltageA', 'VoltageB', 'VoltageC', 'CurrentA', 'CurrentB', 'CurrentC',
     'PowerFactor', 'THD_V', 'THD_I', 'Frequency', 'Energy',
   ]
 
-  const [chartMap, latestVars, hotLatest] = await Promise.all([
+  const [chartMap, latestVars, hotLatest, forecastRow] = await Promise.all([
     bucketManyCombined(prisma, { ...base, bucketMs, metricNames }),
     prisma.deviceConfigVariable.findMany({
       where:  { deviceId, isActive: true, ...(slaveId ? { deviceConfigSlaveId: slaveId } : {}) },
       select: { name: true, currentValue: true },
     }),
     readLatest(deviceId, slaveId || null).catch(() => ({})),
+    prisma.aIForecastReading.findFirst({
+      where: { deviceId, variableName: 'PowerConsumption' },
+      orderBy: { generatedAt: 'desc' },
+    }).catch(() => null),
   ])
 
   const totalPower  = (chartMap.PowerConsumption || []).reduce((acc, p) => acc + (Number(p.value) || 0), 0)
@@ -311,7 +316,10 @@ const buildDashboardSummary = async (deviceId, slaveId, timeRange) => {
     return [v.name, val]
   }))
   const latestNum = (name) => {
-    if (latest[name] != null && latest[name] !== '') return parseFloat(latest[name])
+    if (latest[name] != null && latest[name] !== '') {
+      const parsed = parseFloat(latest[name])
+      if (Number.isFinite(parsed)) return parsed
+    }
     const aliases = getVariableAliases(name)
     for (const a of aliases) {
       for (const [k, val] of Object.entries(latest)) {
@@ -335,6 +343,51 @@ const buildDashboardSummary = async (deviceId, slaveId, timeRange) => {
     return Math.abs(n)
   }
 
+  // IEEE standard phase imbalance calculation (%)
+  const computeImbalance = (v1, v2, v3) => {
+    const raw = [v1, v2, v3]
+    const valid = []
+    for (const v of raw) {
+      if (v != null && v !== '') {
+        const num = Number(v)
+        if (Number.isFinite(num) && num > 0) valid.push(num)
+      }
+    }
+    if (valid.length < 2) return null
+    const avg = valid.reduce((a, b) => a + b, 0) / valid.length
+    if (avg <= 0) return 0
+    const maxDev = Math.max(...valid.map((v) => Math.abs(v - avg)))
+    return parseFloat(((maxDev / avg) * 100).toFixed(2))
+  }
+
+  // Generate bucketed imbalance chart series from 3 phases
+  const computeImbalanceChart = (chartA = [], chartB = [], chartC = []) => {
+    const tsMap = new Map()
+    for (const p of (chartA || [])) {
+      const k = new Date(p.timestamp).getTime()
+      if (!tsMap.has(k)) tsMap.set(k, {})
+      tsMap.get(k).a = Number(p.value)
+    }
+    for (const p of (chartB || [])) {
+      const k = new Date(p.timestamp).getTime()
+      if (!tsMap.has(k)) tsMap.set(k, {})
+      tsMap.get(k).b = Number(p.value)
+    }
+    for (const p of (chartC || [])) {
+      const k = new Date(p.timestamp).getTime()
+      if (!tsMap.has(k)) tsMap.set(k, {})
+      tsMap.get(k).c = Number(p.value)
+    }
+    const series = []
+    for (const [ts, obj] of tsMap.entries()) {
+      const imb = computeImbalance(obj.a, obj.b, obj.c)
+      if (imb != null) {
+        series.push({ timestamp: new Date(ts), value: imb })
+      }
+    }
+    return series.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+  }
+
   // Prefer PowerConsumption history; fall back to ActivePower with unit-aware conversion
   const powerChartRaw = (chartMap.PowerConsumption?.length ? chartMap.PowerConsumption : null)
     || (chartMap.ActivePower || []).map((p) => ({
@@ -345,6 +398,30 @@ const buildDashboardSummary = async (deviceId, slaveId, timeRange) => {
   const powerValue = totalPower > 0
     ? totalPower
     : (rawLivePower != null ? powerReadingToKw('ActivePower', rawLivePower) : (totalActive > 0 ? powerReadingToKw('ActivePower', totalActive) : 0))
+
+  // Live Voltage Imbalance (with IEEE fallback from Phase Voltage A/B/C)
+  let liveVoltImbalance = latestNum('VoltageImbalance')
+  if (liveVoltImbalance == null) {
+    const vA = latestNum('VoltageA') ?? latestNum('Phase VoltageA') ?? latestNum('Voltage')
+    const vB = latestNum('VoltageB') ?? latestNum('Phase VoltageB')
+    const vC = latestNum('VoltageC') ?? latestNum('Phase VoltageC')
+    liveVoltImbalance = computeImbalance(vA, vB, vC)
+  }
+
+  // Live Current Imbalance (with IEEE fallback from Current A/B/C)
+  let liveCurrImbalance = latestNum('CurrentImbalance')
+  if (liveCurrImbalance == null) {
+    const iA = latestNum('CurrentA') ?? latestNum('Current A')
+    const iB = latestNum('CurrentB') ?? latestNum('Current B')
+    const iC = latestNum('CurrentC') ?? latestNum('Current C')
+    liveCurrImbalance = computeImbalance(iA, iB, iC)
+  }
+
+  const voltChart = (chartMap.VoltageImbalance?.length ? chartMap.VoltageImbalance : null)
+    || computeImbalanceChart(chartMap.VoltageA, chartMap.VoltageB, chartMap.VoltageC)
+
+  const currChart = (chartMap.CurrentImbalance?.length ? chartMap.CurrentImbalance : null)
+    || computeImbalanceChart(chartMap.CurrentA, chartMap.CurrentB, chartMap.CurrentC)
 
   const savingsBlock = async (curStart, curEnd, priorStart, priorEnd) => {
     const [current, previous] = await Promise.all([
@@ -366,12 +443,37 @@ const buildDashboardSummary = async (deviceId, slaveId, timeRange) => {
     savingsBlock(new Date(now - 2_592_000_000),new Date(now), new Date(now - 5_184_000_000), new Date(now - 2_592_000_000)),
   ])
 
+  // Predicted Consumption (kWh) - Check ML forecast table or compute dynamic 24h run-rate projection
+  let predictedVal = null
+  let predictedChart = []
+  if (forecastRow && Array.isArray(forecastRow.predictions) && forecastRow.predictions.length > 0) {
+    predictedChart = forecastRow.predictions
+    predictedVal = predictedChart.reduce((acc, p) => acc + (Number(p.value) || 0), 0)
+  } else {
+    const activeKw = powerValue > 0 ? powerValue : (rawLivePower != null ? powerReadingToKw('ActivePower', rawLivePower) : 0)
+    if (activeKw > 0) {
+      predictedVal = parseFloat((activeKw * 24).toFixed(2))
+      const stepMs = bucketMs || 3_600_000
+      const steps = Math.min(24, Math.max(6, Math.floor(86_400_000 / stepMs)))
+      const kwhPerStep = (activeKw * (stepMs / 3_600_000))
+      for (let i = 0; i < steps; i++) {
+        predictedChart.push({
+          timestamp: new Date(startDate.getTime() + i * stepMs),
+          value: parseFloat(kwhPerStep.toFixed(2)),
+        })
+      }
+    } else if (dailySavings?.current > 0) {
+      predictedVal = parseFloat(dailySavings.current.toFixed(2))
+    }
+  }
+
   const summary = {
     totalPowerConsumption: { value: powerValue, chartData: powerChartRaw },
     totalExportPower:      { value: totalExport, chartData: chartMap.ExportPower ?? [] },
-    voltageImbalance:      { value: latestNum('VoltageImbalance'), chartData: chartMap.VoltageImbalance ?? [] },
-    currentImbalance:      { value: latestNum('CurrentImbalance'), chartData: chartMap.CurrentImbalance ?? [] },
+    voltageImbalance:      { value: liveVoltImbalance, chartData: voltChart },
+    currentImbalance:      { value: liveCurrImbalance, chartData: currChart },
     powerFactor:           { value: latestNum('PowerFactor'),      chartData: chartMap.PowerFactor ?? [] },
+    predictedConsumption: { value: predictedVal,                 chartData: predictedChart },
     thdV:                  { value: latestNum('THD_V'),            chartData: chartMap.THD_V ?? [] },
     thdI:                  { value: latestNum('THD_I'),            chartData: chartMap.THD_I ?? [] },
     frequency:             { value: latestNum('Frequency'),        chartData: chartMap.Frequency ?? [] },

@@ -18,6 +18,49 @@ const mapCurrentVars = (allVars, targetNames) => {
   return result
 }
 
+const computeImbalance = (v1, v2, v3) => {
+  const raw = [v1, v2, v3]
+  const valid = []
+  for (const v of raw) {
+    if (v != null && v !== '') {
+      const num = Number(v)
+      if (Number.isFinite(num) && num > 0) valid.push(num)
+    }
+  }
+  if (valid.length < 2) return null
+  const avg = valid.reduce((a, b) => a + b, 0) / valid.length
+  if (avg <= 0) return 0
+  const maxDev = Math.max(...valid.map((v) => Math.abs(v - avg)))
+  return parseFloat(((maxDev / avg) * 100).toFixed(2))
+}
+
+const computeImbalanceChart = (chartA = [], chartB = [], chartC = []) => {
+  const tsMap = new Map()
+  for (const p of (chartA || [])) {
+    const k = new Date(p.timestamp).getTime()
+    if (!tsMap.has(k)) tsMap.set(k, {})
+    tsMap.get(k).a = Number(p.value)
+  }
+  for (const p of (chartB || [])) {
+    const k = new Date(p.timestamp).getTime()
+    if (!tsMap.has(k)) tsMap.set(k, {})
+    tsMap.get(k).b = Number(p.value)
+  }
+  for (const p of (chartC || [])) {
+    const k = new Date(p.timestamp).getTime()
+    if (!tsMap.has(k)) tsMap.set(k, {})
+    tsMap.get(k).c = Number(p.value)
+  }
+  const series = []
+  for (const [ts, obj] of tsMap.entries()) {
+    const imb = computeImbalance(obj.a, obj.b, obj.c)
+    if (imb != null) {
+      series.push({ timestamp: new Date(ts), value: imb })
+    }
+  }
+  return series.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+}
+
 const buildVoltageAnalysis = async (deviceId, slaveId, timeRange) => {
   const startDate = new Date(Date.now() - (TIME_RANGE_MS[timeRange] || TIME_RANGE_MS['24h']))
   const bucketMs  = BUCKET_MS[timeRange] || BUCKET_MS['24h']
@@ -32,12 +75,18 @@ const buildVoltageAnalysis = async (deviceId, slaveId, timeRange) => {
       select: { triggerType: true, variableName: true, alarmTime: true },
     }),
     prisma.deviceConfigVariable.findMany({
-      where:  { deviceId, isActive: true },
+      where:  { deviceId, isActive: true, ...(slaveId ? { deviceConfigSlaveId: slaveId } : {}) },
       select: { name: true, currentValue: true },
     }),
   ])
 
   const current = mapCurrentVars(allVars, names)
+  if (current.VoltageImbalance == null) {
+    current.VoltageImbalance = computeImbalance(current.VoltageA, current.VoltageB, current.VoltageC)
+  }
+
+  const voltImbalanceChart = (charts.VoltageImbalance?.length ? charts.VoltageImbalance : null)
+    || computeImbalanceChart(charts.VoltageA, charts.VoltageB, charts.VoltageC)
 
   return {
     current,
@@ -45,7 +94,7 @@ const buildVoltageAnalysis = async (deviceId, slaveId, timeRange) => {
       voltageA:         charts.VoltageA ?? [],
       voltageB:         charts.VoltageB ?? [],
       voltageC:         charts.VoltageC ?? [],
-      voltageImbalance: charts.VoltageImbalance ?? [],
+      voltageImbalance: voltImbalanceChart,
       thdV:             charts.THD_V ?? [],
     },
     alarms: alarms.filter((a) => a.variableName?.toLowerCase().includes('voltage')),
@@ -73,12 +122,18 @@ const buildCurrentAnalysis = async (deviceId, slaveId, timeRange) => {
   const [charts, allVars] = await Promise.all([
     bucketManyCombined(prisma, { ...base, metricNames: names }),
     prisma.deviceConfigVariable.findMany({
-      where:  { deviceId, isActive: true },
+      where:  { deviceId, isActive: true, ...(slaveId ? { deviceConfigSlaveId: slaveId } : {}) },
       select: { name: true, currentValue: true },
     }),
   ])
 
   const current = mapCurrentVars(allVars, names)
+  if (current.CurrentImbalance == null) {
+    current.CurrentImbalance = computeImbalance(current.CurrentA, current.CurrentB, current.CurrentC)
+  }
+
+  const currImbalanceChart = (charts.CurrentImbalance?.length ? charts.CurrentImbalance : null)
+    || computeImbalanceChart(charts.CurrentA, charts.CurrentB, charts.CurrentC)
 
   return {
     current,
@@ -86,7 +141,7 @@ const buildCurrentAnalysis = async (deviceId, slaveId, timeRange) => {
       currentA:         charts.CurrentA ?? [],
       currentB:         charts.CurrentB ?? [],
       currentC:         charts.CurrentC ?? [],
-      currentImbalance: charts.CurrentImbalance ?? [],
+      currentImbalance: currImbalanceChart,
       thdI:             charts.THD_I ?? [],
     },
   }
