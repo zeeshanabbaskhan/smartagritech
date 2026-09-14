@@ -28,6 +28,7 @@ function mapGroup(g) {
     ...rest,
     deviceIds: (devices || []).map((d) => d.deviceId),
     slaveIds: (slaves || []).map((s) => s.slaveId),
+    userIds: (users || []).map((u) => u.userId || u.user?.id || u.id).filter(Boolean),
     devices: (devices || []).map((d) => d.device),
     slaves: (slaves || []).map((s) => ({
       id: s.slave?.id,
@@ -37,7 +38,7 @@ function mapGroup(g) {
       deviceStatus: s.slave?.device?.status,
       isDefault: s.slave?.isDefault,
     })),
-    users: (users || []).map((u) => u.user),
+    users: (users || []).map((u) => u.user || u),
     createdByRole: creator?.role || null,
     createdByName: creator?.fullName || null,
   }
@@ -91,28 +92,10 @@ async function assertMembersInOrg(orgId, deviceIds = [], userIds = [], slaveIds 
 
 /**
  * When SUPER_ADMIN has defined access groups for an org, ORG_ADMIN device groups
- * may only include devices that appear in those admin-created access groups.
+ * may include any valid org devices or admin-delegated devices.
  */
 async function enforceAdminDeviceCeiling(req, orgId, deviceIds) {
-  if (req.user.role !== 'ORG_ADMIN') return deviceIds
-  const uniqueDevices = [...new Set((deviceIds || []).filter(Boolean))]
-  if (!uniqueDevices.length) return uniqueDevices
-
-  const adminGroups = await prisma.accessGroup.findMany({
-    where: {
-      organizationId: orgId,
-      creator: { role: 'SUPER_ADMIN' },
-    },
-    select: { id: true, devices: { select: { deviceId: true } } },
-  })
-  if (!adminGroups.length) return uniqueDevices
-
-  const allowed = new Set(adminGroups.flatMap((g) => g.devices.map((d) => d.deviceId)))
-  const outside = uniqueDevices.filter((id) => !allowed.has(id))
-  if (outside.length) {
-    throw new AppError('Device group may only include devices from admin-defined access groups', 400)
-  }
-  return uniqueDevices
+  return [...new Set((deviceIds || []).filter(Boolean))]
 }
 
 const listDeviceGroups = async (req, res, next) => {

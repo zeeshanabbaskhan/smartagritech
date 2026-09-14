@@ -326,15 +326,25 @@ const buildDashboardSummary = async (deviceId, slaveId, timeRange) => {
     return null
   }
 
-  // Prefer PowerConsumption history; fall back to ActivePower (W → kW) for MQTT devices
+  const powerReadingToKw = (variableName, value) => {
+    const n = Number(value)
+    if (!Number.isFinite(n)) return 0
+    const nm = String(variableName || '')
+    if (/powerconsumption/i.test(nm) && !/active/i.test(nm)) return Math.abs(n)
+    if (Math.abs(n) >= 2500) return Math.abs(n) / 1000
+    return Math.abs(n)
+  }
+
+  // Prefer PowerConsumption history; fall back to ActivePower with unit-aware conversion
   const powerChartRaw = (chartMap.PowerConsumption?.length ? chartMap.PowerConsumption : null)
     || (chartMap.ActivePower || []).map((p) => ({
       ...p,
-      value: Number.isFinite(Number(p.value)) ? Number(p.value) / 1000 : p.value,
+      value: Number.isFinite(Number(p.value)) ? powerReadingToKw('ActivePower', p.value) : p.value,
     }))
+  const rawLivePower = latestNum('ActivePower') ?? latestNum('Power') ?? latestNum('Total Power')
   const powerValue = totalPower > 0
     ? totalPower
-    : (totalActive > 0 ? totalActive / 1000 : (latestNum('ActivePower') != null ? latestNum('ActivePower') / 1000 : 0))
+    : (rawLivePower != null ? powerReadingToKw('ActivePower', rawLivePower) : (totalActive > 0 ? powerReadingToKw('ActivePower', totalActive) : 0))
 
   const savingsBlock = async (curStart, curEnd, priorStart, priorEnd) => {
     const [current, previous] = await Promise.all([

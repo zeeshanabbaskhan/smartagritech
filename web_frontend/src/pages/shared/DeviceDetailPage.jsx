@@ -45,7 +45,15 @@ export default function DeviceDetailPage({ basePath }) {
       setDevice(mapDevice(one(devRes)))
       setSummary(summaryRes?.data ?? null)
       setTasks(list(tasksRes).filter((t) => t.deviceId === deviceId).map(mapScheduledTask))
-      setDeviceUsers(list(duRes).map((u) => mapUser(u)))
+      setDeviceUsers(list(duRes).map((du) => {
+        const u = du.user || du
+        return {
+          ...mapUser(u),
+          id: du.userId || u.id,
+          assignmentId: du.id,
+          userId: du.userId || u.id,
+        }
+      }))
       setOrgUsers(list(usersRes).map((u) => mapUser(u)))
     } catch (e) {
       setError(e.message || 'Failed to load device')

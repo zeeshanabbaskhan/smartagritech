@@ -59,20 +59,18 @@ export default function DeviceGroupsPage({ scope = 'admin' }) {
       deviceIds: g.deviceIds || [],
       slaveIds: g.slaveIds || [],
       slaves: g.slaves || [],
-      userIds: g.userIds || [],
+      userIds: g.userIds || (g.users || []).map((u) => u.id || u.userId).filter(Boolean),
       createdBy: g.createdByRole === 'SUPER_ADMIN' ? 'Admin' : g.createdByRole ? 'Organization' : '—',
       createdAt: fmtDate(g.createdAt),
       _raw: g,
     }))
-    return { groups, devices, users, orgs, adminAllowedDeviceIds: [...adminAllowedDeviceIds] }
+    return { groups, devices, users, orgs }
   }, [isAdmin, orgFilter])
 
   const groups = data?.groups ?? []
   const devices = data?.devices ?? []
   const users = data?.users ?? []
   const orgs = data?.orgs ?? []
-  const adminAllowedDeviceIds = data?.adminAllowedDeviceIds ?? []
-  const hasDeviceCeiling = !isAdmin && adminAllowedDeviceIds.length > 0
 
   const [modal, setModal] = useState(null)
   const [selected, setSelected] = useState(null)
@@ -83,13 +81,8 @@ export default function DeviceGroupsPage({ scope = 'admin' }) {
 
   const orgDevices = useMemo(() => {
     const oid = form.organizationId || user?.organizationId
-    let scoped = oid ? devices.filter((d) => d.organizationId === oid) : devices
-    if (hasDeviceCeiling) {
-      const allowed = new Set(adminAllowedDeviceIds)
-      scoped = scoped.filter((d) => allowed.has(d.id))
-    }
-    return scoped
-  }, [devices, form.organizationId, user?.organizationId, hasDeviceCeiling, adminAllowedDeviceIds])
+    return oid ? devices.filter((d) => d.organizationId === oid) : devices
+  }, [devices, form.organizationId, user?.organizationId])
 
   const orgUsers = useMemo(() => {
     const oid = form.organizationId || user?.organizationId
@@ -114,7 +107,7 @@ export default function DeviceGroupsPage({ scope = 'admin' }) {
       organizationId: row.organizationId,
       deviceIds: [...(row.deviceIds || [])],
       slaveIds: [...(row.slaveIds || [])],
-      userIds: [...(row.userIds || [])],
+      userIds: [...(row.userIds || [])].map((u) => typeof u === 'string' ? u : (u.id || u.userId)).filter(Boolean),
     })
     setModal('edit')
   }
@@ -352,11 +345,6 @@ export default function DeviceGroupsPage({ scope = 'admin' }) {
                       {(form.slaveIds?.length || 0) + (form.deviceIds?.length || 0)} selected
                     </span>
                   </div>
-                  {hasDeviceCeiling && (
-                    <p className="text-[11px] text-surface-400 mb-2">
-                      Limited to the {adminAllowedDeviceIds.length} device{adminAllowedDeviceIds.length !== 1 ? 's' : ''} granted to your organization by the platform admin.
-                    </p>
-                  )}
                   {orgDevices.length === 0 ? (
                     <div className="p-3 inset-panel space-y-3">
                       <p className="text-xs text-surface-500">
