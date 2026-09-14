@@ -157,7 +157,7 @@ const filterSlavesForUser = async (devices, user) => {
   const constrained = await userHasExplicitDeviceGrants(user.id)
   if (!constrained) return devices
 
-  return Promise.all(
+  const filtered = await Promise.all(
     devices.map(async (d) => {
       const wholeAccess = await prisma.device.findFirst({
         where: {
@@ -177,9 +177,11 @@ const filterSlavesForUser = async (devices, user) => {
           dg.deviceGroup?.users?.some((u) => u.userId === user.id)
         )
       )
+      if (filteredSlaves.length === 0) return null
       return { ...d, configSlaves: filteredSlaves }
     })
   )
+  return filtered.filter(Boolean)
 }
 
 const getDevices = async (req, res, next) => {
@@ -274,8 +276,13 @@ const getDevice = async (req, res, next) => {
       },
     })
     if (!data) return next(new AppError('Device not found', 404))
-    const filtered = (await filterSlavesForUser([data], req.user))[0]
-    data = mapDeviceSlaves([filtered])[0]
+    const filteredList = await filterSlavesForUser([data], req.user)
+    if (!filteredList.length) return next(new AppError('Access denied', 403))
+    data = mapDeviceSlaves(filteredList)[0]
+    if (req.query.withMetrics === 'true') {
+      const enriched = await attachLatestMetrics([data])
+      data = enriched[0]
+    }
     res.json({ success: true, data })
   } catch (err) { next(err) }
 }

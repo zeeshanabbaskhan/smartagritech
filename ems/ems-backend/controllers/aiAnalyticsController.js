@@ -2,11 +2,10 @@
 const prisma      = require('../config/database')
 const { AppError } = require('../middleware/errorHandler')
 const { orgScope, TIME_RANGE_MS, BUCKET_MS } = require('../utils/helpers')
-const { bucketVariable, bucketManyCombined, sumVariable, periodEnergyKwh } = require('../utils/sensorAggregation')
 const { cached } = require('../utils/responseCache')
-const { assertDeviceAccess } = require('../utils/deviceAccess')
+const { assertDeviceAccess, assertSlaveAccess } = require('../utils/deviceAccess')
 
-const { getVariableAliases } = require('../utils/sensorAggregation')
+const { bucketVariable, bucketManyCombined, sumVariable, periodEnergyKwh, getVariableAliases } = require('../utils/sensorAggregation')
 
 const mapCurrentVars = (allVars, targetNames) => {
   const result = {}
@@ -114,6 +113,7 @@ const getVoltageAnalysis = async (req, res, next) => {
     const { deviceId, slaveId, timeRange = '24h' } = req.query
     if (!deviceId) return next(new AppError('deviceId is required', 400))
     await assertDeviceAccess(deviceId, req.user)
+    if (slaveId) await assertSlaveAccess(deviceId, slaveId, req.user)
 
     const cacheKey = `ai:voltage:${deviceId}:${slaveId || 'all'}:${timeRange}`
     const data = await cached(cacheKey, 60, () => buildVoltageAnalysis(deviceId, slaveId, timeRange))
@@ -160,6 +160,7 @@ const getCurrentAnalysis = async (req, res, next) => {
     const { deviceId, slaveId, timeRange = '24h' } = req.query
     if (!deviceId) return next(new AppError('deviceId is required', 400))
     await assertDeviceAccess(deviceId, req.user)
+    if (slaveId) await assertSlaveAccess(deviceId, slaveId, req.user)
 
     const cacheKey = `ai:current:${deviceId}:${slaveId || 'all'}:${timeRange}`
     const data = await cached(cacheKey, 60, () => buildCurrentAnalysis(deviceId, slaveId, timeRange))
@@ -198,6 +199,7 @@ const getPowerFactorAnalysis = async (req, res, next) => {
     const { deviceId, slaveId, timeRange = '24h' } = req.query
     if (!deviceId) return next(new AppError('deviceId is required', 400))
     await assertDeviceAccess(deviceId, req.user)
+    if (slaveId) await assertSlaveAccess(deviceId, slaveId, req.user)
 
     const cacheKey = `ai:pf:${deviceId}:${slaveId || 'all'}:${timeRange}`
     const data = await cached(cacheKey, 60, () => buildPowerFactorAnalysis(deviceId, slaveId, timeRange))
@@ -261,6 +263,7 @@ const getEnergyAnalysis = async (req, res, next) => {
     const { deviceId, slaveId, timeRange = '24h' } = req.query
     if (!deviceId) return next(new AppError('deviceId is required', 400))
     await assertDeviceAccess(deviceId, req.user)
+    if (slaveId) await assertSlaveAccess(deviceId, slaveId, req.user)
 
     const cacheKey = `ai:energy:${deviceId}:${slaveId || 'all'}:${timeRange}`
     const data = await cached(cacheKey, 60, () => buildEnergyAnalysis(deviceId, slaveId, timeRange))

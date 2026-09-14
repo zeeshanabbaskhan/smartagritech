@@ -7,7 +7,7 @@ const { AppError } = require('../middleware/errorHandler')
 const { TIME_RANGE_MS, BUCKET_MS, paginate, parseDateBound } = require('../utils/helpers')
 const { bucketVariable, bucketManyCombined, sumVariable, periodEnergyKwh } = require('../utils/sensorAggregation')
 const { cached } = require('../utils/responseCache')
-const { assertDeviceAccess } = require('../utils/deviceAccess')
+const { assertDeviceAccess, assertSlaveAccess } = require('../utils/deviceAccess')
 const { readLatest } = require('../utils/redisLatest')
 const { legacyDisplayValue } = require('../utils/legacyDisplayValue')
 const {
@@ -31,8 +31,14 @@ const startOfRange = (timeRange) => {
   return new Date(Date.now() - ms)
 }
 
-/** Verify the device exists and belongs to the caller's org (non-SUPER_ADMIN). */
-const authoriseDevice = (deviceId, user) => assertDeviceAccess(deviceId, user)
+/** Verify the device and optional slave belong to the caller's authorized scope. */
+const authoriseDevice = async (deviceId, user, slaveId) => {
+  const device = await assertDeviceAccess(deviceId, user)
+  if (slaveId) {
+    await assertSlaveAccess(deviceId, slaveId, user)
+  }
+  return device
+}
 
 const isSwitchOff = (device) => String(device?.switchState || '').toUpperCase() === 'OFF'
 
@@ -100,7 +106,7 @@ const getLatest = async (req, res, next) => {
     const { deviceId, slaveId } = req.query
     if (!deviceId) return next(new AppError('deviceId is required', 400))
 
-    const device = await authoriseDevice(deviceId, req.user)
+    const device = await authoriseDevice(deviceId, req.user, slaveId)
     if (isSwitchOff(device)) {
       return res.json({
         success: true,
@@ -181,7 +187,7 @@ const getHistory = async (req, res, next) => {
     const { deviceId, slaveId, variableName, startDate, endDate, limit = 50, skip = 0 } = req.query
     if (!deviceId || !variableName) return next(new AppError('deviceId and variableName are required', 400))
 
-    const device = await authoriseDevice(deviceId, req.user)
+    const device = await authoriseDevice(deviceId, req.user, slaveId)
     if (isSwitchOff(device)) {
       return res.json({ success: true, count: 0, fetched: 0, data: [], switchOff: true })
     }
@@ -240,7 +246,7 @@ const getAggregate = async (req, res, next) => {
       return next(new AppError('timeRange or startDate/endDate is required', 400))
     }
 
-    const device = await authoriseDevice(deviceId, req.user)
+    const device = await authoriseDevice(deviceId, req.user, slaveId)
     if (isSwitchOff(device)) {
       return res.json({ success: true, timeRange: timeRange || null, data: [], switchOff: true })
     }
@@ -526,7 +532,7 @@ const getDashboardSummary = async (req, res, next) => {
     const { deviceId, slaveId, timeRange = '24h' } = req.query
     if (!deviceId) return next(new AppError('deviceId is required', 400))
 
-    const device = await authoriseDevice(deviceId, req.user)
+    const device = await authoriseDevice(deviceId, req.user, slaveId)
     if (isSwitchOff(device)) {
       return res.json({ success: true, timeRange, data: emptyDashboardSummary(), switchOff: true })
     }
@@ -545,7 +551,7 @@ const getReadingsBrowse = async (req, res, next) => {
     const { deviceId, slaveId, timeRange = '24h', before } = req.query
     if (!deviceId) return next(new AppError('deviceId is required', 400))
 
-    const device = await authoriseDevice(deviceId, req.user)
+    const device = await authoriseDevice(deviceId, req.user, slaveId)
     if (isSwitchOff(device)) {
       return res.json({
         success: true,
@@ -594,7 +600,7 @@ const downloadCSV = async (req, res, next) => {
     const { deviceId, slaveId, startDate, endDate, timeRange } = req.query
     if (!deviceId) return next(new AppError('deviceId is required', 400))
 
-    const device = await authoriseDevice(deviceId, req.user)
+    const device = await authoriseDevice(deviceId, req.user, slaveId)
     const filename = deviceDataFilename()
     const emptyHeader = csvLine([...IDENTITY_COLUMNS, ...PREFERRED_METRIC_COLUMNS])
 
