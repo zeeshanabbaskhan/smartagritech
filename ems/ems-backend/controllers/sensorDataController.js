@@ -682,4 +682,4 @@ const deleteReadings = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
-module.exports = { getLatest, getHistory, getAggregate, getDashboardSummary, getReadingsBrowse, downloadCSV, deleteReadings }
+module.exports = { getLatest, getHistory, getAggregate, getDashboardSummary, buildDashboardSummary, getReadingsBrowse, downloadCSV, deleteReadings }
