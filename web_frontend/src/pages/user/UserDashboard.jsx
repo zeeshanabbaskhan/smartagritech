@@ -235,10 +235,10 @@ export default function UserDashboard() {
                 const isOnline = slave.status === 'ONLINE'
                 const metrics = slave.latestMetrics || {}
 
-                const voltage = pickMetric(metrics, ['Voltage', 'Phase VoltageA', 'Phase Voltage A', 'Voltage A', 'PhaseVoltageA'])
-                const current = pickMetric(metrics, ['Current A', 'Current', 'CurrentA', 'Total Current'])
-                const power = pickMetric(metrics, ['Active Power', 'Power', 'Total Active Power', 'ActivePower', 'Total Active Power(kW)'])
-                const energy = pickMetric(metrics, ['Active Energy', 'Energy', 'Total Energy', 'Active Energy(kWh)'])
+                const voltage = pickMetric(metrics, ['Voltage', 'Phase VoltageA', 'Phase Voltage A', 'Voltage A', 'PhaseVoltageA', 'VoltageA', 'Va', 'V1'])
+                const current = pickMetric(metrics, ['Current A', 'Current', 'CurrentA', 'Total Current', 'Phase Current A', 'PhaseCurrentA', 'Ia', 'I1'])
+                const power = pickMetric(metrics, ['Total Power', 'TotalPower', 'Active Power', 'ActivePower', 'Total Active Power', 'TotalActivePower', 'Power', 'Total Active Power(kW)', 'Active Power Total', 'kW'])
+                const energy = pickMetric(metrics, ['Units', 'Active Energy', 'ActiveEnergy', 'Total Energy', 'TotalEnergy', 'Energy', 'Power Consumption', 'PowerConsumption', 'Total Units', 'Active Energy(kWh)', 'kWh', 'Import Energy', 'ImportEnergy'])
 
                 return (
                   <div
