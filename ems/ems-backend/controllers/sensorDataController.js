@@ -5,7 +5,7 @@ const prisma      = require('../config/database')
 const redis       = require('../config/redis')
 const { AppError } = require('../middleware/errorHandler')
 const { TIME_RANGE_MS, BUCKET_MS, paginate, parseDateBound } = require('../utils/helpers')
-const { bucketVariable, bucketManyCombined, sumVariable, periodEnergyKwh } = require('../utils/sensorAggregation')
+const { bucketVariable, bucketManyCombined, sumVariable, periodEnergyKwh, getRawCandidateNames } = require('../utils/sensorAggregation')
 const { cached } = require('../utils/responseCache')
 const { assertDeviceAccess, assertSlaveAccess } = require('../utils/deviceAccess')
 const { readLatest } = require('../utils/redisLatest')
@@ -192,6 +192,42 @@ const getHistory = async (req, res, next) => {
       return res.json({ success: true, count: 0, fetched: 0, data: [], switchOff: true })
     }
 
+    const requested = Math.max(1, parseInt(limit, 10) || 50)
+    const maxTake   = (startDate || endDate) ? 5000 : 100
+    const take      = Math.min(maxTake, requested)
+    const skipN     = Math.max(0, parseInt(skip, 10) || 0)
+
+    // 1) Query scaled engineering values from sensor_reading_values first
+    const rawNames = getRawCandidateNames(variableName)
+    const valueWhere = {
+      deviceId,
+      variableName: { in: rawNames },
+    }
+    if (slaveId) valueWhere.deviceConfigSlaveId = slaveId
+    if (startDate || endDate) {
+      valueWhere.timestamp = {}
+      if (startDate) valueWhere.timestamp.gte = parseDateBound(startDate, 'start')
+      if (endDate)   valueWhere.timestamp.lte = parseDateBound(endDate, 'end')
+    }
+
+    const valueRows = await prisma.sensorReadingValue.findMany({
+      where:   valueWhere,
+      orderBy: { timestamp: 'desc' },
+      skip:    skipN,
+      take,
+      select:  { variableName: true, value: true, timestamp: true },
+    })
+
+    if (valueRows.length > 0) {
+      const data = valueRows.map((row) => ({
+        variableName: row.variableName,
+        value:        row.value,
+        receivedTime: row.timestamp,
+      }))
+      return res.json({ success: true, count: data.length, fetched: valueRows.length, data })
+    }
+
+    // 2) Fallback to unscaled sensorReading JSON readings if sensor_reading_values is empty
     const where = { deviceId }
     if (slaveId) where.deviceConfigSlaveId = slaveId
     if (startDate || endDate) {
@@ -199,12 +235,6 @@ const getHistory = async (req, res, next) => {
       if (startDate) where.timestamp.gte = parseDateBound(startDate, 'start')
       if (endDate)   where.timestamp.lte = parseDateBound(endDate, 'end')
     }
-
-    // Date-bounded queries may page through a long interval; unbounded "latest" stays small.
-    const requested = Math.max(1, parseInt(limit, 10) || 50)
-    const maxTake   = (startDate || endDate) ? 5000 : 100
-    const take      = Math.min(maxTake, requested)
-    const skipN     = Math.max(0, parseInt(skip, 10) || 0)
 
     const rows = await prisma.sensorReading.findMany({
       where,

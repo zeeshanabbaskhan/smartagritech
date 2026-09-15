@@ -152,6 +152,7 @@ export default function AdminHistoricalData() {
         selectedVars.map(async (variableName) => {
           const res = await emsApi.getSensorHistory({
             deviceId: deviceFilter,
+            slaveId: slaveId || undefined,
             variableName,
             startDate: dateFrom,
             endDate: dateTo ? `${dateTo}T23:59:59.999` : dateTo,

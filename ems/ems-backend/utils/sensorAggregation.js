@@ -61,9 +61,12 @@ const bucketVariableHourly = async (db, { deviceId, variableName, startDate, end
 }
 
 const VARIABLE_ALIASES = {
-  voltagea: ['voltagea', 'phasevoltagea', 'phaseavoltage', 'voltage_a', 'voltage', 'v_a', 'v1', 'phasevoltage1'],
-  voltageb: ['voltageb', 'phasevoltageb', 'phasebvoltage', 'voltage_b', 'v_b', 'v2', 'phasevoltage2'],
-  voltagec: ['voltagec', 'phasevoltagec', 'phasecvoltage', 'voltage_c', 'v_c', 'v3', 'phasevoltage3'],
+  voltagea: ['voltagea', 'voltage_a', 'voltage', 'v_a', 'v1', 'phaseavoltage'],
+  voltageb: ['voltageb', 'voltage_b', 'v_b', 'v2', 'phasebvoltage'],
+  voltagec: ['voltagec', 'voltage_c', 'v_c', 'v3', 'phasecvoltage'],
+  phasevoltagea: ['phasevoltagea', 'phase voltagea', 'phase voltage a', 'vab', 'v12', 'linevoltagea', 'line voltage a'],
+  phasevoltageb: ['phasevoltageb', 'phase voltageb', 'phase voltage b', 'vbc', 'v23', 'linevoltageb', 'line voltage b'],
+  phasevoltagec: ['phasevoltagec', 'phase voltagec', 'phase voltage c', 'vca', 'v31', 'linevoltagec', 'line voltage c'],
   voltageimbalance: ['voltageimbalance', 'voltage_imbalance', 'v_imbalance', 'vimbalance'],
   currenta: ['currenta', 'current a', 'phasecurrenta', 'phaseacurrent', 'current_a', 'i_a', 'i1', 'current1'],
   currentb: ['currentb', 'current b', 'phasecurrentb', 'phasebcurrent', 'current_b', 'i_b', 'i2', 'current2'],
@@ -97,9 +100,12 @@ const RAW_VARIABLE_CANDIDATES = {
   currenta: ['Current A', 'CurrentA', 'PhaseCurrentA', 'Phase Current A', 'Ia', 'Current 1', 'Phase CurrentA'],
   currentb: ['Current B', 'CurrentB', 'PhaseCurrentB', 'Phase Current B', 'Ib', 'Current 2', 'Phase CurrentB'],
   currentc: ['Current C', 'CurrentC', 'PhaseCurrentC', 'Phase Current C', 'Ic', 'Current 3', 'Phase CurrentC'],
-  voltagea: ['Voltage', 'VoltageA', 'Voltage A', 'Phase VoltageA', 'PhaseVoltageA', 'Phase Voltage A', 'Va', 'V1'],
-  voltageb: ['VoltageB', 'Voltage B', 'Phase VoltageB', 'PhaseVoltageB', 'Phase Voltage B', 'Vb', 'V2'],
-  voltagec: ['VoltageC', 'Voltage C', 'Phase VoltageC', 'PhaseVoltageC', 'Phase Voltage C', 'Vc', 'V3'],
+  voltagea: ['Voltage', 'VoltageA', 'Voltage A', 'Va', 'V1', 'Voltage R'],
+  voltageb: ['VoltageB', 'Voltage B', 'Vb', 'V2', 'Voltage Y'],
+  voltagec: ['VoltageC', 'Voltage C', 'Vc', 'V3', 'Voltage B_Phase'],
+  phasevoltagea: ['Phase VoltageA', 'Phase Voltage A', 'PhaseVoltageA', 'Line Voltage A', 'Line Voltage AB', 'Line Voltage', 'Vab', 'V12'],
+  phasevoltageb: ['Phase VoltageB', 'Phase Voltage B', 'PhaseVoltageB', 'Line Voltage B', 'Line Voltage BC', 'Vbc', 'V23'],
+  phasevoltagec: ['Phase VoltageC', 'Phase Voltage C', 'PhaseVoltageC', 'Line Voltage C', 'Line Voltage CA', 'Vca', 'V31'],
   voltageimbalance: ['VoltageImbalance', 'Voltage Imbalance', 'V_Imbalance', 'VImbalance'],
   currentimbalance: ['CurrentImbalance', 'Current Imbalance', 'I_Imbalance', 'IImbalance'],
   powerfactor: ['Power Factor', 'PowerFactor', 'PF', 'pf', 'Average Power Factor', 'Total Power Factor', 'TotalPowerFactor'],
@@ -407,5 +413,5 @@ const bucketMany = async (prisma, deviceId, slaveId, startDate, bucketMs, names)
   return bucketManyCombined(prisma, { deviceId, slaveId, startDate, bucketMs, metricNames: names })
 }
 
-module.exports = { bucketVariable, bucketManyCombined, sumVariable, deltaVariable, periodEnergyKwh, bucketMany, getVariableAliases }
+module.exports = { bucketVariable, bucketManyCombined, sumVariable, deltaVariable, periodEnergyKwh, bucketMany, getVariableAliases, getRawCandidateNames }
 

@@ -150,6 +150,7 @@ export default function OrgHistoricalData() {
         selectedVars.map(async (variableName) => {
           const res = await emsApi.getSensorHistory({
             deviceId,
+            slaveId: slaveId || undefined,
             variableName,
             startDate: dateFrom,
             endDate: `${dateTo}T23:59:59.999`,
