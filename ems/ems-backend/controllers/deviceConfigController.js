@@ -113,6 +113,9 @@ const getConfigSlaves = async (req, res, next) => {
             displayName: v.displayName || v.name,
           }
         }
+        if (hot && hot.__updatedAt) {
+          s.lastDataReceivedAt = new Date(Number(hot.__updatedAt))
+        }
         s.latestMetrics = latestMetrics
       }
     }

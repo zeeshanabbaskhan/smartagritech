@@ -276,12 +276,18 @@ export default function PowerFlowMindMap({
   const canSaveSource = sourceForm.name.trim()
     && ((sourceForm.deviceIds?.length || 0) + (sourceForm.slaveIds?.length || 0) > 0)
 
+  const [currentTime, setCurrentTime] = useState(new Date())
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000)
+    return () => clearInterval(timer)
+  }, [])
+
   return (
     <div className="w-full select-none space-y-4">
       <div className="flex justify-between items-start w-full relative pb-2 gap-3">
         <div className="flex items-center gap-1.5 text-xs font-bold text-surface-400 pt-2">
-          <Clock3 size={14} />
-          <span>{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+          <Clock3 size={14} className="text-primary-400" />
+          <span>{currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
           <span className="w-1.5 h-1.5 rounded-full bg-success-500 animate-pulse ml-1" />
         </div>
 

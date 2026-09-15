@@ -18,12 +18,13 @@ export function parseReadingsField(readings) {
 /** /sensor-data/latest → [{ variableName, value, unit, lastUpdatedAt? }] */
 export function latestToReadings(res) {
   const payload = one(res) ?? res?.data ?? res ?? {}
+  const topTimestamp = res?.timestamp ?? payload?.timestamp ?? null
   if (Array.isArray(payload.readings)) {
     return payload.readings.map((r) => ({
       variableName: r.variableName ?? r.name,
       value: r.value,
       unit: r.unit ?? '',
-      lastUpdatedAt: r.lastUpdatedAt ?? r.receivedTime ?? null,
+      lastUpdatedAt: r.lastUpdatedAt ?? r.receivedTime ?? topTimestamp ?? null,
     }))
   }
   if (Array.isArray(payload.values)) {
@@ -31,7 +32,7 @@ export function latestToReadings(res) {
       variableName: r.variableName ?? r.name,
       value: r.value,
       unit: r.unit ?? '',
-      lastUpdatedAt: r.lastUpdatedAt ?? null,
+      lastUpdatedAt: r.lastUpdatedAt ?? topTimestamp ?? null,
     }))
   }
   return Object.entries(payload)
@@ -41,7 +42,7 @@ export function latestToReadings(res) {
       value: v.value,
       displayValue: v.displayValue ?? null,
       unit: v.unit ?? '',
-      lastUpdatedAt: v.lastUpdatedAt ?? null,
+      lastUpdatedAt: v.lastUpdatedAt ?? topTimestamp ?? null,
     }))
 }
 

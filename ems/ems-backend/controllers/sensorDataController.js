@@ -130,7 +130,7 @@ const getLatest = async (req, res, next) => {
             select: { name: true, unit: true, displayName: true, lastUpdatedAt: true },
           })
           const meta = Object.fromEntries(vars.map((v) => [v.name, v]))
-          const freshAt = device.lastDataReceivedAt ?? null
+          const freshAt = hot.__updatedAt ? new Date(Number(hot.__updatedAt)) : (device.lastDataReceivedAt ?? null)
           const data = {}
           // Intersect Redis hot keys with config vars for this slave (or primary slave when no slaveId).
           for (const [name, metaRow] of Object.entries(meta)) {
@@ -149,7 +149,7 @@ const getLatest = async (req, res, next) => {
             }
           }
           if (Object.keys(data).length) {
-            return res.json({ success: true, data, timestamp: device.lastDataReceivedAt ?? null, source: 'redis' })
+            return res.json({ success: true, data, timestamp: freshAt ?? device.lastDataReceivedAt ?? null, source: 'redis' })
           }
           // Slave filter / intersect yielded nothing — fall through to Postgres.
         }
@@ -172,7 +172,7 @@ const getLatest = async (req, res, next) => {
         value: v.currentValue,
         displayValue: Number.isFinite(num) ? legacyDisplayValue(num, displayMeta) : null,
         unit: v.unit,
-        lastUpdatedAt: v.lastUpdatedAt,
+        lastUpdatedAt: v.lastUpdatedAt ?? device.lastDataReceivedAt ?? null,
       }
     }
 

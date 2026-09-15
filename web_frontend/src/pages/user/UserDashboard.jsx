@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Download,
@@ -13,6 +13,7 @@ import {
   Layers,
   LayoutTemplate,
   Image as ImageIcon,
+  Clock3,
 } from 'lucide-react'
 import MetricRangeCard from '../../components/ui/MetricRangeCard'
 import DeviceSlaveSelector from '../../components/shared/DeviceSlaveSelector'
@@ -178,6 +179,12 @@ export default function UserDashboard() {
     URL.revokeObjectURL(url)
   }
 
+  const [currentTime, setCurrentTime] = useState(new Date())
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000)
+    return () => clearInterval(timer)
+  }, [])
+
   return (
     <PageState loading={loading && !devices.length} error={error} onRetry={reload}>
       <div className="space-y-6">
@@ -188,7 +195,12 @@ export default function UserDashboard() {
               Real-time monitoring and analytics for your assigned equipment and slaves.
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-surface-300 bg-surface-800/80 px-3 py-1.5 rounded-lg border border-surface-700/60 shadow-sm">
+              <Clock3 size={13} className="text-primary-400" />
+              <span className="font-mono">{currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse ml-0.5" />
+            </div>
             <button
               type="button"
               className="btn-secondary"
@@ -279,6 +291,13 @@ export default function UserDashboard() {
                           </span>
                         )}
                       </div>
+                    </div>
+
+                    <div className="flex items-center justify-between text-[10px] text-surface-400 mb-2 px-1">
+                      <span>Last Reading</span>
+                      <span className="font-mono font-medium text-surface-300">
+                        {slave.lastDataReceivedAt ? new Date(slave.lastDataReceivedAt).toLocaleTimeString() : (slave.lastSeen || '—')}
+                      </span>
                     </div>
 
                     <div className="grid grid-cols-2 gap-2 pt-2 border-t border-surface-700/40 text-xs">

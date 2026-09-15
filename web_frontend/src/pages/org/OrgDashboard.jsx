@@ -873,7 +873,18 @@ export default function OrgDashboard() {
 
               {/* Slaves List */}
               {(() => {
-                const slaves = (stats?.slaves || []).filter((s) => {
+                const rawSlavesList = liveDevices.length > 0
+                  ? liveDevices.flatMap((d) => (d.slaves || []).map((s) => ({
+                      ...s,
+                      deviceName: d.name,
+                      deviceId: d.id,
+                      deviceOrg: d.org,
+                      deviceGateway: d.gateway,
+                      lastDataReceivedAt: s.lastDataReceivedAt || (d.statusRaw === 'ONLINE' ? d.lastDataReceivedAt : null),
+                    })))
+                  : (stats?.slaves || [])
+
+                const slaves = rawSlavesList.filter((s) => {
                   const isOnline = s.status === 'Online' || s.statusRaw === 'ONLINE'
                   if (slaveFilterTab === 'online' && !isOnline) return false
                   if (slaveFilterTab === 'offline' && isOnline) return false

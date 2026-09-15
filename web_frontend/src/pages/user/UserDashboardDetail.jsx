@@ -834,6 +834,11 @@ export default function UserDashboardDetail() {
                           <span className="text-xl font-bold text-surface-900 dark:text-surface-100">{row.value}</span>
                           {row.unit ? <span className="text-xs font-semibold text-surface-400">{row.unit}</span> : null}
                         </div>
+                        {row.lastUpdatedAt ? (
+                          <div className="text-[10px] text-surface-400 mt-1 font-mono">
+                            {new Date(row.lastUpdatedAt).toLocaleTimeString()}
+                          </div>
+                        ) : null}
                       </button>
                     )
                   })}
@@ -848,6 +853,7 @@ export default function UserDashboardDetail() {
                       </h3>
                       <p className="text-xs text-surface-400 mt-0.5">
                         {selected?.value ?? '—'}{selected?.unit ? ` ${selected.unit}` : ''} · live reading
+                        {selected?.lastUpdatedAt ? ` (${new Date(selected.lastUpdatedAt).toLocaleTimeString()})` : ''}
                       </p>
                     </div>
                     <div className="flex flex-wrap items-end gap-2">

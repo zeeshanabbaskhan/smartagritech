@@ -55,6 +55,7 @@ const cacheLatestValues = async (deviceId, slaveId, readings) => {
   try {
     const scoped = latestKey(deviceId, slaveId)
     const legacy = legacyLatestKey(deviceId)
+    const nowStr = String(Date.now())
     const pipe = c.multi()
     for (const r of readings) {
       if (r.variableName == null) continue
@@ -62,6 +63,8 @@ const cacheLatestValues = async (deviceId, slaveId, readings) => {
       pipe.hSet(scoped, r.variableName, val)
       pipe.hSet(legacy, r.variableName, val)
     }
+    pipe.hSet(scoped, '__updatedAt', nowStr)
+    pipe.hSet(legacy, '__updatedAt', nowStr)
     pipe.expire(scoped, 3600)
     pipe.expire(legacy, 3600)
     await pipe.exec()
