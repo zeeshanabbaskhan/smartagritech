@@ -24,19 +24,37 @@ const READOUT_DEFS = [
     key: 'VoltageA',
     label: 'Voltage A',
     unit: 'V',
-    aliases: ['Voltage', 'Phase VoltageA', 'Phase Voltage A', 'PhaseVoltageA', 'VoltageA', 'Voltage A', 'Va', 'V1', 'Line Voltage', 'Phase Voltage', 'Voltage R'],
+    aliases: ['Voltage', 'VoltageA', 'Voltage A', 'Va', 'V1', 'Voltage R', 'Phase A Voltage', 'Voltage Phase A'],
   },
   {
     key: 'VoltageB',
     label: 'Voltage B',
     unit: 'V',
-    aliases: ['VoltageB', 'Voltage B', 'Phase VoltageB', 'Phase Voltage B', 'PhaseVoltageB', 'Vb', 'V2', 'Voltage Y'],
+    aliases: ['VoltageB', 'Voltage B', 'Vb', 'V2', 'Voltage Y', 'Phase B Voltage', 'Voltage Phase B'],
   },
   {
     key: 'VoltageC',
     label: 'Voltage C',
     unit: 'V',
-    aliases: ['VoltageC', 'Voltage C', 'Phase VoltageC', 'Phase Voltage C', 'PhaseVoltageC', 'Vc', 'V3', 'Voltage B'],
+    aliases: ['VoltageC', 'Voltage C', 'Vc', 'V3', 'Voltage B_Phase', 'Phase C Voltage', 'Voltage Phase C'],
+  },
+  {
+    key: 'PhaseVoltageA',
+    label: 'Phase Voltage A',
+    unit: 'V',
+    aliases: ['Phase VoltageA', 'Phase Voltage A', 'PhaseVoltageA', 'Line Voltage A', 'Line Voltage AB', 'Line Voltage', 'Vab', 'V12'],
+  },
+  {
+    key: 'PhaseVoltageB',
+    label: 'Phase Voltage B',
+    unit: 'V',
+    aliases: ['Phase VoltageB', 'Phase Voltage B', 'PhaseVoltageB', 'Line Voltage B', 'Line Voltage BC', 'Vbc', 'V23'],
+  },
+  {
+    key: 'PhaseVoltageC',
+    label: 'Phase Voltage C',
+    unit: 'V',
+    aliases: ['Phase VoltageC', 'Phase Voltage C', 'PhaseVoltageC', 'Line Voltage C', 'Line Voltage CA', 'Vca', 'V31'],
   },
   {
     key: 'CurrentA',
@@ -54,7 +72,7 @@ const READOUT_DEFS = [
     key: 'CurrentC',
     label: 'Current C',
     unit: 'A',
-    aliases: ['Current C', 'CurrentC', 'PhaseCurrentC', 'Phase Current C', 'Ic', 'I3', 'Current B'],
+    aliases: ['Current C', 'CurrentC', 'PhaseCurrentC', 'Phase Current C', 'Ic', 'I3', 'Current B_Phase'],
   },
   {
     key: 'ActivePower',
@@ -66,19 +84,19 @@ const READOUT_DEFS = [
     key: 'ReactivePower',
     label: 'Reactive Power',
     unit: 'kVar',
-    aliases: ['Reactive Power', 'ReactivePower', 'kVar', 'Reactive Power A', 'Total Reactive Power', 'Reactive Power(kVar)'],
+    aliases: ['Reactive Power', 'Total Reactive Power', 'ReactivePower', 'kVar', 'Reactive Power A', 'Reactive Power(kVar)'],
   },
   {
     key: 'ApparentPower',
     label: 'Apparent Power',
     unit: 'kVA',
-    aliases: ['Apparent Power', 'ApparentPower', 'kVA', 'Apparent Power A', 'Total Apparent Power', 'Apparent Power(kVA)'],
+    aliases: ['Apparent Power', 'Total Apparent Power', 'ApparentPower', 'kVA', 'Apparent Power A', 'Apparent Power(kVA)'],
   },
   {
     key: 'PowerConsumption',
     label: 'Units (kWh)',
     unit: 'kWh',
-    aliases: ['Active Energy', 'PowerConsumption', 'Energy', 'Units', 'kWh', 'Total Energy', 'Active Energy(kWh)', 'Active Energy (kWh)', 'Power Consumption'],
+    aliases: ['Active Energy', 'PowerConsumption', 'Energy', 'Units', 'kWh', 'Total Energy', 'Active Energy(kWh)', 'Active Energy (kWh)', 'Power Consumption', 'Import Energy'],
   },
   {
     key: 'ExportPower',
@@ -155,15 +173,18 @@ const READOUT_DEFS = [
  * selected slave actually has a matching variable; otherwise omit / use extras.
  */
 const EXPORT_REF_COLS = [
-  { match: ['Voltage', 'VoltageA', 'Phase VoltageA', 'Phase Voltage A', 'PhaseVoltageA', 'Voltage A', 'Va'], header: 'Voltage A' },
-  { match: ['VoltageB', 'Voltage B', 'Phase VoltageB', 'Phase Voltage B', 'PhaseVoltageB', 'Vb'], header: 'Voltage B' },
-  { match: ['VoltageC', 'Voltage C', 'Phase VoltageC', 'Phase Voltage C', 'PhaseVoltageC', 'Vc'], header: 'Voltage C' },
+  { match: ['Voltage', 'VoltageA', 'Voltage A', 'Va', 'V1'], header: 'Voltage A' },
+  { match: ['VoltageB', 'Voltage B', 'Vb', 'V2'], header: 'Voltage B' },
+  { match: ['VoltageC', 'Voltage C', 'Vc', 'V3'], header: 'Voltage C' },
+  { match: ['Phase VoltageA', 'Phase Voltage A', 'PhaseVoltageA', 'Line Voltage A', 'Line Voltage AB', 'Vab'], header: 'Phase Voltage A' },
+  { match: ['Phase VoltageB', 'Phase Voltage B', 'PhaseVoltageB', 'Line Voltage B', 'Line Voltage BC', 'Vbc'], header: 'Phase Voltage B' },
+  { match: ['Phase VoltageC', 'Phase Voltage C', 'PhaseVoltageC', 'Line Voltage C', 'Line Voltage CA', 'Vca'], header: 'Phase Voltage C' },
   { match: ['Current A', 'CurrentA', 'Current', 'PhaseCurrentA', 'Ia'], header: 'Current A' },
   { match: ['Current B', 'CurrentB', 'PhaseCurrentB', 'Ib'], header: 'Current B' },
   { match: ['Current C', 'CurrentC', 'PhaseCurrentC', 'Ic'], header: 'Current C' },
   { match: ['Active Power', 'Total Power', 'ActivePower', 'Operating Power', 'Operating', 'Power'], header: 'Operating Power' },
-  { match: ['Reactive Power', 'ReactivePower', 'kVar'], header: 'Reactive Power' },
-  { match: ['Apparent Power', 'ApparentPower', 'kVA'], header: 'Apparent Power' },
+  { match: ['Reactive Power', 'Total Reactive Power', 'ReactivePower', 'kVar'], header: 'Reactive Power' },
+  { match: ['Apparent Power', 'Total Apparent Power', 'ApparentPower', 'kVA'], header: 'Apparent Power' },
   { match: ['Power Factor', 'PowerFactor', 'PF'], header: 'Power Factor' },
   { match: ['Frequency', 'Freq', 'Hz'], header: 'Frequency' },
   { match: ['Active Energy', 'PowerConsumption', 'Energy', 'Units', 'kWh'], header: 'Units' },
@@ -194,13 +215,14 @@ function normName(s) {
   return String(s || '').replace(/[\s_\-()]+/g, '').toLowerCase()
 }
 
-function findReading(readings, def) {
+function findReading(readings, def, used = new Set()) {
   if (!def) return null
   const aliases = def.aliases || [def.key]
   const aliasNorms = aliases.map(normName)
   for (const r of readings) {
     const vn = String(r.variableName || '')
     const vnNorm = normName(vn)
+    if (used.has(vnNorm)) continue
     if (aliasNorms.includes(vnNorm)) {
       return r
     }
@@ -220,7 +242,7 @@ function fmtNum(v) {
 }
 
 /**
- * Cards from variables present on the selected slave’s latest payload only.
+ * Cards from variables present on the selected slave’s latest payload / variables.
  * READOUT_DEFS supply labels/order for known metrics when a hit exists.
  * Other named (non-R*) vars are appended; if only R* vars exist, show those.
  */
@@ -229,20 +251,15 @@ function buildReadoutsFromLatest(readings) {
   const known = []
 
   for (const def of READOUT_DEFS) {
-    const hit = findReading(readings, def)
+    const hit = findReading(readings, def, used)
     if (!hit) continue
     const hitNorm = normName(hit.variableName)
-    if (used.has(hitNorm)) continue
     used.add(hitNorm)
-    used.add(normName(def.key))
-    if (def.aliases) {
-      def.aliases.forEach((a) => used.add(normName(a)))
-    }
     known.push({
       key: hit.variableName || def.key,
       label: def.label,
       unit: hit.unit || def.unit || '',
-      value: fmtNum(hit.value),
+      value: fmtNum(hit.displayValue ?? hit.value),
       apiName: hit.variableName || def.key,
       icon: def.icon,
     })
@@ -258,9 +275,9 @@ function buildReadoutsFromLatest(readings) {
     used.add(n)
     const row = {
       key: name,
-      label: name,
+      label: r.displayName || name,
       unit: r.unit || '',
-      value: fmtNum(r.value),
+      value: fmtNum(r.displayValue ?? r.value),
       apiName: name,
     }
     if (isRegisterVar(name)) registers.push(row)
@@ -450,14 +467,45 @@ export default function UserDashboardDetail() {
       timeRange: '24h',
     }
 
-    const [latestRes, summaryRes, energyRes] = await Promise.all([
+    const [varsRes, latestRes, summaryRes, energyRes] = await Promise.all([
+      selectedSlaveId
+        ? emsApi.getDeviceVariables(selectedDeviceId, selectedSlaveId, { limit: 200 }).catch(() => null)
+        : Promise.resolve(null),
       emsApi.getLatestReadings(q).catch(() => null),
       emsApi.getDashboardSummary(q).catch(() => null),
       emsApi.getAiEnergy(q).catch(() => null),
     ])
 
-    const readings = latestToReadings(latestRes)
-    const readouts = buildReadoutsFromLatest(readings)
+    const latestReadings = latestToReadings(latestRes)
+    const latestMap = Object.fromEntries(
+      latestReadings.map((r) => [normName(r.variableName), r])
+    )
+    const vars = list(varsRes)
+
+    let mergedReadings = []
+    if (vars.length > 0) {
+      mergedReadings = vars.map((v) => {
+        const key = v.name ?? v.variableName
+        const live = latestMap[normName(key)]
+        return {
+          variableName: key,
+          displayName: v.displayName || key,
+          unit: live?.unit ?? v.unit ?? '',
+          value: live?.displayValue ?? live?.value ?? v.displayValue ?? v.currentValue ?? null,
+          displayValue: live?.displayValue ?? v.displayValue ?? null,
+          lastUpdatedAt: live?.lastUpdatedAt ?? v.lastUpdatedAt ?? null,
+        }
+      })
+      for (const r of latestReadings) {
+        if (!mergedReadings.some((m) => normName(m.variableName) === normName(r.variableName))) {
+          mergedReadings.push(r)
+        }
+      }
+    } else {
+      mergedReadings = latestReadings
+    }
+
+    const readouts = buildReadoutsFromLatest(mergedReadings)
 
     const esc = summaryRes?.data?.energySavingsComparison || {}
     const daily = esc.daily ?? energyRes?.data?.dailyComparison
