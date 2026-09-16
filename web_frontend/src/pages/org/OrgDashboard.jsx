@@ -564,6 +564,7 @@ export default function OrgDashboard() {
         id: s.id,
         name: s.name,
         type: s.type,
+        siteId: s.siteId,
         deviceIds: Array.isArray(s.deviceIds) ? s.deviceIds : [],
         slaveIds: Array.isArray(s.slaveIds) ? s.slaveIds : [],
         from: s.from,
@@ -575,6 +576,17 @@ export default function OrgDashboard() {
       reloadPowerFlow()
     } catch (e) {
       showToast(e.message || 'Failed to update power flow', 'error')
+    }
+  }
+
+  async function handleSitesChange(sites) {
+    try {
+      await emsApi.updatePowerFlow({
+        sites: (sites || []).map((s) => ({ id: s.id, name: s.name, isDefault: !!s.isDefault })),
+      })
+      reloadPowerFlow()
+    } catch (e) {
+      showToast(e.message || 'Failed to update sites', 'error')
     }
   }
 
@@ -608,12 +620,14 @@ export default function OrgDashboard() {
               </h3>
               <PowerFlowMindMap
                 sources={liveSources}
+                sites={powerFlow?.sites || []}
                 savings={savings}
                 groups={groupLoads}
                 devices={liveDevices}
                 totalLoadKw={totalOrgLoadKw}
                 orgName={orgName}
                 onSourcesChange={handleSourcesChange}
+                onSitesChange={handleSitesChange}
                 onGroupClick={handleOpenGroup}
                 onGroupEdit={openEditGroupById}
                 onGroupDelete={(id) => {

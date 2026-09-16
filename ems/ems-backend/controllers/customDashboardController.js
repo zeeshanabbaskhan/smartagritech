@@ -414,6 +414,21 @@ const deleteDashboard = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
+const DEFAULT_SITES = [
+  { id: 'site-1', name: 'Site 1', isDefault: true },
+  { id: 'site-2', name: 'Site 2', isDefault: false },
+]
+
+/** Normalise the configured site list, always guaranteeing one default site. */
+function normaliseSites(raw) {
+  const list = (Array.isArray(raw) ? raw : [])
+    .filter((s) => s && s.id)
+    .map((s) => ({ id: String(s.id), name: s.name || String(s.id), isDefault: !!s.isDefault }))
+  if (!list.length) return DEFAULT_SITES.map((s) => ({ ...s }))
+  if (!list.some((s) => s.isDefault)) list[0].isDefault = true
+  return list
+}
+
 const getPowerFlow = async (req, res, next) => {
   try {
     const orgId = resolveOrgId(req)
@@ -425,10 +440,11 @@ const getPowerFlow = async (req, res, next) => {
         data: {
           organizationId: orgId,
           sources: [
-            { id: 'grid', name: 'Grid', type: 'grid', valueKw: 0 },
-            { id: 'solar', name: 'Solar', type: 'solar', valueKw: 0 },
-            { id: 'generator', name: 'Generator', type: 'generator', valueKw: 0 },
+            { id: 'grid', name: 'Grid', type: 'grid', valueKw: 0, siteId: 'site-1' },
+            { id: 'solar', name: 'Solar', type: 'solar', valueKw: 0, siteId: 'site-1' },
+            { id: 'generator', name: 'Generator', type: 'generator', valueKw: 0, siteId: 'site-1' },
           ],
+          sites: DEFAULT_SITES,
           savings: { daily: 0, weekly: 0, monthly: 0, unit: 'PKR' },
         },
       })
@@ -528,6 +544,28 @@ const getPowerFlow = async (req, res, next) => {
       }
     }
 
+    // Sites: every source belongs to one, defaulting to the default site
+    const sites = normaliseSites(config.sites)
+    const defaultSiteId = (sites.find((s) => s.isDefault) || sites[0]).id
+    const siteById = new Map(sites.map((s) => [s.id, s]))
+    for (const s of sources) {
+      if (!s.siteId || !siteById.has(s.siteId)) s.siteId = defaultSiteId
+      s.siteName = siteById.get(s.siteId).name
+    }
+
+    const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100
+    const siteTotals = {}
+    for (const site of sites) siteTotals[site.id] = 0
+    const typeTotals = {}
+    for (const s of sources) {
+      const kw = Number(s.valueKw) || 0
+      siteTotals[s.siteId] = (siteTotals[s.siteId] || 0) + kw
+      const type = s.type || s.id || 'custom'
+      typeTotals[type] = (typeTotals[type] || 0) + kw
+    }
+    for (const k of Object.keys(siteTotals)) siteTotals[k] = round2(siteTotals[k])
+    for (const k of Object.keys(typeTotals)) typeTotals[k] = round2(typeTotals[k])
+
     // Total Organization Load: exact sum of active supply sources
     const totalLoadKw = Math.round(
       sources.reduce((sum, s) => sum + (Number(s.valueKw) || 0), 0) * 100
@@ -553,6 +591,9 @@ const getPowerFlow = async (req, res, next) => {
       success: true,
       data: {
         sources,
+        sites,
+        siteTotals,
+        typeTotals,
         savings: effectiveSavings,
         groups: mappedGroups,
         totalLoadKw,
@@ -569,16 +610,19 @@ const updatePowerFlow = async (req, res, next) => {
     if (!orgId) return next(new AppError('organizationId is required', 400))
     if (req.user.role === 'USER') return next(new AppError('Not allowed', 403))
 
-    const { sources, savings } = req.body
+    const { sources, sites, savings } = req.body
+    const nextSites = sites !== undefined ? normaliseSites(sites) : undefined
     const data = await prisma.powerFlowConfig.upsert({
       where: { organizationId: orgId },
       create: {
         organizationId: orgId,
         sources: sources || [],
+        sites: nextSites || DEFAULT_SITES,
         savings: savings || {},
       },
       update: {
         sources: sources !== undefined ? sources : undefined,
+        sites: nextSites,
         savings: savings !== undefined ? savings : undefined,
       },
     })

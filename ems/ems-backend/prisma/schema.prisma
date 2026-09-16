@@ -1181,6 +1181,8 @@ model PowerFlowConfig {
   organizationId String   @unique
   /// [{ id, name, type, valueKw, editable }]
   sources        Json     @default("[]")
+  /// [{ id, name, isDefault }] — sites sources are grouped under
+  sites          Json     @default("[]")
   /// optional savings snapshot { daily, weekly, monthly, unit }
   savings        Json     @default("{}")
   updatedAt      DateTime @updatedAt

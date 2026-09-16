@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useLayoutEffect, useCallback, useMemo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   Zap, Sun, Fuel, Building2, Boxes, Plus, ChevronDown, PiggyBank, ChevronRight,
@@ -25,7 +25,12 @@ function formatPKR(n = 0) {
 }
 
 const TARIFF_PKR_PER_KWH = 28
-const EMPTY_SOURCE_FORM = { name: '', type: 'custom', deviceIds: [], slaveIds: [] }
+const BUILTIN_TYPES = ['grid', 'solar', 'generator']
+const DEFAULT_SITES = [
+  { id: 'site-1', name: 'Site 1', isDefault: true },
+  { id: 'site-2', name: 'Site 2', isDefault: false },
+]
+const EMPTY_SOURCE_FORM = { name: '', type: 'custom', deviceIds: [], slaveIds: [], siteId: 'site-1' }
 
 function downloadCSV(filename, rows) {
   const content = rows.map((r) => r.join(',')).join('\n')
@@ -64,11 +69,40 @@ function formatLinkedSummary(devIds = [], slvIds = []) {
   return 'No slave/device linked'
 }
 
+function titleCase(s = '') {
+  return s.charAt(0).toUpperCase() + s.slice(1)
+}
+
+/** Visual identity (gradient + icon) for a source card or a cross-site type roll-up. */
+function metaForType(type, idx = 0) {
+  if (BUILTIN_META[type]) return BUILTIN_META[type]
+  const grad = CUSTOM_GRADIENTS[idx % CUSTOM_GRADIENTS.length]
+  return { label: titleCase(type || 'Custom'), Icon: CUSTOM_ICONS[idx % CUSTOM_ICONS.length], ...grad }
+}
+
+/** Orthogonal "circuit board" path from (x1,y1) down to (x2,y2) with rounded elbows. */
+function circuitPath(x1, y1, x2, y2) {
+  if (Math.abs(x2 - x1) < 1) return `M ${x1} ${y1} L ${x2} ${y2}`
+  const my = (y1 + y2) / 2
+  const r = Math.min(8, Math.abs(x2 - x1) / 2, Math.abs(y2 - y1) / 2)
+  const dir = x2 > x1 ? 1 : -1
+  return [
+    `M ${x1} ${y1}`,
+    `L ${x1} ${my - r}`,
+    `Q ${x1} ${my} ${x1 + dir * r} ${my}`,
+    `L ${x2 - dir * r} ${my}`,
+    `Q ${x2} ${my} ${x2} ${my + r}`,
+    `L ${x2} ${y2}`,
+  ].join(' ')
+}
+
 /**
- * Power Flow mind map — Sources (linked to real devices/slaves) → Total Load → Device Groups.
+ * Power Flow mind map — Sites → site sources → cross-site type totals →
+ * Total Organization Load → Device Groups.
  */
 export default function PowerFlowMindMap({
   sources = [],
+  sites = [],
   savings,
   orgName,
   groups = [],
@@ -78,6 +112,7 @@ export default function PowerFlowMindMap({
   onGroupEdit,
   onGroupDelete,
   onSourcesChange,
+  onSitesChange,
   editable = true,
   groupsPath = '/org/device-groups',
   devicesPath = '/org/devices',
@@ -85,18 +120,92 @@ export default function PowerFlowMindMap({
   const navigate = useNavigate()
   const [savingsOpen, setSavingsOpen] = useState(false)
   const [localSources, setLocalSources] = useState(sources)
+  const [localSites, setLocalSites] = useState(sites.length ? sites : DEFAULT_SITES)
   const [sourceModal, setSourceModal] = useState(null) // 'create' | source object
   const [sourceForm, setSourceForm] = useState(EMPTY_SOURCE_FORM)
+  const [renamingSiteId, setRenamingSiteId] = useState(null)
+  const [renameValue, setRenameValue] = useState('')
 
   useEffect(() => { setLocalSources(sources) }, [sources])
+  useEffect(() => { setLocalSites(sites.length ? sites : DEFAULT_SITES) }, [sites])
+
+  const defaultSiteId = (localSites.find((s) => s.isDefault) || localSites[0] || DEFAULT_SITES[0]).id
+
+  /** Sources with a guaranteed, resolvable siteId. */
+  const scopedSources = useMemo(() => {
+    const ids = new Set(localSites.map((s) => s.id))
+    return (localSources || []).map((s) => ({
+      ...s,
+      siteId: s.siteId && ids.has(s.siteId) ? s.siteId : defaultSiteId,
+    }))
+  }, [localSources, localSites, defaultSiteId])
+
+  const siteTotals = useMemo(() => {
+    const totals = {}
+    for (const site of localSites) totals[site.id] = 0
+    for (const s of scopedSources) totals[s.siteId] = (totals[s.siteId] || 0) + (Number(s.valueKw) || 0)
+    return totals
+  }, [scopedSources, localSites])
+
+  /** Cross-site roll-ups, builtins first then any custom types actually present. */
+  const typeTotals = useMemo(() => {
+    const totals = new Map()
+    for (const t of BUILTIN_TYPES) totals.set(t, 0)
+    for (const s of scopedSources) {
+      const t = s.type || s.id || 'custom'
+      totals.set(t, (totals.get(t) || 0) + (Number(s.valueKw) || 0))
+    }
+    return [...totals.entries()].map(([type, kw], idx) => ({
+      type,
+      kw,
+      ...metaForType(type, idx),
+      label: BUILTIN_META[type] ? `Total ${BUILTIN_META[type].label}` : `Total ${titleCase(type)}`,
+    }))
+  }, [scopedSources])
 
   function commitSources(next) {
     setLocalSources(next)
     onSourcesChange?.(next)
   }
 
-  function openCreateSource() {
-    setSourceForm({ ...EMPTY_SOURCE_FORM })
+  function commitSites(next) {
+    setLocalSites(next)
+    onSitesChange?.(next)
+  }
+
+  // ---- Sites -------------------------------------------------------------
+  function addSite() {
+    commitSites([
+      ...localSites,
+      { id: `site_${Date.now()}`, name: `Site ${localSites.length + 1}`, isDefault: false },
+    ])
+  }
+
+  function startRename(site) {
+    if (!editable) return
+    setRenamingSiteId(site.id)
+    setRenameValue(site.name || '')
+  }
+
+  function commitRename() {
+    const name = renameValue.trim()
+    if (name) commitSites(localSites.map((s) => (s.id === renamingSiteId ? { ...s, name } : s)))
+    setRenamingSiteId(null)
+    setRenameValue('')
+  }
+
+  function deleteSite(site) {
+    if (site.isDefault || localSites.length <= 1) return
+    const remaining = localSites.filter((s) => s.id !== site.id)
+    const fallback = (remaining.find((s) => s.isDefault) || remaining[0]).id
+    commitSites(remaining)
+    // Re-home the deleted site's sources so no kW is lost from the org total
+    commitSources(localSources.map((s) => (s.siteId === site.id ? { ...s, siteId: fallback } : s)))
+  }
+
+  // ---- Sources -----------------------------------------------------------
+  function openCreateSource(siteId) {
+    setSourceForm({ ...EMPTY_SOURCE_FORM, siteId: siteId || defaultSiteId })
     setSourceModal('create')
   }
 
@@ -106,6 +215,7 @@ export default function PowerFlowMindMap({
       type: source.type || 'custom',
       deviceIds: [...(source.deviceIds || [])],
       slaveIds: [...(source.slaveIds || [])],
+      siteId: source.siteId || defaultSiteId,
     })
     setSourceModal(source)
   }
@@ -135,38 +245,25 @@ export default function PowerFlowMindMap({
 
   function saveSourceForm() {
     if (!sourceForm.name.trim()) return
-    const isBuiltin = ['grid', 'solar', 'generator'].includes(sourceForm.type)
     const hasLinked = sourceForm.deviceIds.length > 0 || (sourceForm.slaveIds && sourceForm.slaveIds.length > 0)
     if (!hasLinked) return
 
+    const type = sourceForm.type
+    const isBuiltin = BUILTIN_TYPES.includes(type)
+    const siteId = sourceForm.siteId || defaultSiteId
+
     if (sourceModal === 'create') {
-      const idx = localSources.filter((s) => !['grid', 'solar', 'generator'].includes(s.type || s.id)).length
+      const idx = localSources.filter((s) => !BUILTIN_TYPES.includes(s.type || s.id)).length
       const grad = CUSTOM_GRADIENTS[idx % CUSTOM_GRADIENTS.length]
-      const type = sourceForm.type
-      // Don't create a second builtin — update existing if type is builtin
-      if (isBuiltin) {
-        const existing = localSources.find((s) => s.type === type || s.id === type)
-        if (existing) {
-          commitSources(localSources.map((s) => (
-            s.id === existing.id || s.type === type
-              ? {
-                  ...s,
-                  name: sourceForm.name.trim(),
-                  deviceIds: [...sourceForm.deviceIds],
-                  slaveIds: [...(sourceForm.slaveIds || [])],
-                }
-              : s
-          )))
-          closeSourceModal()
-          return
-        }
-      }
+      // A type may now exist once per site, so only the first builtin keeps the bare id
+      const idTaken = localSources.some((s) => s.id === type)
       commitSources([
         ...localSources,
         {
-          id: isBuiltin ? type : `custom_${Date.now()}`,
+          id: isBuiltin && !idTaken ? type : `${isBuiltin ? type : 'custom'}_${Date.now()}`,
           name: sourceForm.name.trim(),
           type,
+          siteId,
           deviceIds: [...sourceForm.deviceIds],
           slaveIds: [...(sourceForm.slaveIds || [])],
           valueKw: 0,
@@ -178,11 +275,12 @@ export default function PowerFlowMindMap({
     } else {
       const target = sourceModal
       commitSources(localSources.map((s) => (
-        s.id === target.id || (target.type && s.type === target.type && ['grid', 'solar', 'generator'].includes(target.type))
+        s.id === target.id
           ? {
               ...s,
               name: sourceForm.name.trim(),
-              type: ['grid', 'solar', 'generator'].includes(s.type) ? s.type : sourceForm.type,
+              type: BUILTIN_TYPES.includes(s.type) ? s.type : type,
+              siteId,
               deviceIds: [...sourceForm.deviceIds],
               slaveIds: [...(sourceForm.slaveIds || [])],
             }
@@ -192,69 +290,93 @@ export default function PowerFlowMindMap({
     closeSourceModal()
   }
 
-  function deleteCustomSource(key) {
-    commitSources(localSources.filter((s) => s.id !== key))
+  function deleteSource(id) {
+    commitSources(localSources.filter((s) => s.id !== id))
   }
 
   function deleteSourceFromModal() {
     if (!sourceModal || sourceModal === 'create') return
-    const target = sourceModal
-    const type = target.type || target.id
-    if (['grid', 'solar', 'generator'].includes(type)) {
-      commitSources(localSources.filter((s) => s.type !== type && s.id !== type))
-    } else {
-      deleteCustomSource(target.id)
-    }
+    deleteSource(sourceModal.id)
     closeSourceModal()
   }
 
-  const calculatedFleetDemand = devices && devices.length > 0
-    ? devices.reduce((sum, d) => {
-        if (d.switchOn === false || String(d.switchState || '').toUpperCase() === 'OFF') return sum
-        const slaves = d.slaves || d.configSlaves || []
-        if (slaves.length > 1) {
-          let devSum = 0
-          for (const s of slaves) {
-            if (/solar/i.test(s.name || '')) continue
-            const v = readDeviceMetric(s, 'power')
-            if (Number.isFinite(v) && v > 0) devSum += v
-          }
-          return sum + devSum
-        }
-        const v = readDeviceMetric(d, 'power')
-        return sum + (Number.isFinite(v) && v > 0 ? v : 0)
-      }, 0)
-    : 0
+  // ---- Connector geometry ------------------------------------------------
+  const flowRef = useRef(null)
+  const sourceRefs = useRef(new Map())
+  const typeRefs = useRef(new Map())
+  const orgRef = useRef(null)
+  const [links, setLinks] = useState([])
 
-  const sourcesSum = (localSources || []).reduce((acc, s) => acc + (Number(s.valueKw) || 0), 0)
+  const registerRef = useCallback((map, key) => (el) => {
+    if (el) map.current.set(key, el)
+    else map.current.delete(key)
+  }, [])
+
+  const measureLinks = useCallback(() => {
+    const host = flowRef.current
+    if (!host) return
+    const base = host.getBoundingClientRect()
+    const next = []
+    const bottomOf = (el) => {
+      const r = el.getBoundingClientRect()
+      return { x: r.left - base.left + r.width / 2, y: r.bottom - base.top }
+    }
+    const topOf = (el) => {
+      const r = el.getBoundingClientRect()
+      return { x: r.left - base.left + r.width / 2, y: r.top - base.top }
+    }
+
+    for (const s of scopedSources) {
+      const from = sourceRefs.current.get(s.id)
+      const to = typeRefs.current.get(s.type || s.id || 'custom')
+      if (!from || !to) continue
+      const a = bottomOf(from)
+      const b = topOf(to)
+      if (b.y <= a.y) continue
+      next.push({ key: `src-${s.id}`, d: circuitPath(a.x, a.y, b.x, b.y) })
+    }
+
+    if (orgRef.current) {
+      const b = topOf(orgRef.current)
+      for (const t of typeTotals) {
+        const from = typeRefs.current.get(t.type)
+        if (!from) continue
+        const a = bottomOf(from)
+        if (b.y <= a.y) continue
+        next.push({ key: `type-${t.type}`, d: circuitPath(a.x, a.y, b.x, b.y) })
+      }
+    }
+
+    setLinks((prev) => (
+      prev.length === next.length && prev.every((p, i) => p.key === next[i].key && p.d === next[i].d)
+        ? prev
+        : next
+    ))
+  }, [scopedSources, typeTotals])
+
+  useLayoutEffect(() => { measureLinks() }, [measureLinks])
+
+  useEffect(() => {
+    const host = flowRef.current
+    if (!host || typeof ResizeObserver === 'undefined') return undefined
+    const ro = new ResizeObserver(() => measureLinks())
+    ro.observe(host)
+    window.addEventListener('resize', measureLinks)
+    return () => {
+      ro.disconnect()
+      window.removeEventListener('resize', measureLinks)
+    }
+  }, [measureLinks])
+
+  // ---- Derived numbers ---------------------------------------------------
+  const sourcesSum = scopedSources.reduce((acc, s) => acc + (Number(s.valueKw) || 0), 0)
   const load = totalLoadKw != null && Number.isFinite(Number(totalLoadKw)) && Number(totalLoadKw) >= 0
     ? Number(totalLoadKw)
     : sourcesSum
 
-  const builtin = ['grid', 'solar', 'generator'].map((type) => {
-    const found = localSources.find((s) => s.type === type || s.id === type)
-    const meta = BUILTIN_META[type]
-    const deviceIds = found?.deviceIds || []
-    const slaveIds = found?.slaveIds || []
-    return {
-      key: type,
-      source: found || { id: type, type, name: meta.label, deviceIds: [], slaveIds: [], valueKw: 0 },
-      label: found?.name || meta.label,
-      rawVal: found?.valueKw ?? 0,
-      Icon: meta.Icon,
-      from: meta.from,
-      to: meta.to,
-      deviceIds,
-      slaveIds,
-      derived: false,
-    }
-  })
-
-  const customs = localSources.filter((s) => !['grid', 'solar', 'generator'].includes(s.type || s.id))
-
-  const solarKw = Number(
-    localSources.find((s) => s.type === 'solar' || s.id === 'solar')?.valueKw,
-  ) || 0
+  const solarKw = scopedSources
+    .filter((s) => s.type === 'solar' || s.id === 'solar')
+    .reduce((acc, s) => acc + (Number(s.valueKw) || 0), 0)
   const SOLAR_PEAK_SUN_HOURS = 5.5
   const fallbackDailyKWh = +(solarKw * SOLAR_PEAK_SUN_HOURS).toFixed(1)
   const dailyKWh = Number(savings?.dailyKWh) > 0 ? Number(savings.dailyKWh) : fallbackDailyKWh
@@ -272,7 +394,7 @@ export default function PowerFlowMindMap({
   const monthlyKWh = +(dailyKWh * 30).toFixed(1)
 
   const editingBuiltin = sourceModal && sourceModal !== 'create'
-    && ['grid', 'solar', 'generator'].includes(sourceModal.type || sourceModal.id)
+    && BUILTIN_TYPES.includes(sourceModal.type || sourceModal.id)
   const canSaveSource = sourceForm.name.trim()
     && ((sourceForm.deviceIds?.length || 0) + (sourceForm.slaveIds?.length || 0) > 0)
 
@@ -281,6 +403,52 @@ export default function PowerFlowMindMap({
     const timer = setInterval(() => setCurrentTime(new Date()), 1000)
     return () => clearInterval(timer)
   }, [])
+
+  /** One source card — identical styling to the pre-site layout. */
+  function renderSourceCard(s, idx) {
+    const type = s.type || s.id
+    const meta = metaForType(type, s.iconIdx ?? idx)
+    const Icon = meta.Icon
+    const from = BUILTIN_META[type] ? meta.from : (s.from || meta.from)
+    const to = BUILTIN_META[type] ? meta.to : (s.to || meta.to)
+    return (
+      <div
+        key={s.id}
+        ref={registerRef(sourceRefs, s.id)}
+        className="relative group flex items-center gap-2.5 rounded-2xl px-4 py-3 text-white shadow-lg"
+        style={{ background: `linear-gradient(145deg, ${from}, ${to})`, boxShadow: `0 6px 16px -4px ${to}66` }}
+      >
+        <Icon size={18} strokeWidth={2.25} />
+        <div className="leading-tight">
+          <p className="text-[11px] font-bold opacity-90">{s.name || meta.label}</p>
+          <p className="text-sm font-black leading-tight">{Number(s.valueKw || 0).toFixed(1)} kW</p>
+          <p className="text-[9px] opacity-70 font-semibold mt-0.5">
+            {formatLinkedSummary(s.deviceIds, s.slaveIds)}
+          </p>
+        </div>
+        {editable && (
+          <div className="absolute -top-1.5 -right-1.5 z-[2] flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button
+              type="button"
+              title="Link slaves or devices"
+              onClick={() => openEditSource(s)}
+              className="w-5 h-5 rounded-full bg-white/90 text-primary-700 flex items-center justify-center shadow-sm"
+            >
+              <Edit3 size={9} strokeWidth={2.5} />
+            </button>
+            <button
+              type="button"
+              title="Remove source"
+              onClick={() => deleteSource(s.id)}
+              className="w-5 h-5 rounded-full bg-danger-500 border-2 border-white text-white flex items-center justify-center"
+            >
+              <X size={9} strokeWidth={3} />
+            </button>
+          </div>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className="w-full select-none space-y-4">
@@ -372,198 +540,249 @@ export default function PowerFlowMindMap({
         </div>
       </div>
 
-      <div>
-        <div className="flex justify-center gap-3 sm:gap-4 flex-wrap">
-          {builtin.map((s) => (
-            <div
-              key={s.key}
-              className="relative group flex items-center gap-2.5 rounded-2xl px-4 py-3 text-white shadow-lg"
-              style={{ background: `linear-gradient(145deg, ${s.from}, ${s.to})`, boxShadow: `0 6px 16px -4px ${s.to}66` }}
-            >
-              <s.Icon size={18} strokeWidth={2.25} />
-              <div className="leading-tight">
-                <p className="text-[11px] font-bold opacity-90">{s.label}</p>
-                <p className="text-sm font-black leading-tight">{Number(s.rawVal).toFixed(1)} kW</p>
-                <p className="text-[9px] opacity-70 font-semibold mt-0.5">
-                  {formatLinkedSummary(s.deviceIds, s.slaveIds)}
-                </p>
-              </div>
-              {editable && (
-                <button
-                  type="button"
-                  title="Link slaves or devices"
-                  onClick={() => openEditSource(s.source)}
-                  className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-white/90 text-primary-700 opacity-0 group-hover:opacity-100 flex items-center justify-center shadow-sm"
-                >
-                  <Edit3 size={9} strokeWidth={2.5} />
-                </button>
-              )}
-            </div>
+      <div ref={flowRef} className="relative">
+        {/* Connectors: sources → type totals → organization load. Measured, so they reflow. */}
+        <svg
+          className="absolute inset-0 w-full h-full pointer-events-none z-0 text-surface-300 dark:text-surface-700"
+          aria-hidden="true"
+        >
+          {links.map((l) => (
+            <path
+              key={l.key}
+              d={l.d}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1"
+              strokeLinecap="round"
+            />
           ))}
+        </svg>
 
-          {customs.map((s, idx) => {
-            const Icon = CUSTOM_ICONS[s.iconIdx ?? idx % CUSTOM_ICONS.length]
-            const from = s.from || CUSTOM_GRADIENTS[idx % CUSTOM_GRADIENTS.length].from
-            const to = s.to || CUSTOM_GRADIENTS[idx % CUSTOM_GRADIENTS.length].to
-            return (
-              <div
-                key={s.id}
-                className="relative group flex items-center gap-2.5 rounded-2xl px-4 py-3 text-white shadow-lg"
-                style={{ background: `linear-gradient(145deg, ${from}, ${to})` }}
-              >
-                <Icon size={18} />
-                <div className="leading-tight">
-                  <p className="text-[11px] font-bold opacity-90">{s.name}</p>
-                  <p className="text-sm font-black">{Number(s.valueKw || 0).toFixed(1)} kW</p>
-                  <p className="text-[9px] opacity-70 font-semibold mt-0.5">
-                    {formatLinkedSummary(s.deviceIds, s.slaveIds)}
-                  </p>
-                </div>
-                {editable && (
-                  <div className="absolute -top-1.5 -right-1.5 z-[2] flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button
-                      type="button"
-                      title="Edit source"
-                      onClick={() => openEditSource(s)}
-                      className="w-5 h-5 rounded-full bg-white/90 text-primary-700 flex items-center justify-center shadow-sm"
-                    >
-                      <Edit3 size={9} strokeWidth={2.5} />
-                    </button>
-                    <button
-                      type="button"
-                      title="Remove source"
-                      onClick={() => deleteCustomSource(s.id)}
-                      className="w-5 h-5 rounded-full bg-danger-500 border-2 border-white text-white flex items-center justify-center"
-                    >
-                      <X size={9} strokeWidth={3} />
-                    </button>
+        <div className="relative z-[1]">
+          {/* LAYER 1 — site groupings: a plain outlined panel per site */}
+          <div className="flex justify-center items-start gap-4 flex-wrap">
+            {localSites.map((site) => {
+              const siteSources = scopedSources.filter((s) => s.siteId === site.id)
+              const canDelete = editable && !site.isDefault && localSites.length > 1
+              return (
+                <div
+                  key={site.id}
+                  className="group/site relative flex flex-col items-center gap-2 rounded-2xl p-3 border border-surface-200 dark:border-surface-800"
+                >
+                  {/* TOP — site name in its own boxed card */}
+                  <div className="rounded-2xl px-3.5 py-2 bg-white dark:bg-surface-900 border border-surface-200 dark:border-surface-800 shadow-sm flex items-center gap-2">
+                    {renamingSiteId === site.id ? (
+                      <input
+                        autoFocus
+                        value={renameValue}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        onBlur={commitRename}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') commitRename()
+                          if (e.key === 'Escape') setRenamingSiteId(null)
+                        }}
+                        className="text-xs font-bold text-center bg-transparent border-b border-primary-400 outline-none w-28 text-surface-700 dark:text-surface-200"
+                      />
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => startRename(site)}
+                          title={editable ? 'Rename site' : undefined}
+                          className="text-xs font-bold text-surface-500 dark:text-surface-300 hover:text-primary-600"
+                        >
+                          {site.name}
+                        </button>
+                        <button
+                          type="button"
+                          title="Rename site"
+                          onClick={() => startRename(site)}
+                          className="w-5 h-5 rounded-full bg-surface-100 dark:bg-surface-800 text-primary-600 flex items-center justify-center"
+                        >
+                          <Edit3 size={9} strokeWidth={2.5} />
+                        </button>
+                      </>
+                    )}
+                    {canDelete && (
+                      <button
+                        type="button"
+                        title="Remove site"
+                        onClick={() => deleteSite(site)}
+                        className="w-5 h-5 rounded-full bg-danger-500 border-2 border-white dark:border-surface-900 text-white flex items-center justify-center"
+                      >
+                        <X size={9} strokeWidth={3} />
+                      </button>
+                    )}
                   </div>
-                )}
+
+                  {/* MIDDLE — this site's sources */}
+                  <div className="flex justify-center gap-3 flex-wrap max-w-[34rem]">
+                    {siteSources.map((s, idx) => renderSourceCard(s, idx))}
+                    {editable && (
+                      <button
+                        type="button"
+                        onClick={() => openCreateSource(site.id)}
+                        className="flex items-center gap-1.5 rounded-2xl px-3.5 py-2.5 border border-dashed border-surface-300 text-surface-400 hover:text-primary-600 hover:border-primary-400"
+                      >
+                        <Plus size={14} />
+                        <span className="text-xs font-bold">Add Source</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* BOTTOM — total site load */}
+                  <div className="rounded-2xl px-3.5 py-2 bg-surface-50 dark:bg-surface-900/60 border border-surface-200 dark:border-surface-800 flex items-center gap-2 text-xs font-bold text-surface-600 dark:text-surface-300">
+                    <span>Total {site.name} Load:</span>
+                    <span className="font-black text-primary-600">
+                      {Number(siteTotals[site.id] || 0).toFixed(1)} kW
+                    </span>
+                  </div>
+                </div>
+              )
+            })}
+
+            {editable && (
+              <button
+                type="button"
+                onClick={addSite}
+                className="flex items-center gap-1.5 rounded-2xl px-3.5 py-2.5 border border-dashed border-surface-300 text-surface-400 hover:text-primary-600 hover:border-primary-400"
+              >
+                <Plus size={14} />
+                <span className="text-xs font-bold">Add Site</span>
+              </button>
+            )}
+          </div>
+
+          {/* LAYER 2 — cross-site source-type totals, in the source-card style */}
+          <div className="flex justify-center gap-3 sm:gap-4 flex-wrap mt-8">
+            {typeTotals.map((t) => (
+              <div
+                key={t.type}
+                ref={registerRef(typeRefs, t.type)}
+                className="relative group flex items-center gap-2.5 rounded-2xl px-4 py-3 text-white shadow-lg"
+                style={{ background: `linear-gradient(145deg, ${t.from}, ${t.to})`, boxShadow: `0 6px 16px -4px ${t.to}66` }}
+              >
+                <t.Icon size={18} strokeWidth={2.25} />
+                <div className="leading-tight">
+                  <p className="text-[11px] font-bold opacity-90">{t.label}</p>
+                  <p className="text-sm font-black leading-tight">{Number(t.kw).toFixed(1)} kW</p>
+                  <p className="text-[9px] opacity-70 font-semibold mt-0.5">All sites combined</p>
+                </div>
               </div>
-            )
-          })}
+            ))}
+          </div>
 
-          {editable && (
-            <button
-              type="button"
-              onClick={openCreateSource}
-              className="flex items-center gap-1.5 rounded-2xl px-3.5 py-2.5 border border-dashed border-surface-300 text-surface-400 hover:text-primary-600 hover:border-primary-400"
+          {/* LAYER 3 — total organization load */}
+          <div className="flex justify-center mt-8">
+            <div
+              ref={orgRef}
+              className="flex items-center gap-3 rounded-2xl px-6 py-4 text-white shadow-xl"
+              style={{ background: 'linear-gradient(145deg, #34D399, #0EA5E9)' }}
             >
-              <Plus size={14} />
-              <span className="text-xs font-bold">Add Source</span>
-            </button>
-          )}
-        </div>
-
-        <div className="flex justify-center my-1"><div className="w-px h-6 bg-surface-300" /></div>
-
-        <div className="flex justify-center">
-          <div
-            className="flex items-center gap-3 rounded-2xl px-6 py-4 text-white shadow-xl"
-            style={{ background: 'linear-gradient(145deg, #34D399, #0EA5E9)' }}
-          >
-            <div className="w-11 h-11 rounded-xl bg-white/20 flex items-center justify-center">
-              <Building2 size={22} />
-            </div>
-            <div className="leading-tight">
-              <p className="text-[11px] font-bold opacity-90">Total Organization Load</p>
-              <p className="text-xl font-black">{load.toFixed(1)} kW</p>
-              <p className="text-[9px] font-semibold opacity-75 mt-0.5">Total supply from all active energy sources</p>
+              <div className="w-11 h-11 rounded-xl bg-white/20 flex items-center justify-center">
+                <Building2 size={22} />
+              </div>
+              <div className="leading-tight">
+                <p className="text-[11px] font-bold opacity-90">Total Organization Load</p>
+                <p className="text-xl font-black">{load.toFixed(1)} kW</p>
+                <p className="text-[9px] font-semibold opacity-75 mt-0.5">Total supply from all active energy sources</p>
+              </div>
             </div>
           </div>
-        </div>
 
-        {savingsView.dailyKWh > 0 && (
-          <p className="text-center text-[10px] font-bold text-surface-400 mt-2">
-            ~{Number(savingsView.dailyKWh).toFixed(1)} kWh/day offset by clean sources · saving {formatPKR(savingsView.daily)} at PKR {TARIFF_PKR_PER_KWH}/unit
-          </p>
-        )}
+          {savingsView.dailyKWh > 0 && (
+            <p className="text-center text-[10px] font-bold text-surface-400 mt-2">
+              ~{Number(savingsView.dailyKWh).toFixed(1)} kWh/day offset by clean sources · saving {formatPKR(savingsView.daily)} at PKR {TARIFF_PKR_PER_KWH}/unit
+            </p>
+          )}
 
-        <div className="flex justify-center my-1"><div className="w-px h-6 bg-surface-300" /></div>
+          <div className="flex justify-center my-1"><div className="w-px h-6 bg-surface-300" /></div>
 
-        <div className="flex justify-center gap-3 flex-wrap">
-          {groups.length === 0 ? (
-            <Link
-              to={groupsPath}
-              className="flex items-center gap-1.5 rounded-2xl px-3.5 py-2.5 border border-dashed border-surface-300 text-surface-400 hover:text-primary-600"
-            >
-              <Plus size={14} />
-              <span className="text-xs font-bold">Create a Group</span>
-            </Link>
-          ) : (
-            <>
-              {groups.map((g) => {
-                const Icon = iconForGroup(g.name)
-                const nSlv = (g.slaveIds || g.slaves || []).length
-                const nDev = (g.deviceIds || g.devices || []).length
-                const groupCountSummary = nSlv && nDev
-                  ? `${nSlv} slave${nSlv !== 1 ? 's' : ''}, ${nDev} device${nDev !== 1 ? 's' : ''}`
-                  : nSlv
-                    ? `${nSlv} slave${nSlv !== 1 ? 's' : ''}`
-                    : `${nDev} device${nDev !== 1 ? 's' : ''}`
-
-                return (
-                  <div
-                    key={g.id}
-                    className="group relative flex items-center gap-2.5 rounded-2xl px-3.5 py-2.5 bg-white dark:bg-surface-900 border border-surface-200 dark:border-surface-800 shadow-md min-w-[9.5rem] text-left hover:border-primary-300 hover:shadow-lg"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => onGroupClick?.(g.id)}
-                      className="absolute inset-0 rounded-2xl z-0"
-                      aria-label={`Open ${g.name}`}
-                    />
-                    <span
-                      className={`absolute top-2 right-2 w-2 h-2 rounded-full z-[1] ${g.active ? 'bg-success-500 animate-pulse' : 'bg-surface-300 dark:bg-surface-600'} ${(editable && (onGroupEdit || onGroupDelete)) ? 'group-hover:opacity-0' : ''}`}
-                      title={g.active ? 'Active' : 'Idle'}
-                    />
-                    {editable && (onGroupEdit || onGroupDelete) && (
-                      <div className="absolute -top-1.5 -right-1.5 z-[2] flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        {onGroupEdit && (
-                          <button
-                            type="button"
-                            title="Edit group"
-                            onClick={(e) => { e.stopPropagation(); onGroupEdit(g.id) }}
-                            className="w-5 h-5 rounded-full bg-primary-500 border-2 border-white dark:border-surface-900 text-white flex items-center justify-center shadow-sm hover:bg-primary-600"
-                          >
-                            <Edit3 size={9} strokeWidth={2.5} />
-                          </button>
-                        )}
-                        {onGroupDelete && (
-                          <button
-                            type="button"
-                            title="Delete group"
-                            onClick={(e) => { e.stopPropagation(); onGroupDelete(g.id) }}
-                            className="w-5 h-5 rounded-full bg-danger-500 border-2 border-white dark:border-surface-900 text-white flex items-center justify-center shadow-sm hover:bg-danger-600"
-                          >
-                            <X size={9} strokeWidth={3} />
-                          </button>
-                        )}
-                      </div>
-                    )}
-                    <div className="w-8 h-8 rounded-lg bg-primary-50 dark:bg-primary-950/20 text-primary-600 flex items-center justify-center relative z-[1] pointer-events-none">
-                      <Icon size={15} />
-                    </div>
-                    <div className="leading-tight flex-1 min-w-0 relative z-[1] pointer-events-none">
-                      <p className="text-xs font-bold text-surface-800 dark:text-surface-100 truncate max-w-[7rem]">{g.name}</p>
-                      <p className="text-[11px] font-black text-primary-600">{(g.load ?? 0).toFixed?.(2) ?? g.load ?? '0.00'} kW</p>
-                      <p className="text-[9px] text-surface-400 font-semibold truncate max-w-[7.5rem]">
-                        {groupCountSummary}
-                      </p>
-                    </div>
-                    <ChevronRight size={12} className="text-surface-300 group-hover:text-primary-500 relative z-[1] pointer-events-none" />
-                  </div>
-                )
-              })}
+          {/* LAYER 4 — groups */}
+          <div className="flex justify-center gap-3 flex-wrap">
+            {groups.length === 0 ? (
               <Link
                 to={groupsPath}
                 className="flex items-center gap-1.5 rounded-2xl px-3.5 py-2.5 border border-dashed border-surface-300 text-surface-400 hover:text-primary-600"
               >
                 <Plus size={14} />
-                <span className="text-xs font-bold">Manage Groups</span>
+                <span className="text-xs font-bold">Create a Group</span>
               </Link>
-            </>
-          )}
+            ) : (
+              <>
+                {groups.map((g) => {
+                  const Icon = iconForGroup(g.name)
+                  const nSlv = (g.slaveIds || g.slaves || []).length
+                  const nDev = (g.deviceIds || g.devices || []).length
+                  const groupCountSummary = nSlv && nDev
+                    ? `${nSlv} slave${nSlv !== 1 ? 's' : ''}, ${nDev} device${nDev !== 1 ? 's' : ''}`
+                    : nSlv
+                      ? `${nSlv} slave${nSlv !== 1 ? 's' : ''}`
+                      : `${nDev} device${nDev !== 1 ? 's' : ''}`
+
+                  return (
+                    <div
+                      key={g.id}
+                      className="group relative flex items-center gap-2.5 rounded-2xl px-3.5 py-2.5 bg-white dark:bg-surface-900 border border-surface-200 dark:border-surface-800 shadow-md min-w-[9.5rem] text-left hover:border-primary-300 hover:shadow-lg"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => onGroupClick?.(g.id)}
+                        className="absolute inset-0 rounded-2xl z-0"
+                        aria-label={`Open ${g.name}`}
+                      />
+                      <span
+                        className={`absolute top-2 right-2 w-2 h-2 rounded-full z-[1] ${g.active ? 'bg-success-500 animate-pulse' : 'bg-surface-300 dark:bg-surface-600'} ${(editable && (onGroupEdit || onGroupDelete)) ? 'group-hover:opacity-0' : ''}`}
+                        title={g.active ? 'Active' : 'Idle'}
+                      />
+                      {editable && (onGroupEdit || onGroupDelete) && (
+                        <div className="absolute -top-1.5 -right-1.5 z-[2] flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          {onGroupEdit && (
+                            <button
+                              type="button"
+                              title="Edit group"
+                              onClick={(e) => { e.stopPropagation(); onGroupEdit(g.id) }}
+                              className="w-5 h-5 rounded-full bg-primary-500 border-2 border-white dark:border-surface-900 text-white flex items-center justify-center shadow-sm hover:bg-primary-600"
+                            >
+                              <Edit3 size={9} strokeWidth={2.5} />
+                            </button>
+                          )}
+                          {onGroupDelete && (
+                            <button
+                              type="button"
+                              title="Delete group"
+                              onClick={(e) => { e.stopPropagation(); onGroupDelete(g.id) }}
+                              className="w-5 h-5 rounded-full bg-danger-500 border-2 border-white dark:border-surface-900 text-white flex items-center justify-center shadow-sm hover:bg-danger-600"
+                            >
+                              <X size={9} strokeWidth={3} />
+                            </button>
+                          )}
+                        </div>
+                      )}
+                      <div className="w-8 h-8 rounded-lg bg-primary-50 dark:bg-primary-950/20 text-primary-600 flex items-center justify-center relative z-[1] pointer-events-none">
+                        <Icon size={15} />
+                      </div>
+                      <div className="leading-tight flex-1 min-w-0 relative z-[1] pointer-events-none">
+                        <p className="text-xs font-bold text-surface-800 dark:text-surface-100 truncate max-w-[7rem]">{g.name}</p>
+                        <p className="text-[11px] font-black text-primary-600">{(g.load ?? 0).toFixed?.(2) ?? g.load ?? '0.00'} kW</p>
+                        <p className="text-[9px] text-surface-400 font-semibold truncate max-w-[7.5rem]">
+                          {groupCountSummary}
+                        </p>
+                      </div>
+                      <ChevronRight size={12} className="text-surface-300 group-hover:text-primary-500 relative z-[1] pointer-events-none" />
+                    </div>
+                  )
+                })}
+                <Link
+                  to={groupsPath}
+                  className="flex items-center gap-1.5 rounded-2xl px-3.5 py-2.5 border border-dashed border-surface-300 text-surface-400 hover:text-primary-600"
+                >
+                  <Plus size={14} />
+                  <span className="text-xs font-bold">Manage Groups</span>
+                </Link>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
@@ -602,6 +821,13 @@ export default function PowerFlowMindMap({
             placeholder="e.g. Rooftop Solar, Backup Generator…"
             value={sourceForm.name}
             onChange={(e) => setSourceForm((f) => ({ ...f, name: e.target.value }))}
+          />
+          <SelectInput
+            label="Site"
+            required
+            value={sourceForm.siteId}
+            onChange={(e) => setSourceForm((f) => ({ ...f, siteId: e.target.value }))}
+            options={localSites.map((s) => ({ value: s.id, label: s.name }))}
           />
           <SelectInput
             label="Source Type"
