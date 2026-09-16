@@ -28,7 +28,6 @@ const TARIFF_PKR_PER_KWH = 28
 const BUILTIN_TYPES = ['grid', 'solar', 'generator']
 const DEFAULT_SITES = [
   { id: 'site-1', name: 'Site 1', isDefault: true },
-  { id: 'site-2', name: 'Site 2', isDefault: false },
 ]
 const EMPTY_SOURCE_FORM = { name: '', type: '', deviceIds: [], slaveIds: [], siteId: 'site-1' }
 
@@ -113,6 +112,7 @@ export default function PowerFlowMindMap({
   onGroupDelete,
   onSourcesChange,
   onSitesChange,
+  onSavePowerFlow,
   editable = true,
   groupsPath = '/org/device-groups',
   devicesPath = '/org/devices',
@@ -130,7 +130,12 @@ export default function PowerFlowMindMap({
   // While a save is in flight, keep the optimistic local state — an intermediate
   // poll of the parent's props would otherwise flash the pre-save values back in.
   useEffect(() => { if (!isSaving) setLocalSources(sources) }, [sources, isSaving])
-  useEffect(() => { if (!isSaving) setLocalSites(sites.length ? sites : DEFAULT_SITES) }, [sites, isSaving])
+  // Sites only ever come back from the server; an empty prop means the poll
+  // hasn't resolved yet, so never let it wipe an already configured site list.
+  useEffect(() => {
+    if (isSaving || !sites.length) return
+    setLocalSites(sites)
+  }, [sites, isSaving])
 
   const defaultSiteId = (localSites.find((s) => s.isDefault) || localSites[0] || DEFAULT_SITES[0]).id
 
@@ -166,36 +171,42 @@ export default function PowerFlowMindMap({
     }))
   }, [scopedSources])
 
-  async function commitSources(next) {
+  /**
+   * Persist sites and sources together in a single call, so a change that
+   * touches both (deleting a site and re-homing its sources) can never land
+   * half-applied. Falls back to the legacy split callbacks when the parent
+   * doesn't provide an atomic handler.
+   */
+  async function commitPowerFlow({ sources: nextSources, sites: nextSites }) {
     setIsSaving(true)
     try {
-      await onSourcesChange?.(next)
-      setLocalSources(next)
+      if (onSavePowerFlow) {
+        await onSavePowerFlow({ sources: nextSources, sites: nextSites })
+      } else {
+        await onSitesChange?.(nextSites)
+        await onSourcesChange?.(nextSources)
+      }
+      setLocalSites(nextSites)
+      setLocalSources(nextSources)
     } catch {
       // parent surfaces the error; keep the last confirmed state
+      throw new Error('save-failed')
     } finally {
       setIsSaving(false)
     }
   }
 
-  async function commitSites(next) {
-    setIsSaving(true)
-    try {
-      await onSitesChange?.(next)
-      setLocalSites(next)
-    } catch {
-      // parent surfaces the error; keep the last confirmed state
-    } finally {
-      setIsSaving(false)
-    }
+  function commitSources(next) {
+    return commitPowerFlow({ sources: next, sites: localSites }).catch(() => {})
   }
 
   // ---- Sites -------------------------------------------------------------
   function addSite() {
-    commitSites([
+    const nextSites = [
       ...localSites,
       { id: `site_${Date.now()}`, name: `Site ${localSites.length + 1}`, isDefault: false },
-    ])
+    ]
+    commitPowerFlow({ sites: nextSites, sources: localSources }).catch(() => {})
   }
 
   function startRename(site) {
@@ -206,18 +217,26 @@ export default function PowerFlowMindMap({
 
   function commitRename() {
     const name = renameValue.trim()
-    if (name) commitSites(localSites.map((s) => (s.id === renamingSiteId ? { ...s, name } : s)))
+    if (name) {
+      const nextSites = localSites.map((s) => (s.id === renamingSiteId ? { ...s, name } : s))
+      commitPowerFlow({ sites: nextSites, sources: localSources }).catch(() => {})
+    }
     setRenamingSiteId(null)
     setRenameValue('')
   }
 
-  async function deleteSite(site) {
-    if (site.isDefault || localSites.length <= 1) return
+  function deleteSite(site) {
+    if (localSites.length <= 1) return
     const remaining = localSites.filter((s) => s.id !== site.id)
+    // Deleting the default site promotes the first survivor, so exactly one
+    // site always stays default.
+    if (site.isDefault) remaining[0] = { ...remaining[0], isDefault: true }
     const fallback = (remaining.find((s) => s.isDefault) || remaining[0]).id
-    await commitSites(remaining)
     // Re-home the deleted site's sources so no kW is lost from the org total
-    await commitSources(localSources.map((s) => (s.siteId === site.id ? { ...s, siteId: fallback } : s)))
+    const rehomedSources = localSources.map((s) => (
+      s.siteId === site.id ? { ...s, siteId: fallback } : s
+    ))
+    commitPowerFlow({ sites: remaining, sources: rehomedSources }).catch(() => {})
   }
 
   // ---- Sources -----------------------------------------------------------
@@ -309,15 +328,11 @@ export default function PowerFlowMindMap({
       ))
     }
 
-    setIsSaving(true)
     try {
-      await onSourcesChange?.(next)
-      setLocalSources(next)
+      await commitPowerFlow({ sources: next, sites: localSites })
       closeSourceModal()
     } catch {
       // parent surfaces the error; leave the modal open so the edit isn't lost
-    } finally {
-      setIsSaving(false)
     }
   }
 
@@ -595,7 +610,7 @@ export default function PowerFlowMindMap({
           <div className="flex justify-center items-start gap-4 flex-wrap">
             {localSites.map((site) => {
               const siteSources = scopedSources.filter((s) => s.siteId === site.id)
-              const canDelete = editable && !site.isDefault && localSites.length > 1
+              const canDelete = editable && localSites.length > 1
               return (
                 <div
                   key={site.id}

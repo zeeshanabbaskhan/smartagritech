@@ -558,10 +558,17 @@ export default function OrgDashboard() {
     return Number.isFinite(v) ? (key === 'pf' ? v.toFixed(2) : v.toFixed(1)) : '—'
   }
 
-  async function handleSourcesChange(sources) {
+  /**
+   * Persist sites and sources in one request. The server replies with the
+   * fully recomputed flow (live valueKw, siteTotals, typeTotals, totalLoadKw),
+   * so the returned payload is adopted wholesale rather than patched field by
+   * field.
+   */
+  async function handlePowerFlowSave(payload = {}) {
+    const { sources, sites } = payload
     try {
       // Persist linkage (deviceIds and slaveIds); live valueKw is recomputed on read
-      const toSave = (sources || []).map((s) => ({
+      const toSave = sources === undefined ? undefined : (sources || []).map((s) => ({
         id: s.id,
         name: s.name,
         type: s.type,
@@ -573,10 +580,20 @@ export default function OrgDashboard() {
         iconIdx: s.iconIdx,
         valueKw: Number(s.valueKw) || 0,
       }))
-      const res = await emsApi.updatePowerFlow({ sources: toSave, savings: powerFlow?.savings })
+      const sitesToSave = sites === undefined ? undefined : (sites || []).map((s) => ({
+        id: s.id,
+        name: s.name,
+        isDefault: !!s.isDefault,
+      }))
+
+      const res = await emsApi.updatePowerFlow({
+        sources: toSave,
+        sites: sitesToSave,
+        savings: powerFlow?.savings,
+      })
       const updated = one(res) || {}
-      if (Array.isArray(updated.sources)) {
-        setPowerFlow((prev) => (prev ? { ...prev, sources: updated.sources } : prev))
+      if (Array.isArray(updated.sources) || Array.isArray(updated.sites)) {
+        setPowerFlow((prev) => (prev ? { ...prev, ...updated } : updated))
       }
       await reloadPowerFlow()
     } catch (e) {
@@ -585,21 +602,9 @@ export default function OrgDashboard() {
     }
   }
 
-  async function handleSitesChange(sites) {
-    try {
-      const res = await emsApi.updatePowerFlow({
-        sites: (sites || []).map((s) => ({ id: s.id, name: s.name, isDefault: !!s.isDefault })),
-      })
-      const updated = one(res) || {}
-      if (Array.isArray(updated.sites)) {
-        setPowerFlow((prev) => (prev ? { ...prev, sites: updated.sites } : prev))
-      }
-      await reloadPowerFlow()
-    } catch (e) {
-      showToast(e.message || 'Failed to update sites', 'error')
-      throw e
-    }
-  }
+  // Backward-compatible wrappers for the split source/site callbacks
+  const handleSourcesChange = (sources) => handlePowerFlowSave({ sources })
+  const handleSitesChange = (sites) => handlePowerFlowSave({ sites })
 
   const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
@@ -637,6 +642,7 @@ export default function OrgDashboard() {
                 devices={liveDevices}
                 totalLoadKw={totalOrgLoadKw}
                 orgName={orgName}
+                onSavePowerFlow={handlePowerFlowSave}
                 onSourcesChange={handleSourcesChange}
                 onSitesChange={handleSitesChange}
                 onGroupClick={handleOpenGroup}

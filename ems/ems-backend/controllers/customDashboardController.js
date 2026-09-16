@@ -1,4 +1,4 @@
-const prisma = require('../config/database')
+﻿const prisma = require('../config/database')
 const redis = require('../config/redis')
 const { AppError } = require('../middleware/errorHandler')
 const { orgScope, paginate } = require('../utils/helpers')
@@ -214,7 +214,7 @@ const sumLoadsForDeviceIds = async (deviceIds) => {
   return sumLoadsForSlavesAndDevices(deviceIds, [])
 }
 
-/** Read ExportPower (solar/export) for a device — Redis then DB. */
+/** Read ExportPower (solar/export) for a device â€” Redis then DB. */
 const readDeviceExportKw = async (deviceId) => {
   const device = await prisma.device.findUnique({
     where: { id: deviceId },
@@ -416,17 +416,177 @@ const deleteDashboard = async (req, res, next) => {
 
 const DEFAULT_SITES = [
   { id: 'site-1', name: 'Site 1', isDefault: true },
-  { id: 'site-2', name: 'Site 2', isDefault: false },
 ]
 
-/** Normalise the configured site list, always guaranteeing one default site. */
+/**
+ * Normalise the configured site list, always guaranteeing exactly one default
+ * site. An empty list falls back to a single default site â€” sites beyond the
+ * first only ever exist because the user created them.
+ */
 function normaliseSites(raw) {
   const list = (Array.isArray(raw) ? raw : [])
     .filter((s) => s && s.id)
     .map((s) => ({ id: String(s.id), name: s.name || String(s.id), isDefault: !!s.isDefault }))
   if (!list.length) return DEFAULT_SITES.map((s) => ({ ...s }))
-  if (!list.some((s) => s.isDefault)) list[0].isDefault = true
+  const defaultIdx = list.findIndex((s) => s.isDefault)
+  list.forEach((s, i) => { s.isDefault = i === (defaultIdx === -1 ? 0 : defaultIdx) })
   return list
+}
+
+/**
+ * Resolve the live, fully populated power flow payload for an org from its
+ * stored config. Shared by getPowerFlow and updatePowerFlow so a save returns
+ * exactly what a subsequent read would.
+ */
+async function buildPowerFlowData(req, orgId, config) {
+  const accessibleIds = await listAccessibleDeviceIds(req.user)
+  const allowedSet = accessibleIds ? new Set(accessibleIds) : null
+
+  const groups = await prisma.deviceGroup.findMany({
+    where: { organizationId: orgId, isActive: true },
+    include: {
+      devices: { include: { device: { select: { id: true, name: true, status: true } } } },
+      slaves: {
+        include: {
+          slave: {
+            select: {
+              id: true,
+              name: true,
+              deviceId: true,
+              isDefault: true,
+              device: { select: { id: true, name: true, status: true } },
+            },
+          },
+        },
+      },
+    },
+  })
+
+  const mappedGroups = []
+  const allDeviceIds = new Set()
+  for (const g of groups) {
+    const deviceRows = allowedSet
+      ? (g.devices || []).filter((d) => allowedSet.has(d.deviceId))
+      : (g.devices || [])
+    const slaveRows = allowedSet
+      ? (g.slaves || []).filter((s) => !s.slave?.deviceId || allowedSet.has(s.slave.deviceId))
+      : (g.slaves || [])
+
+    // USER: omit groups with no accessible devices/slaves
+    if (allowedSet && !deviceRows.length && !slaveRows.length) continue
+
+    const deviceIds = deviceRows.map((d) => d.deviceId)
+    const slaveIds = slaveRows.map((s) => s.slaveId)
+    deviceIds.forEach((id) => allDeviceIds.add(id))
+    slaveRows.forEach((s) => s.slave?.deviceId && allDeviceIds.add(s.slave.deviceId))
+
+    const loadKw = await sumLoadsForSlavesAndDevices(deviceIds, slaveIds)
+    mappedGroups.push({
+      id: g.id,
+      name: g.name,
+      description: g.description,
+      deviceCount: deviceRows.length,
+      slaveCount: slaveRows.length,
+      deviceIds,
+      slaveIds,
+      devices: deviceRows.map((d) => d.device),
+      slaves: slaveRows.map((s) => ({
+        id: s.slave?.id,
+        name: s.slave?.name,
+        deviceId: s.slave?.deviceId,
+        deviceName: s.slave?.device?.name,
+        deviceStatus: s.slave?.device?.status,
+        isDefault: s.slave?.isDefault,
+      })),
+      loadKw,
+      load: loadKw,
+    })
+  }
+
+  let sources = Array.isArray(config.sources) ? config.sources.map((s) => ({ ...s })) : []
+  // Ensure builtins exist
+  for (const b of [
+    { id: 'grid', name: 'Grid', type: 'grid' },
+    { id: 'solar', name: 'Solar', type: 'solar' },
+    { id: 'generator', name: 'Generator', type: 'generator' },
+  ]) {
+    if (!sources.some((s) => s.type === b.type || s.id === b.id)) {
+      sources.push({ ...b, deviceIds: [], slaveIds: [], valueKw: 0 })
+    }
+  }
+
+  // Fill live kW from linked devices and slaves when present; otherwise 0 (including Grid)
+  for (const s of sources) {
+    const devIds = Array.isArray(s.deviceIds)
+      ? s.deviceIds.filter((id) => id && (!allowedSet || allowedSet.has(id)))
+      : []
+    const slvIds = Array.isArray(s.slaveIds) ? s.slaveIds.filter(Boolean) : []
+    s.deviceIds = Array.isArray(s.deviceIds) ? s.deviceIds.filter(Boolean) : []
+    s.slaveIds = Array.isArray(s.slaveIds) ? s.slaveIds.filter(Boolean) : []
+
+    if (devIds.length || slvIds.length) {
+      s.valueKw = await sumLoadsForSlavesAndDevices(devIds, slvIds)
+      s.liveDerived = true
+    } else {
+      s.valueKw = 0
+      s.derived = false
+    }
+  }
+
+  // Sites: every source belongs to one, defaulting to the default site
+  const sites = normaliseSites(config.sites)
+  const defaultSiteId = (sites.find((s) => s.isDefault) || sites[0]).id
+  const siteById = new Map(sites.map((s) => [s.id, s]))
+  for (const s of sources) {
+    if (!s.siteId || !siteById.has(s.siteId)) s.siteId = defaultSiteId
+    s.siteName = siteById.get(s.siteId).name
+  }
+
+  const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100
+  const siteTotals = {}
+  for (const site of sites) siteTotals[site.id] = 0
+  const typeTotals = {}
+  for (const s of sources) {
+    const kw = Number(s.valueKw) || 0
+    siteTotals[s.siteId] = (siteTotals[s.siteId] || 0) + kw
+    const type = s.type || s.id || 'custom'
+    typeTotals[type] = (typeTotals[type] || 0) + kw
+  }
+  for (const k of Object.keys(siteTotals)) siteTotals[k] = round2(siteTotals[k])
+  for (const k of Object.keys(typeTotals)) typeTotals[k] = round2(typeTotals[k])
+
+  // Total Organization Load: exact sum of active supply sources
+  const totalLoadKw = Math.round(
+    sources.reduce((sum, s) => sum + (Number(s.valueKw) || 0), 0) * 100
+  ) / 100
+
+  const solarKw = Number(sources.find((s) => s.type === 'solar' || s.id === 'solar')?.valueKw) || 0
+  const gridKw = Number(sources.find((s) => s.type === 'grid' || s.id === 'grid')?.valueKw) || 0
+
+  const SOLAR_PEAK_SUN_HOURS = 5.5
+  const TARIFF_PKR = 28
+  const liveDailyKWh = +(solarKw * SOLAR_PEAK_SUN_HOURS).toFixed(1)
+  const effectiveSavings = (config.savings && (Number(config.savings.daily) > 0 || Number(config.savings.dailyKWh) > 0))
+    ? config.savings
+    : {
+        daily: Math.round(liveDailyKWh * TARIFF_PKR),
+        weekly: Math.round(liveDailyKWh * 7 * TARIFF_PKR),
+        monthly: Math.round(liveDailyKWh * 30 * TARIFF_PKR),
+        dailyKWh: liveDailyKWh,
+        unit: 'PKR',
+      }
+
+  return {
+    sources,
+    sites,
+    siteTotals,
+    typeTotals,
+    savings: effectiveSavings,
+    groups: mappedGroups,
+    totalLoadKw,
+    solarKw,
+    gridKw,
+  }
 }
 
 const getPowerFlow = async (req, res, next) => {
@@ -450,157 +610,7 @@ const getPowerFlow = async (req, res, next) => {
       })
     }
 
-    const accessibleIds = await listAccessibleDeviceIds(req.user)
-    const allowedSet = accessibleIds ? new Set(accessibleIds) : null
-
-    const groups = await prisma.deviceGroup.findMany({
-      where: { organizationId: orgId, isActive: true },
-      include: {
-        devices: { include: { device: { select: { id: true, name: true, status: true } } } },
-        slaves: {
-          include: {
-            slave: {
-              select: {
-                id: true,
-                name: true,
-                deviceId: true,
-                isDefault: true,
-                device: { select: { id: true, name: true, status: true } },
-              },
-            },
-          },
-        },
-      },
-    })
-
-    const mappedGroups = []
-    const allDeviceIds = new Set()
-    for (const g of groups) {
-      const deviceRows = allowedSet
-        ? (g.devices || []).filter((d) => allowedSet.has(d.deviceId))
-        : (g.devices || [])
-      const slaveRows = allowedSet
-        ? (g.slaves || []).filter((s) => !s.slave?.deviceId || allowedSet.has(s.slave.deviceId))
-        : (g.slaves || [])
-
-      // USER: omit groups with no accessible devices/slaves
-      if (allowedSet && !deviceRows.length && !slaveRows.length) continue
-
-      const deviceIds = deviceRows.map((d) => d.deviceId)
-      const slaveIds = slaveRows.map((s) => s.slaveId)
-      deviceIds.forEach((id) => allDeviceIds.add(id))
-      slaveRows.forEach((s) => s.slave?.deviceId && allDeviceIds.add(s.slave.deviceId))
-
-      const loadKw = await sumLoadsForSlavesAndDevices(deviceIds, slaveIds)
-      mappedGroups.push({
-        id: g.id,
-        name: g.name,
-        description: g.description,
-        deviceCount: deviceRows.length,
-        slaveCount: slaveRows.length,
-        deviceIds,
-        slaveIds,
-        devices: deviceRows.map((d) => d.device),
-        slaves: slaveRows.map((s) => ({
-          id: s.slave?.id,
-          name: s.slave?.name,
-          deviceId: s.slave?.deviceId,
-          deviceName: s.slave?.device?.name,
-          deviceStatus: s.slave?.device?.status,
-          isDefault: s.slave?.isDefault,
-        })),
-        loadKw,
-        load: loadKw,
-      })
-    }
-
-    let sources = Array.isArray(config.sources) ? config.sources.map((s) => ({ ...s })) : []
-    // Ensure builtins exist
-    for (const b of [
-      { id: 'grid', name: 'Grid', type: 'grid' },
-      { id: 'solar', name: 'Solar', type: 'solar' },
-      { id: 'generator', name: 'Generator', type: 'generator' },
-    ]) {
-      if (!sources.some((s) => s.type === b.type || s.id === b.id)) {
-        sources.push({ ...b, deviceIds: [], slaveIds: [], valueKw: 0 })
-      }
-    }
-
-    // Fill live kW from linked devices and slaves when present; otherwise 0 (including Grid)
-    for (const s of sources) {
-      const devIds = Array.isArray(s.deviceIds)
-        ? s.deviceIds.filter((id) => id && (!allowedSet || allowedSet.has(id)))
-        : []
-      const slvIds = Array.isArray(s.slaveIds) ? s.slaveIds.filter(Boolean) : []
-      s.deviceIds = Array.isArray(s.deviceIds) ? s.deviceIds.filter(Boolean) : []
-      s.slaveIds = Array.isArray(s.slaveIds) ? s.slaveIds.filter(Boolean) : []
-
-      if (devIds.length || slvIds.length) {
-        s.valueKw = await sumLoadsForSlavesAndDevices(devIds, slvIds)
-        s.liveDerived = true
-      } else {
-        s.valueKw = 0
-        s.derived = false
-      }
-    }
-
-    // Sites: every source belongs to one, defaulting to the default site
-    const sites = normaliseSites(config.sites)
-    const defaultSiteId = (sites.find((s) => s.isDefault) || sites[0]).id
-    const siteById = new Map(sites.map((s) => [s.id, s]))
-    for (const s of sources) {
-      if (!s.siteId || !siteById.has(s.siteId)) s.siteId = defaultSiteId
-      s.siteName = siteById.get(s.siteId).name
-    }
-
-    const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100
-    const siteTotals = {}
-    for (const site of sites) siteTotals[site.id] = 0
-    const typeTotals = {}
-    for (const s of sources) {
-      const kw = Number(s.valueKw) || 0
-      siteTotals[s.siteId] = (siteTotals[s.siteId] || 0) + kw
-      const type = s.type || s.id || 'custom'
-      typeTotals[type] = (typeTotals[type] || 0) + kw
-    }
-    for (const k of Object.keys(siteTotals)) siteTotals[k] = round2(siteTotals[k])
-    for (const k of Object.keys(typeTotals)) typeTotals[k] = round2(typeTotals[k])
-
-    // Total Organization Load: exact sum of active supply sources
-    const totalLoadKw = Math.round(
-      sources.reduce((sum, s) => sum + (Number(s.valueKw) || 0), 0) * 100
-    ) / 100
-
-    const solarKw = Number(sources.find((s) => s.type === 'solar' || s.id === 'solar')?.valueKw) || 0
-    const gridKw = Number(sources.find((s) => s.type === 'grid' || s.id === 'grid')?.valueKw) || 0
-
-    const SOLAR_PEAK_SUN_HOURS = 5.5
-    const TARIFF_PKR = 28
-    const liveDailyKWh = +(solarKw * SOLAR_PEAK_SUN_HOURS).toFixed(1)
-    const effectiveSavings = (config.savings && (Number(config.savings.daily) > 0 || Number(config.savings.dailyKWh) > 0))
-      ? config.savings
-      : {
-          daily: Math.round(liveDailyKWh * TARIFF_PKR),
-          weekly: Math.round(liveDailyKWh * 7 * TARIFF_PKR),
-          monthly: Math.round(liveDailyKWh * 30 * TARIFF_PKR),
-          dailyKWh: liveDailyKWh,
-          unit: 'PKR',
-        }
-
-    res.json({
-      success: true,
-      data: {
-        sources,
-        sites,
-        siteTotals,
-        typeTotals,
-        savings: effectiveSavings,
-        groups: mappedGroups,
-        totalLoadKw,
-        solarKw,
-        gridKw,
-      },
-    })
+    res.json({ success: true, data: await buildPowerFlowData(req, orgId, config) })
   } catch (err) { next(err) }
 }
 
@@ -612,7 +622,7 @@ const updatePowerFlow = async (req, res, next) => {
 
     const { sources, sites, savings } = req.body
     const nextSites = sites !== undefined ? normaliseSites(sites) : undefined
-    const data = await prisma.powerFlowConfig.upsert({
+    const config = await prisma.powerFlowConfig.upsert({
       where: { organizationId: orgId },
       create: {
         organizationId: orgId,
@@ -626,7 +636,9 @@ const updatePowerFlow = async (req, res, next) => {
         savings: savings !== undefined ? savings : undefined,
       },
     })
-    res.json({ success: true, data })
+    // Return the same fully populated shape a read would, so the client can
+    // render live totals straight from the save response.
+    res.json({ success: true, data: await buildPowerFlowData(req, orgId, config) })
   } catch (err) { next(err) }
 }
 
