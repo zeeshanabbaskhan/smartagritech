@@ -7,8 +7,9 @@ import Modal from '../../components/ui/Modal'
 import { TextInput } from '../../components/ui/FormFields'
 import DashboardTelemetry from '../../components/dashboard/DashboardTelemetry'
 import PowerFlowMindMap from '../../components/ui/PowerFlowMindMap'
-import { Cpu, AlertTriangle, Zap, CheckCircle, Users, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Cpu, AlertTriangle, Zap, CheckCircle, Users, ChevronLeft, ChevronRight, Activity, BarChart3 } from 'lucide-react'
 import DeviceSlaveMetricsPanel from '../../components/shared/DeviceSlaveMetricsPanel'
+import LoadAnalyticsPanel from '../../components/shared/LoadAnalyticsPanel'
 import { Skeleton } from 'boneyard-js/react'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
@@ -42,6 +43,8 @@ export default function OrgDashboard() {
   const [orgUsers, setOrgUsers] = useState([])
   const [openGroupId, setOpenGroupId] = useState(null)
   const [selectedSlaveDetails, setSelectedSlaveDetails] = useState(null)
+  const [showGroupAnalytics, setShowGroupAnalytics] = useState(false)
+  const [showSlaveAnalytics, setShowSlaveAnalytics] = useState(false)
   const [editGroupId, setEditGroupId] = useState(null)
   const [editOpen, setEditOpen] = useState(false)
   const [editForm, setEditForm] = useState(EMPTY_GROUP_FORM)
@@ -275,14 +278,50 @@ export default function OrgDashboard() {
     [openGroup, liveDevices]
   )
 
+  const openGroupMemberSlaves = useMemo(() => {
+    if (!openGroup) return []
+    const items = openGroup.slaves?.length ? openGroup.slaves : openGroup.slaveIds || []
+    return items.map((item) => {
+      const sId = typeof item === 'string' ? item : item.id
+      const slaveObj = typeof item === 'object' ? item : openGroup.slaves?.find((s) => s.id === sId)
+      let foundSlave = slaveObj
+      let parentDev = liveDevices.find((d) => d.id === slaveObj?.deviceId)
+      if (!foundSlave || !parentDev) {
+        for (const d of liveDevices) {
+          const sl = (d.slaves || []).find((s) => s.id === sId)
+          if (sl) {
+            foundSlave = sl
+            parentDev = d
+            break
+          }
+        }
+      }
+      const name = foundSlave?.name || 'Slave'
+      const devName = parentDev?.name || foundSlave?.deviceName || 'Device'
+      const devId = parentDev?.id || slaveObj?.deviceId || foundSlave?.deviceId || (openGroup?.deviceIds?.length === 1 ? openGroup.deviceIds[0] : null)
+      const isOff = parentDev ? isOffline(parentDev) : false
+      return {
+        id: sId,
+        name,
+        deviceId: devId,
+        deviceName: devName,
+        isOff,
+      }
+    })
+  }, [openGroup, liveDevices])
+
   const handleOpenGroup = (groupId) => {
     setSelectedSlaveDetails(null)
+    setShowGroupAnalytics(false)
+    setShowSlaveAnalytics(false)
     setOpenGroupId(groupId)
   }
 
   const closeGroupDetails = () => {
     setOpenGroupId(null)
     setSelectedSlaveDetails(null)
+    setShowGroupAnalytics(false)
+    setShowSlaveAnalytics(false)
   }
 
   const closeEditGroup = () => {
@@ -1009,16 +1048,35 @@ export default function OrgDashboard() {
           <Modal
             open={openGroup !== null && !editOpen}
             onClose={closeGroupDetails}
-            size={selectedSlaveDetails ? 'xl' : 'lg'}
+            size={showGroupAnalytics || showSlaveAnalytics || selectedSlaveDetails ? 'xl' : 'lg'}
             title={
-              selectedSlaveDetails
+              showGroupAnalytics
+                ? `${openGroup?.name || 'Group'} — Combined Load Analytics`
+                : showSlaveAnalytics && selectedSlaveDetails
+                ? `${selectedSlaveDetails.slaveName} — Load Analytics`
+                : selectedSlaveDetails
                 ? `${selectedSlaveDetails.slaveName} — Data Node Details`
                 : openGroup
                 ? `${openGroup.name} — Members`
                 : 'Members'
             }
           >
-            {selectedSlaveDetails ? (
+            {showGroupAnalytics ? (
+              <LoadAnalyticsPanel
+                mode="group"
+                group={openGroup}
+                memberSlaves={openGroupMemberSlaves}
+                currentLiveKw={openGroup?.loadKw ?? openGroup?.load ?? 0}
+                onBack={() => setShowGroupAnalytics(false)}
+              />
+            ) : showSlaveAnalytics && selectedSlaveDetails ? (
+              <LoadAnalyticsPanel
+                mode="slave"
+                slave={selectedSlaveDetails}
+                currentLiveKw={0}
+                onBack={() => setShowSlaveAnalytics(false)}
+              />
+            ) : selectedSlaveDetails ? (
               <div className="space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-surface-200 dark:border-surface-800">
                   <button
@@ -1028,8 +1086,15 @@ export default function OrgDashboard() {
                   >
                     <ChevronLeft size={14} /> Back to {openGroup?.name || 'Group'}
                   </button>
-                  <div className="flex items-center gap-3">
-                    <div className="text-right">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowSlaveAnalytics(true)}
+                      className="btn-primary text-xs flex items-center gap-1.5 py-1 px-3"
+                    >
+                      <Activity size={13} /> Total Slave Load / Analytics
+                    </button>
+                    <div className="text-right pl-2 border-l border-surface-200 dark:border-surface-800">
                       <span className="text-[10px] text-surface-400 font-bold uppercase block">Parent Device</span>
                       <span className="text-xs font-bold text-surface-800 dark:text-surface-100">{selectedSlaveDetails.deviceName}</span>
                     </div>
@@ -1049,32 +1114,37 @@ export default function OrgDashboard() {
               </p>
             ) : (
               <div className="space-y-4">
+                {/* Total Group Load & Combined Analytics Card */}
+                <div className="p-3 bg-gradient-to-r from-primary-500/10 via-purple-500/10 to-transparent dark:from-primary-500/20 dark:via-purple-500/20 rounded-xl border border-primary-500/20 flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-lg bg-primary-600/10 dark:bg-primary-400/10 flex items-center justify-center text-primary-600 dark:text-primary-400">
+                      <Zap size={18} />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-surface-400 block">Total Group Load</span>
+                      <p className="text-base font-black text-surface-900 dark:text-surface-100">
+                        {openGroup?.loadKw ?? openGroup?.load ?? 0} <span className="text-xs font-semibold text-surface-400">kW</span>
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowGroupAnalytics(true)}
+                    className="btn-primary text-xs flex items-center gap-1.5 py-1.5 px-3"
+                  >
+                    <Activity size={13} /> Total Load / Combined Analytics
+                  </button>
+                </div>
+
                 {/* Slaves section if present */}
-                {(openGroup?.slaveIds?.length > 0 || openGroup?.slaves?.length > 0) && (
+                {openGroupMemberSlaves.length > 0 && (
                   <div>
                     <p className="text-xs font-bold text-surface-500 uppercase tracking-wider mb-2">
-                      Linked Slaves ({openGroup.slaveIds?.length || openGroup.slaves?.length || 0})
+                      Linked Slaves ({openGroupMemberSlaves.length})
                     </p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {(openGroup.slaves?.length ? openGroup.slaves : openGroup.slaveIds || []).map((item) => {
-                        const sId = typeof item === 'string' ? item : item.id
-                        const slaveObj = typeof item === 'object' ? item : openGroup.slaves?.find((s) => s.id === sId)
-                        let foundSlave = slaveObj
-                        let parentDev = liveDevices.find((d) => d.id === slaveObj?.deviceId)
-                        if (!foundSlave || !parentDev) {
-                          for (const d of liveDevices) {
-                            const sl = (d.slaves || []).find((s) => s.id === sId)
-                            if (sl) {
-                              foundSlave = sl
-                              parentDev = d
-                              break
-                            }
-                          }
-                        }
-                        const name = foundSlave?.name || 'Slave'
-                        const devName = parentDev?.name || foundSlave?.deviceName || 'Device'
-                        const devId = parentDev?.id || slaveObj?.deviceId || foundSlave?.deviceId || (openGroup?.deviceIds?.length === 1 ? openGroup.deviceIds[0] : null)
-                        const isOff = parentDev ? isOffline(parentDev) : false
+                      {openGroupMemberSlaves.map((slaveItem) => {
+                        const { id: sId, name, deviceId: devId, deviceName: devName, isOff } = slaveItem
                         return (
                           <div
                             key={sId}
@@ -1119,7 +1189,7 @@ export default function OrgDashboard() {
                 {/* Devices section if present */}
                 {openGroupDevices.length > 0 && (
                   <div>
-                    {(openGroup?.slaveIds?.length > 0 || openGroup?.slaves?.length > 0) && (
+                    {openGroupMemberSlaves.length > 0 && (
                       <p className="text-xs font-bold text-surface-500 uppercase tracking-wider mb-2">
                         Linked Devices ({openGroupDevices.length})
                       </p>

@@ -35,7 +35,7 @@ function labelFor(row) {
     .replace(/([a-z])([A-Z])/g, '$1 $2')
     .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
   if (spaced !== n && !/^R[0-9]+$/i.test(n)) return spaced
-  return row.registerAddress || n || '—'
+  return n || '—'
 }
 
 /** Legacy cfsmartems.com display order per slave. */
@@ -276,7 +276,6 @@ export default function DeviceSlaveMetricsPanel({
           <table className="w-full text-sm">
             <thead className="bg-surface-50 dark:bg-surface-950 text-surface-500">
               <tr>
-                <th className="text-left px-4 py-3 font-semibold">Register</th>
                 <th className="text-left px-4 py-3 font-semibold">Variable Name</th>
                 <th className="text-left px-4 py-3 font-semibold">Current Value</th>
                 <th className="text-left px-4 py-3 font-semibold">Unit</th>
@@ -286,7 +285,6 @@ export default function DeviceSlaveMetricsPanel({
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id} className="border-t border-surface-100 dark:border-surface-800">
-                  <td className="px-4 py-2.5 font-mono text-xs text-surface-500">{r.registerAddress || '—'}</td>
                   <td className="px-4 py-2.5 font-medium text-surface-800 dark:text-surface-100">
                     {labelFor(r)}
                   </td>
