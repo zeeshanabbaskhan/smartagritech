@@ -78,7 +78,7 @@ export default function OrgDashboard() {
     return { ...orgStats, activeAlarms }
   }, [])
 
-  const { data: powerFlow, reload: reloadPowerFlow } = useFetch(async () => {
+  const { data: powerFlow, reload: reloadPowerFlow, setData: setPowerFlow } = useFetch(async () => {
     const res = await emsApi.getPowerFlow()
     const payload = one(res) || {}
     const sources = Array.isArray(payload.sources) ? payload.sources : []
@@ -99,6 +99,7 @@ export default function OrgDashboard() {
       : []
     return {
       sources,
+      sites: Array.isArray(payload.sites) ? payload.sites : [],
       savings: payload.savings || null,
       groups,
       totalLoadKw: Number(payload.totalLoadKw) || 0,
@@ -572,21 +573,31 @@ export default function OrgDashboard() {
         iconIdx: s.iconIdx,
         valueKw: Number(s.valueKw) || 0,
       }))
-      await emsApi.updatePowerFlow({ sources: toSave, savings: powerFlow?.savings })
-      reloadPowerFlow()
+      const res = await emsApi.updatePowerFlow({ sources: toSave, savings: powerFlow?.savings })
+      const updated = one(res) || {}
+      if (Array.isArray(updated.sources)) {
+        setPowerFlow((prev) => (prev ? { ...prev, sources: updated.sources } : prev))
+      }
+      await reloadPowerFlow()
     } catch (e) {
       showToast(e.message || 'Failed to update power flow', 'error')
+      throw e
     }
   }
 
   async function handleSitesChange(sites) {
     try {
-      await emsApi.updatePowerFlow({
+      const res = await emsApi.updatePowerFlow({
         sites: (sites || []).map((s) => ({ id: s.id, name: s.name, isDefault: !!s.isDefault })),
       })
-      reloadPowerFlow()
+      const updated = one(res) || {}
+      if (Array.isArray(updated.sites)) {
+        setPowerFlow((prev) => (prev ? { ...prev, sites: updated.sites } : prev))
+      }
+      await reloadPowerFlow()
     } catch (e) {
       showToast(e.message || 'Failed to update sites', 'error')
+      throw e
     }
   }
 

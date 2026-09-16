@@ -30,7 +30,7 @@ const DEFAULT_SITES = [
   { id: 'site-1', name: 'Site 1', isDefault: true },
   { id: 'site-2', name: 'Site 2', isDefault: false },
 ]
-const EMPTY_SOURCE_FORM = { name: '', type: 'custom', deviceIds: [], slaveIds: [], siteId: 'site-1' }
+const EMPTY_SOURCE_FORM = { name: '', type: '', deviceIds: [], slaveIds: [], siteId: 'site-1' }
 
 function downloadCSV(filename, rows) {
   const content = rows.map((r) => r.join(',')).join('\n')
@@ -125,9 +125,12 @@ export default function PowerFlowMindMap({
   const [sourceForm, setSourceForm] = useState(EMPTY_SOURCE_FORM)
   const [renamingSiteId, setRenamingSiteId] = useState(null)
   const [renameValue, setRenameValue] = useState('')
+  const [isSaving, setIsSaving] = useState(false)
 
-  useEffect(() => { setLocalSources(sources) }, [sources])
-  useEffect(() => { setLocalSites(sites.length ? sites : DEFAULT_SITES) }, [sites])
+  // While a save is in flight, keep the optimistic local state — an intermediate
+  // poll of the parent's props would otherwise flash the pre-save values back in.
+  useEffect(() => { if (!isSaving) setLocalSources(sources) }, [sources, isSaving])
+  useEffect(() => { if (!isSaving) setLocalSites(sites.length ? sites : DEFAULT_SITES) }, [sites, isSaving])
 
   const defaultSiteId = (localSites.find((s) => s.isDefault) || localSites[0] || DEFAULT_SITES[0]).id
 
@@ -163,14 +166,28 @@ export default function PowerFlowMindMap({
     }))
   }, [scopedSources])
 
-  function commitSources(next) {
-    setLocalSources(next)
-    onSourcesChange?.(next)
+  async function commitSources(next) {
+    setIsSaving(true)
+    try {
+      await onSourcesChange?.(next)
+      setLocalSources(next)
+    } catch {
+      // parent surfaces the error; keep the last confirmed state
+    } finally {
+      setIsSaving(false)
+    }
   }
 
-  function commitSites(next) {
-    setLocalSites(next)
-    onSitesChange?.(next)
+  async function commitSites(next) {
+    setIsSaving(true)
+    try {
+      await onSitesChange?.(next)
+      setLocalSites(next)
+    } catch {
+      // parent surfaces the error; keep the last confirmed state
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   // ---- Sites -------------------------------------------------------------
@@ -194,18 +211,18 @@ export default function PowerFlowMindMap({
     setRenameValue('')
   }
 
-  function deleteSite(site) {
+  async function deleteSite(site) {
     if (site.isDefault || localSites.length <= 1) return
     const remaining = localSites.filter((s) => s.id !== site.id)
     const fallback = (remaining.find((s) => s.isDefault) || remaining[0]).id
-    commitSites(remaining)
+    await commitSites(remaining)
     // Re-home the deleted site's sources so no kW is lost from the org total
-    commitSources(localSources.map((s) => (s.siteId === site.id ? { ...s, siteId: fallback } : s)))
+    await commitSources(localSources.map((s) => (s.siteId === site.id ? { ...s, siteId: fallback } : s)))
   }
 
   // ---- Sources -----------------------------------------------------------
   function openCreateSource(siteId) {
-    setSourceForm({ ...EMPTY_SOURCE_FORM, siteId: siteId || defaultSiteId })
+    setSourceForm({ ...EMPTY_SOURCE_FORM, type: '', siteId: siteId || defaultSiteId })
     setSourceModal('create')
   }
 
@@ -243,8 +260,9 @@ export default function PowerFlowMindMap({
     }))
   }
 
-  function saveSourceForm() {
+  async function saveSourceForm() {
     if (!sourceForm.name.trim()) return
+    if (!sourceForm.type) return
     const hasLinked = sourceForm.deviceIds.length > 0 || (sourceForm.slaveIds && sourceForm.slaveIds.length > 0)
     if (!hasLinked) return
 
@@ -252,12 +270,13 @@ export default function PowerFlowMindMap({
     const isBuiltin = BUILTIN_TYPES.includes(type)
     const siteId = sourceForm.siteId || defaultSiteId
 
+    let next
     if (sourceModal === 'create') {
       const idx = localSources.filter((s) => !BUILTIN_TYPES.includes(s.type || s.id)).length
       const grad = CUSTOM_GRADIENTS[idx % CUSTOM_GRADIENTS.length]
       // A type may now exist once per site, so only the first builtin keeps the bare id
       const idTaken = localSources.some((s) => s.id === type)
-      commitSources([
+      next = [
         ...localSources,
         {
           id: isBuiltin && !idTaken ? type : `${isBuiltin ? type : 'custom'}_${Date.now()}`,
@@ -267,14 +286,16 @@ export default function PowerFlowMindMap({
           deviceIds: [...sourceForm.deviceIds],
           slaveIds: [...(sourceForm.slaveIds || [])],
           valueKw: 0,
-          from: isBuiltin ? undefined : grad.from,
-          to: isBuiltin ? undefined : grad.to,
+          // Builtin types keep their own identity gradient; only custom sources
+          // get a rotating palette entry and icon.
+          from: isBuiltin ? BUILTIN_META[type].from : grad.from,
+          to: isBuiltin ? BUILTIN_META[type].to : grad.to,
           iconIdx: isBuiltin ? undefined : idx % CUSTOM_ICONS.length,
         },
-      ])
+      ]
     } else {
       const target = sourceModal
-      commitSources(localSources.map((s) => (
+      next = localSources.map((s) => (
         s.id === target.id
           ? {
               ...s,
@@ -285,9 +306,19 @@ export default function PowerFlowMindMap({
               slaveIds: [...(sourceForm.slaveIds || [])],
             }
           : s
-      )))
+      ))
     }
-    closeSourceModal()
+
+    setIsSaving(true)
+    try {
+      await onSourcesChange?.(next)
+      setLocalSources(next)
+      closeSourceModal()
+    } catch {
+      // parent surfaces the error; leave the modal open so the edit isn't lost
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   function deleteSource(id) {
@@ -396,6 +427,7 @@ export default function PowerFlowMindMap({
   const editingBuiltin = sourceModal && sourceModal !== 'create'
     && BUILTIN_TYPES.includes(sourceModal.type || sourceModal.id)
   const canSaveSource = sourceForm.name.trim()
+    && Boolean(sourceForm.type)
     && ((sourceForm.deviceIds?.length || 0) + (sourceForm.slaveIds?.length || 0) > 0)
 
   const [currentTime, setCurrentTime] = useState(new Date())
@@ -806,10 +838,10 @@ export default function PowerFlowMindMap({
             <button
               type="button"
               className="btn-primary"
-              disabled={!canSaveSource}
+              disabled={!canSaveSource || isSaving}
               onClick={saveSourceForm}
             >
-              {sourceModal === 'create' ? 'Add Source' : 'Save'}
+              {isSaving ? 'Saving...' : (sourceModal === 'create' ? 'Add Source' : 'Save')}
             </button>
           </>
         }
@@ -836,10 +868,11 @@ export default function PowerFlowMindMap({
             disabled={editingBuiltin}
             onChange={(e) => setSourceForm((f) => ({ ...f, type: e.target.value }))}
             options={[
-              { value: 'custom', label: 'Custom source' },
+              { value: '', label: 'Select source type...' },
               { value: 'solar', label: 'Solar' },
+              { value: 'grid', label: 'Grid / Wapda' },
               { value: 'generator', label: 'Generator' },
-              { value: 'grid', label: 'Grid' },
+              { value: 'custom', label: 'Custom' },
             ]}
           />
           <div>
