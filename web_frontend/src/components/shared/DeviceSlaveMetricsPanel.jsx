@@ -66,6 +66,8 @@ function sortLegacy(a, b) {
  */
 export default function DeviceSlaveMetricsPanel({
   deviceId,
+  slaveId = null,
+  showTabs = true,
   switchOn = true,
   compact = false,
   className = '',
@@ -74,21 +76,21 @@ export default function DeviceSlaveMetricsPanel({
   refreshToken = 0,
 }) {
   const [slaves, setSlaves] = useState([])
-  const [activeSlaveId, setActiveSlaveId] = useState(null)
+  const [activeSlaveId, setActiveSlaveId] = useState(slaveId)
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const socketTimerRef = useRef(null)
 
-  const loadSlaveData = useCallback(async (slaveId, { silent = false } = {}) => {
-    if (!deviceId || !slaveId) {
+  const loadSlaveData = useCallback(async (targetSlaveId, { silent = false } = {}) => {
+    if (!deviceId || !targetSlaveId) {
       setRows([])
       return
     }
     if (!silent) setLoading(true)
     try {
       const [varsRes, latestRes] = await Promise.all([
-        emsApi.getDeviceVariables(deviceId, slaveId, { limit: 200 }),
-        emsApi.getLatestReadings({ deviceId, slaveId }).catch(() => null),
+        emsApi.getDeviceVariables(deviceId, targetSlaveId, { limit: 200 }),
+        emsApi.getLatestReadings({ deviceId, slaveId: targetSlaveId }).catch(() => null),
       ])
       const vars = list(varsRes)
       const latestReadings = latestToReadings(latestRes ?? {})
@@ -135,7 +137,8 @@ export default function DeviceSlaveMetricsPanel({
         const slaveList = list(await emsApi.getDeviceConfig(deviceId, { limit: 100 }))
         if (cancelled) return
         setSlaves(slaveList)
-        setActiveSlaveId(pickDefaultSlaveId(slaveList))
+        const targetId = slaveId || pickDefaultSlaveId(slaveList)
+        setActiveSlaveId(targetId)
       } catch {
         if (!cancelled) {
           setSlaves([])
@@ -147,7 +150,13 @@ export default function DeviceSlaveMetricsPanel({
       }
     })()
     return () => { cancelled = true }
-  }, [deviceId])
+  }, [deviceId, slaveId])
+
+  useEffect(() => {
+    if (slaveId) {
+      setActiveSlaveId(slaveId)
+    }
+  }, [slaveId])
 
   useEffect(() => {
     if (activeSlaveId) loadSlaveData(activeSlaveId)
@@ -199,8 +208,8 @@ export default function DeviceSlaveMetricsPanel({
 
   return (
     <div className={`space-y-4 ${className}`}>
-      {/* Slave tabs — always visible when device has slaves (legacy Data Nodes Overview) */}
-      {slaves.length > 0 && (
+      {/* Slave tabs — visible when device has slaves and showTabs is true (legacy Data Nodes Overview) */}
+      {showTabs && slaves.length > 0 && (
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <p className="text-xs font-bold text-surface-500">Data Nodes Overview</p>

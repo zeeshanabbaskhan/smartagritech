@@ -7,7 +7,8 @@ import Modal from '../../components/ui/Modal'
 import { TextInput } from '../../components/ui/FormFields'
 import DashboardTelemetry from '../../components/dashboard/DashboardTelemetry'
 import PowerFlowMindMap from '../../components/ui/PowerFlowMindMap'
-import { Cpu, AlertTriangle, Zap, CheckCircle, Users } from 'lucide-react'
+import { Cpu, AlertTriangle, Zap, CheckCircle, Users, ChevronLeft, ChevronRight } from 'lucide-react'
+import DeviceSlaveMetricsPanel from '../../components/shared/DeviceSlaveMetricsPanel'
 import { Skeleton } from 'boneyard-js/react'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
@@ -40,6 +41,7 @@ export default function OrgDashboard() {
   const [liveDevices, setLiveDevices] = useState([])
   const [orgUsers, setOrgUsers] = useState([])
   const [openGroupId, setOpenGroupId] = useState(null)
+  const [selectedSlaveDetails, setSelectedSlaveDetails] = useState(null)
   const [editGroupId, setEditGroupId] = useState(null)
   const [editOpen, setEditOpen] = useState(false)
   const [editForm, setEditForm] = useState(EMPTY_GROUP_FORM)
@@ -272,8 +274,14 @@ export default function OrgDashboard() {
     [openGroup, liveDevices]
   )
 
+  const handleOpenGroup = (groupId) => {
+    setSelectedSlaveDetails(null)
+    setOpenGroupId(groupId)
+  }
+
   const closeGroupDetails = () => {
     setOpenGroupId(null)
+    setSelectedSlaveDetails(null)
   }
 
   const closeEditGroup = () => {
@@ -606,7 +614,7 @@ export default function OrgDashboard() {
                 totalLoadKw={totalOrgLoadKw}
                 orgName={orgName}
                 onSourcesChange={handleSourcesChange}
-                onGroupClick={setOpenGroupId}
+                onGroupClick={handleOpenGroup}
                 onGroupEdit={openEditGroupById}
                 onGroupDelete={(id) => {
                   const g = groupLoads.find((x) => x.id === id)
@@ -970,10 +978,41 @@ export default function OrgDashboard() {
           <Modal
             open={openGroup !== null && !editOpen}
             onClose={closeGroupDetails}
-            size="lg"
-            title={openGroup ? `${openGroup.name} — Members` : 'Members'}
+            size={selectedSlaveDetails ? 'xl' : 'lg'}
+            title={
+              selectedSlaveDetails
+                ? `${selectedSlaveDetails.slaveName} — Data Node Details`
+                : openGroup
+                ? `${openGroup.name} — Members`
+                : 'Members'
+            }
           >
-            {openGroupDevices.length === 0 && (!openGroup?.slaves?.length && !openGroup?.slaveIds?.length) ? (
+            {selectedSlaveDetails ? (
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-surface-200 dark:border-surface-800">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedSlaveDetails(null)}
+                    className="btn-secondary text-xs flex items-center gap-1.5"
+                  >
+                    <ChevronLeft size={14} /> Back to {openGroup?.name || 'Group'}
+                  </button>
+                  <div className="flex items-center gap-3">
+                    <div className="text-right">
+                      <span className="text-[10px] text-surface-400 font-bold uppercase block">Parent Device</span>
+                      <span className="text-xs font-bold text-surface-800 dark:text-surface-100">{selectedSlaveDetails.deviceName}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <DeviceSlaveMetricsPanel
+                  deviceId={selectedSlaveDetails.deviceId}
+                  slaveId={selectedSlaveDetails.slaveId}
+                  showTabs={false}
+                  liveRefresh={true}
+                />
+              </div>
+            ) : openGroupDevices.length === 0 && (!openGroup?.slaves?.length && !openGroup?.slaveIds?.length) ? (
               <p className="text-xs text-surface-500 p-3 inset-panel">
                 This group has no devices or slaves assigned yet.
               </p>
@@ -1003,22 +1042,42 @@ export default function OrgDashboard() {
                         }
                         const name = foundSlave?.name || 'Slave'
                         const devName = parentDev?.name || foundSlave?.deviceName || 'Device'
+                        const devId = parentDev?.id || slaveObj?.deviceId || foundSlave?.deviceId || (openGroup?.deviceIds?.length === 1 ? openGroup.deviceIds[0] : null)
                         const isOff = parentDev ? isOffline(parentDev) : false
                         return (
                           <div
                             key={sId}
-                            className="p-2.5 bg-white dark:bg-surface-900 rounded-xl border border-surface-200 dark:border-surface-800 flex items-center justify-between"
+                            onClick={() => {
+                              if (devId) {
+                                setSelectedSlaveDetails({
+                                  slaveId: sId,
+                                  slaveName: name,
+                                  deviceId: devId,
+                                  deviceName: devName,
+                                })
+                              }
+                            }}
+                            className={`p-2.5 bg-white dark:bg-surface-900 rounded-xl border border-surface-200 dark:border-surface-800 flex items-center justify-between ${
+                              devId ? 'cursor-pointer hover:border-primary-500/50 hover:bg-surface-50 dark:hover:bg-surface-850 transition-all group' : ''
+                            }`}
                           >
                             <div className="flex items-center gap-2">
                               <span className="w-2 h-2 rounded-full bg-primary-500 flex-shrink-0" />
                               <div>
-                                <p className="text-xs font-bold text-surface-800 dark:text-surface-100">{name}</p>
+                                <p className="text-xs font-bold text-surface-800 dark:text-surface-100 group-hover:text-primary-600 dark:group-hover:text-primary-400 transition-colors">
+                                  {name}
+                                </p>
                                 <p className="text-[10px] text-surface-400">Device: {devName}</p>
                               </div>
                             </div>
-                            <span className={`badge ${isOff ? 'badge-neutral' : 'badge-success'} text-[9px]`}>
-                              {isOff ? 'Offline' : 'Online'}
-                            </span>
+                            <div className="flex items-center gap-2">
+                              <span className={`badge ${isOff ? 'badge-neutral' : 'badge-success'} text-[9px]`}>
+                                {isOff ? 'Offline' : 'Online'}
+                              </span>
+                              {devId && (
+                                <ChevronRight size={14} className="text-surface-400 group-hover:text-primary-500 group-hover:translate-x-0.5 transition-all" />
+                              )}
+                            </div>
                           </div>
                         )
                       })}
