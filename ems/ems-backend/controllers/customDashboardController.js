@@ -196,15 +196,17 @@ const sumLoadsForSlavesAndDevices = async (deviceIds = [], slaveIds = []) => {
       where: { id: { in: safeSlaveIds } },
       select: { id: true, deviceId: true },
     })
-    for (const s of slaves) {
-      total += await readSlaveLoadKw(s.deviceId, s.id)
-    }
+    const slaveResults = await Promise.all(
+      slaves.map((s) => readSlaveLoadKw(s.deviceId, s.id))
+    )
+    total += slaveResults.reduce((a, b) => a + b, 0)
   }
 
   if (safeDeviceIds.length) {
-    for (const id of safeDeviceIds) {
-      total += await readDeviceLoadKw(id)
-    }
+    const devResults = await Promise.all(
+      safeDeviceIds.map((id) => readDeviceLoadKw(id))
+    )
+    total += devResults.reduce((a, b) => a + b, 0)
   }
 
   return Math.round(total * 100) / 100
@@ -480,7 +482,6 @@ async function buildPowerFlowData(req, orgId, config) {
     deviceIds.forEach((id) => allDeviceIds.add(id))
     slaveRows.forEach((s) => s.slave?.deviceId && allDeviceIds.add(s.slave.deviceId))
 
-    const loadKw = await sumLoadsForSlavesAndDevices(deviceIds, slaveIds)
     mappedGroups.push({
       id: g.id,
       name: g.name,
@@ -498,10 +499,19 @@ async function buildPowerFlowData(req, orgId, config) {
         deviceStatus: s.slave?.device?.status,
         isDefault: s.slave?.isDefault,
       })),
-      loadKw,
-      load: loadKw,
+      loadKw: 0,
+      load: 0,
     })
   }
+
+  // Resolve per-group loads concurrently instead of serially per group
+  const groupLoads = await Promise.all(
+    mappedGroups.map((g) => sumLoadsForSlavesAndDevices(g.deviceIds, g.slaveIds))
+  )
+  mappedGroups.forEach((g, i) => {
+    g.loadKw = groupLoads[i]
+    g.load = groupLoads[i]
+  })
 
   let sources = Array.isArray(config.sources) ? config.sources.map((s) => ({ ...s })) : []
   // Ensure builtins exist
@@ -516,7 +526,7 @@ async function buildPowerFlowData(req, orgId, config) {
   }
 
   // Fill live kW from linked devices and slaves when present; otherwise 0 (including Grid)
-  for (const s of sources) {
+  await Promise.all(sources.map(async (s) => {
     const devIds = Array.isArray(s.deviceIds)
       ? s.deviceIds.filter((id) => id && (!allowedSet || allowedSet.has(id)))
       : []
@@ -531,7 +541,7 @@ async function buildPowerFlowData(req, orgId, config) {
       s.valueKw = 0
       s.derived = false
     }
-  }
+  }))
 
   // Sites: every source belongs to one, defaulting to the default site
   const sites = normaliseSites(config.sites)

@@ -126,6 +126,9 @@ export default function PowerFlowMindMap({
   const [renamingSiteId, setRenamingSiteId] = useState(null)
   const [renameValue, setRenameValue] = useState('')
   const [isSaving, setIsSaving] = useState(false)
+  // Tracks only the source-modal submit, so a background site save can't leave
+  // the modal button stuck in its "Saving..." state.
+  const [sourceSaving, setSourceSaving] = useState(false)
 
   // While a save is in flight, keep the optimistic local state — an intermediate
   // poll of the parent's props would otherwise flash the pre-save values back in.
@@ -202,10 +205,12 @@ export default function PowerFlowMindMap({
 
   // ---- Sites -------------------------------------------------------------
   function addSite() {
+    if (isSaving) return
     const nextSites = [
       ...localSites,
       { id: `site_${Date.now()}`, name: `Site ${localSites.length + 1}`, isDefault: false },
     ]
+    setLocalSites(nextSites)
     commitPowerFlow({ sites: nextSites, sources: localSources }).catch(() => {})
   }
 
@@ -219,6 +224,7 @@ export default function PowerFlowMindMap({
     const name = renameValue.trim()
     if (name) {
       const nextSites = localSites.map((s) => (s.id === renamingSiteId ? { ...s, name } : s))
+      setLocalSites(nextSites)
       commitPowerFlow({ sites: nextSites, sources: localSources }).catch(() => {})
     }
     setRenamingSiteId(null)
@@ -226,7 +232,7 @@ export default function PowerFlowMindMap({
   }
 
   function deleteSite(site) {
-    if (localSites.length <= 1) return
+    if (isSaving || localSites.length <= 1) return
     const remaining = localSites.filter((s) => s.id !== site.id)
     // Deleting the default site promotes the first survivor, so exactly one
     // site always stays default.
@@ -236,12 +242,15 @@ export default function PowerFlowMindMap({
     const rehomedSources = localSources.map((s) => (
       s.siteId === site.id ? { ...s, siteId: fallback } : s
     ))
+    setLocalSites(remaining)
+    setLocalSources(rehomedSources)
     commitPowerFlow({ sites: remaining, sources: rehomedSources }).catch(() => {})
   }
 
   // ---- Sources -----------------------------------------------------------
   function openCreateSource(siteId) {
     setSourceForm({ ...EMPTY_SOURCE_FORM, type: '', siteId: siteId || defaultSiteId })
+    setSourceSaving(false)
     setSourceModal('create')
   }
 
@@ -253,12 +262,14 @@ export default function PowerFlowMindMap({
       slaveIds: [...(source.slaveIds || [])],
       siteId: source.siteId || defaultSiteId,
     })
+    setSourceSaving(false)
     setSourceModal(source)
   }
 
   function closeSourceModal() {
     setSourceModal(null)
     setSourceForm(EMPTY_SOURCE_FORM)
+    setSourceSaving(false)
   }
 
   function toggleSourceDevice(id) {
@@ -329,15 +340,20 @@ export default function PowerFlowMindMap({
     }
 
     try {
+      setSourceSaving(true)
       await commitPowerFlow({ sources: next, sites: localSites })
       closeSourceModal()
     } catch {
       // parent surfaces the error; leave the modal open so the edit isn't lost
+    } finally {
+      setSourceSaving(false)
     }
   }
 
   function deleteSource(id) {
-    commitSources(localSources.filter((s) => s.id !== id))
+    const next = localSources.filter((s) => s.id !== id)
+    setLocalSources(next)
+    commitSources(next)
   }
 
   function deleteSourceFromModal() {
@@ -853,10 +869,10 @@ export default function PowerFlowMindMap({
             <button
               type="button"
               className="btn-primary"
-              disabled={!canSaveSource || isSaving}
+              disabled={!canSaveSource || sourceSaving}
               onClick={saveSourceForm}
             >
-              {isSaving ? 'Saving...' : (sourceModal === 'create' ? 'Add Source' : 'Save')}
+              {sourceSaving ? 'Saving...' : (sourceModal === 'create' ? 'Add Source' : 'Save')}
             </button>
           </>
         }

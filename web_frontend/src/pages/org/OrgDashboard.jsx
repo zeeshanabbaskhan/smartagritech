@@ -634,7 +634,6 @@ export default function OrgDashboard() {
       if (Array.isArray(updated.sources) || Array.isArray(updated.sites)) {
         setPowerFlow((prev) => (prev ? { ...prev, ...updated } : updated))
       }
-      await reloadPowerFlow()
     } catch (e) {
       showToast(e.message || 'Failed to update power flow', 'error')
       throw e
