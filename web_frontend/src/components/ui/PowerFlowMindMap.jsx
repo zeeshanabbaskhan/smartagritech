@@ -630,10 +630,11 @@ export default function PowerFlowMindMap({
               return (
                 <div
                   key={site.id}
-                  className="group/site relative flex flex-col items-center gap-2 rounded-2xl p-3 border border-surface-200 dark:border-surface-800"
+                  className="group/site relative flex flex-col items-center gap-2 rounded-2xl p-3 border border-surface-200 dark:border-surface-800 min-w-[340px]"
                 >
-                  {/* TOP — site name in its own boxed card */}
-                  <div className="rounded-2xl px-3.5 py-2 bg-white dark:bg-surface-900 border border-surface-200 dark:border-surface-800 shadow-sm flex items-center gap-2">
+                  {/* TOP — site name card + total site load */}
+                  <div className="w-full grid grid-cols-[1fr_auto_1fr] items-center px-1 pb-1">
+                  <div className="justify-self-start rounded-2xl px-3.5 py-2 bg-white dark:bg-surface-900 border border-surface-200 dark:border-surface-800 shadow-sm flex items-center gap-2">
                     {renamingSiteId === site.id ? (
                       <input
                         autoFocus
@@ -678,6 +679,27 @@ export default function PowerFlowMindMap({
                     )}
                   </div>
 
+                    {/* Styled Total Site Load Card */}
+                    <div
+                      className="justify-self-center flex items-center gap-2.5 rounded-2xl px-3.5 py-2 text-white shadow-lg"
+                      style={{
+                        background: 'linear-gradient(135deg, #6366F1 0%, #4F46E5 100%)',
+                        boxShadow: '0 4px 14px rgba(79, 70, 229, 0.45)',
+                      }}
+                    >
+                      <Zap size={15} strokeWidth={2.5} className="text-indigo-200" />
+                      <div className="leading-tight">
+                        <p className="text-[10px] font-bold opacity-80 uppercase tracking-wider">Total Site Load</p>
+                        <p className="text-sm font-black leading-tight text-white">
+                          {Number(siteTotals[site.id] || 0).toFixed(1)} <span className="text-[11px] font-semibold opacity-90">kW</span>
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Right: empty spacer balancing the left column */}
+                    <div className="justify-self-end" aria-hidden="true" />
+                  </div>
+
                   {/* MIDDLE — this site's sources */}
                   <div className="flex justify-center gap-3 flex-wrap max-w-[34rem]">
                     {siteSources.map((s, idx) => renderSourceCard(s, idx))}
@@ -691,14 +713,6 @@ export default function PowerFlowMindMap({
                         <span className="text-xs font-bold">Add Source</span>
                       </button>
                     )}
-                  </div>
-
-                  {/* BOTTOM — total site load */}
-                  <div className="rounded-2xl px-3.5 py-2 bg-surface-50 dark:bg-surface-900/60 border border-surface-200 dark:border-surface-800 flex items-center gap-2 text-xs font-bold text-surface-600 dark:text-surface-300">
-                    <span>Total {site.name} Load:</span>
-                    <span className="font-black text-primary-600">
-                      {Number(siteTotals[site.id] || 0).toFixed(1)} kW
-                    </span>
                   </div>
                 </div>
               )
