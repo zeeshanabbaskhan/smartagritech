@@ -61,6 +61,28 @@ function sortLegacy(a, b) {
   return la.localeCompare(lb)
 }
 
+const ORG_TIMEZONE = 'Asia/Karachi'
+
+export function formatFullDateTime(isoString) {
+  if (!isoString) return '—'
+  const d = new Date(isoString)
+  if (Number.isNaN(d.getTime())) return '—'
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: ORG_TIMEZONE,
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
+  }).format(d)
+}
+
+// In-memory caches for instantaneous (0ms) slave variable rendering
+const varDefinitionsCache = new Map()
+const slaveRowsCache = new Map()
+
 /**
  * Per-slave metrics — legacy-style Data Nodes tabs (Fico Furnace | Furnace Control | Main).
  */
@@ -77,8 +99,16 @@ export default function DeviceSlaveMetricsPanel({
 }) {
   const [slaves, setSlaves] = useState([])
   const [activeSlaveId, setActiveSlaveId] = useState(slaveId)
-  const [rows, setRows] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [rows, setRows] = useState(() => {
+    if (slaveId && slaveRowsCache.has(slaveId)) {
+      return slaveRowsCache.get(slaveId)
+    }
+    return []
+  })
+  const [loading, setLoading] = useState(() => {
+    if (slaveId && slaveRowsCache.has(slaveId)) return false
+    return true
+  })
   const socketTimerRef = useRef(null)
 
   const loadSlaveData = useCallback(async (targetSlaveId, { silent = false } = {}) => {
@@ -86,19 +116,34 @@ export default function DeviceSlaveMetricsPanel({
       setRows([])
       return
     }
-    if (!silent) setLoading(true)
+    const hasCache = slaveRowsCache.has(targetSlaveId)
+    if (!silent && !hasCache) {
+      setLoading(true)
+    }
+
     try {
-      const [varsRes, latestRes] = await Promise.all([
-        emsApi.getDeviceVariables(deviceId, targetSlaveId, { limit: 200 }),
-        emsApi.getLatestReadings({ deviceId, slaveId: targetSlaveId }).catch(() => null),
-      ])
-      const vars = list(varsRes)
+      // 1. Fetch variable metadata (or use cached definitions)
+      const varsPromise = varDefinitionsCache.has(targetSlaveId)
+        ? Promise.resolve(varDefinitionsCache.get(targetSlaveId))
+        : emsApi.getDeviceVariables(deviceId, targetSlaveId, { limit: 200 })
+            .then((res) => {
+              const listVars = list(res)
+              varDefinitionsCache.set(targetSlaveId, listVars)
+              return listVars
+            })
+            .catch(() => [])
+
+      // 2. Fetch latest live readings in parallel
+      const latestPromise = emsApi.getLatestReadings({ deviceId, slaveId: targetSlaveId }).catch(() => null)
+
+      const [vars, latestRes] = await Promise.all([varsPromise, latestPromise])
+
       const latestReadings = latestToReadings(latestRes ?? {})
       const hasLiveBatch = latestReadings.length > 0
       const latestMap = Object.fromEntries(
         latestReadings.map((r) => [r.variableName, r]),
       )
-      const merged = vars.map((v) => {
+      const merged = (vars || []).map((v) => {
         const key = v.name ?? v.variableName
         const live = latestMap[key]
         const reg = v.templateVariable?.registerAddress ?? v.registerAddress ?? ''
@@ -114,11 +159,12 @@ export default function DeviceSlaveMetricsPanel({
         }
       })
       merged.sort(sortLegacy)
+      slaveRowsCache.set(targetSlaveId, merged)
       setRows(merged)
     } catch {
-      if (!silent) setRows([])
+      if (!silent && !hasCache) setRows([])
     } finally {
-      if (!silent) setLoading(false)
+      setLoading(false)
     }
   }, [deviceId])
 
@@ -130,9 +176,15 @@ export default function DeviceSlaveMetricsPanel({
       setLoading(false)
       return
     }
+
+    // If tabs are disabled and slaveId is already provided, skip querying all device config slaves
+    if (!showTabs && slaveId) {
+      setActiveSlaveId(slaveId)
+      return
+    }
+
     let cancelled = false
     ;(async () => {
-      setLoading(true)
       try {
         const slaveList = list(await emsApi.getDeviceConfig(deviceId, { limit: 100 }))
         if (cancelled) return
@@ -145,12 +197,10 @@ export default function DeviceSlaveMetricsPanel({
           setActiveSlaveId(null)
           setRows([])
         }
-      } finally {
-        if (!cancelled) setLoading(false)
       }
     })()
     return () => { cancelled = true }
-  }, [deviceId, slaveId])
+  }, [deviceId, slaveId, showTabs])
 
   useEffect(() => {
     if (slaveId) {
@@ -159,7 +209,15 @@ export default function DeviceSlaveMetricsPanel({
   }, [slaveId])
 
   useEffect(() => {
-    if (activeSlaveId) loadSlaveData(activeSlaveId)
+    if (activeSlaveId) {
+      if (slaveRowsCache.has(activeSlaveId)) {
+        setRows(slaveRowsCache.get(activeSlaveId))
+        setLoading(false)
+        loadSlaveData(activeSlaveId, { silent: true })
+      } else {
+        loadSlaveData(activeSlaveId, { silent: false })
+      }
+    }
   }, [activeSlaveId, loadSlaveData])
 
   useEffect(() => {
@@ -294,8 +352,8 @@ export default function DeviceSlaveMetricsPanel({
                       : '—'}
                   </td>
                   <td className="px-4 py-2.5 text-surface-500">{r.unit || '—'}</td>
-                  <td className="px-4 py-2.5 text-surface-500 text-xs">
-                    {r.lastUpdatedAt ? new Date(r.lastUpdatedAt).toLocaleString() : '—'}
+                  <td className="px-4 py-2.5 text-surface-500 text-xs font-mono">
+                    {r.lastUpdatedAt ? formatFullDateTime(r.lastUpdatedAt) : '—'}
                   </td>
                 </tr>
               ))}

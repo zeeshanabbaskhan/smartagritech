@@ -21,6 +21,8 @@ import {
 } from 'lucide-react'
 import emsApi from '../../api/emsApi'
 
+const ORG_TIMEZONE = 'Asia/Karachi'
+
 function pad(n) {
   return String(n).padStart(2, '0')
 }
@@ -32,8 +34,17 @@ function toYmd(d) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }
 
-function startOfDay(d) {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate())
+function getOrgNow() {
+  const now = new Date()
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: ORG_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
+  const ymd = formatter.format(now)
+  const [y, m, d] = ymd.split('-').map(Number)
+  return new Date(y, m - 1, d)
 }
 
 function addDays(d, n) {
@@ -53,8 +64,7 @@ const PRESETS = [
 ]
 
 function getPresetRange(presetId) {
-  const now = new Date()
-  const today = startOfDay(now)
+  const today = getOrgNow()
   switch (presetId) {
     case 'today':
       return { from: toYmd(today), to: toYmd(today) }
@@ -89,14 +99,33 @@ function formatChartTime(isoString, isMultiDay) {
   const d = new Date(isoString)
   if (Number.isNaN(d.getTime())) return ''
   if (isMultiDay) {
-    return d.toLocaleString([], {
+    return new Intl.DateTimeFormat('en-GB', {
+      timeZone: ORG_TIMEZONE,
       month: 'short',
       day: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
-    })
+      hour12: true,
+    }).format(d)
   }
-  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: ORG_TIMEZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  }).format(d)
+}
+
+function formatTooltipDate(isoString) {
+  if (!isoString) return ''
+  const d = new Date(isoString)
+  if (Number.isNaN(d.getTime())) return ''
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: ORG_TIMEZONE,
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+  }).format(d)
 }
 
 /**
@@ -605,7 +634,7 @@ export default function LoadAnalyticsPanel({
                     const row = payload[0].payload
                     return (
                       <div className="p-2.5 bg-surface-900 text-white rounded-lg shadow-xl border border-surface-700 text-xs space-y-1 max-w-xs">
-                        <p className="text-[10px] text-surface-400 font-mono">{label} ({new Date(row.timestamp).toLocaleDateString()})</p>
+                        <p className="text-[10px] text-surface-400 font-mono">{label} ({formatTooltipDate(row.timestamp)})</p>
                         <p className="text-sm font-bold text-primary-400">
                           {mode === 'group' ? 'Combined Load: ' : 'Load: '}
                           {row.loadKw} kW
