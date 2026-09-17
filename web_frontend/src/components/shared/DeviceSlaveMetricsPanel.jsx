@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { RefreshCw } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
 import { latestToReadings } from '../../utils/sensorReadings'
 import { formatMetricValue } from './dashboardFormatters'
@@ -256,7 +257,7 @@ export default function DeviceSlaveMetricsPanel({
     )
   }
 
-  if (!slaves.length && !loading) {
+  if (showTabs && !slaves.length && !loading) {
     return (
       <p className="text-sm text-surface-500 py-4 text-center">
         No data nodes configured for this device.
@@ -306,11 +307,14 @@ export default function DeviceSlaveMetricsPanel({
         </div>
       )}
 
-      {loading ? (
-        <p className="text-sm text-surface-500 py-6 text-center">Loading readings for {activeSlave?.name ?? '…'}…</p>
+      {loading && rows.length === 0 ? (
+        <div className="h-48 flex flex-col items-center justify-center gap-2 text-surface-400">
+          <RefreshCw size={24} className="animate-spin text-primary-500" />
+          <p className="text-xs">Loading variables...</p>
+        </div>
       ) : rows.length === 0 ? (
         <p className="text-sm text-surface-500 py-6 text-center">
-          No variables for <strong>{activeSlave?.name}</strong> yet.
+          No variables configured for this data node yet.
         </p>
       ) : compact ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
