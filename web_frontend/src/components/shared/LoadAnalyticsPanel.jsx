@@ -20,8 +20,10 @@ import {
   RefreshCw,
 } from 'lucide-react'
 import emsApi from '../../api/emsApi'
+import { powerReadingToKw } from '../../utils/deviceMetrics'
 
 const ORG_TIMEZONE = 'Asia/Karachi'
+const ORG_OFFSET_HOURS = 5 // Pakistan is UTC+5
 
 function pad(n) {
   return String(n).padStart(2, '0')
@@ -45,6 +47,21 @@ function getOrgNow() {
   const ymd = formatter.format(now)
   const [y, m, d] = ymd.split('-').map(Number)
   return new Date(y, m - 1, d)
+}
+
+/**
+ * Returns ISO strings for the exact start and end of the Pakistan day range in UTC.
+ * Ensures identical results regardless of browser/laptop timezone.
+ */
+function getDayBoundsUtc(dateFromStr, dateToStr) {
+  if (!dateFromStr || !dateToStr) return { startDate: dateFromStr, endDate: dateToStr }
+  const [y1, m1, d1] = dateFromStr.split('-').map(Number)
+  const [y2, m2, d2] = dateToStr.split('-').map(Number)
+  // PKT is UTC+5 -> 00:00:00 PKT is 19:00:00 UTC of previous day (0 - 5 = -5)
+  const startUtc = new Date(Date.UTC(y1, m1 - 1, d1, 0 - ORG_OFFSET_HOURS, 0, 0, 0))
+  // PKT is UTC+5 -> 23:59:59.999 PKT is 18:59:59.999 UTC of same day (23 - 5 = 18)
+  const endUtc = new Date(Date.UTC(y2, m2 - 1, d2, 23 - ORG_OFFSET_HOURS, 59, 59, 999))
+  return { startDate: startUtc.toISOString(), endDate: endUtc.toISOString() }
 }
 
 function addDays(d, n) {
@@ -212,9 +229,8 @@ export default function LoadAnalyticsPanel({
       }
       setError(null)
 
-      // Send standard date bounds (YYYY-MM-DD) so backend parses uniform database timestamps across all client timezones
-      const startDate = dateFrom
-      const endDate = `${dateTo}T23:59:59.999`
+      // Compute exact UTC start/end timestamps covering the Pakistan calendar day (UTC+5)
+      const { startDate, endDate } = getDayBoundsUtc(dateFrom, dateTo)
 
       try {
         if (mode === 'slave') {
@@ -235,11 +251,12 @@ export default function LoadAnalyticsPanel({
           })
           const points = Array.isArray(res?.data) ? res.data : []
           const formatted = points.map((p) => {
-            const val = Math.abs(Number(p.value) || 0)
+            const val = powerReadingToKw('ActivePower', p.value)
+            const safeVal = Number.isFinite(val) ? Math.abs(val) : 0
             return {
               timestamp: p.timestamp,
               time: formatChartTime(p.timestamp, isMultiDay),
-              loadKw: +val.toFixed(2),
+              loadKw: +safeVal.toFixed(2),
             }
           })
 
@@ -294,7 +311,8 @@ export default function LoadAnalyticsPanel({
             points.forEach((p) => {
               const ts = new Date(p.timestamp).getTime()
               if (Number.isNaN(ts)) return
-              const val = Math.abs(Number(p.value) || 0)
+              const rawKw = powerReadingToKw('ActivePower', p.value)
+              const val = Number.isFinite(rawKw) ? Math.abs(rawKw) : 0
 
               if (!timeMap.has(ts)) {
                 timeMap.set(ts, {

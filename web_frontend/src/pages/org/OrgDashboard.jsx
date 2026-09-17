@@ -281,34 +281,47 @@ export default function OrgDashboard() {
   const openGroupMemberSlaves = useMemo(() => {
     if (!openGroup) return []
     const items = openGroup.slaves?.length ? openGroup.slaves : openGroup.slaveIds || []
-    return items.map((item) => {
-      const sId = typeof item === 'string' ? item : item.id
-      const slaveObj = typeof item === 'object' ? item : openGroup.slaves?.find((s) => s.id === sId)
-      let foundSlave = slaveObj
-      let parentDev = liveDevices.find((d) => d.id === slaveObj?.deviceId)
-      if (!foundSlave || !parentDev) {
-        for (const d of liveDevices) {
-          const sl = (d.slaves || []).find((s) => s.id === sId)
-          if (sl) {
-            foundSlave = sl
-            parentDev = d
-            break
+    if (items.length > 0) {
+      return items.map((item) => {
+        const sId = typeof item === 'string' ? item : item.id
+        const slaveObj = typeof item === 'object' ? item : openGroup.slaves?.find((s) => s.id === sId)
+        let foundSlave = slaveObj
+        let parentDev = liveDevices.find((d) => d.id === slaveObj?.deviceId)
+        if (!foundSlave || !parentDev) {
+          for (const d of liveDevices) {
+            const sl = (d.slaves || []).find((s) => s.id === sId)
+            if (sl) {
+              foundSlave = sl
+              parentDev = d
+              break
+            }
           }
         }
-      }
-      const name = foundSlave?.name || 'Slave'
-      const devName = parentDev?.name || foundSlave?.deviceName || 'Device'
-      const devId = parentDev?.id || slaveObj?.deviceId || foundSlave?.deviceId || (openGroup?.deviceIds?.length === 1 ? openGroup.deviceIds[0] : null)
-      const isOff = parentDev ? isOffline(parentDev) : false
-      return {
-        id: sId,
-        name,
-        deviceId: devId,
-        deviceName: devName,
-        isOff,
-      }
-    })
-  }, [openGroup, liveDevices])
+        const name = foundSlave?.name || 'Slave'
+        const devName = parentDev?.name || foundSlave?.deviceName || 'Device'
+        const devId = parentDev?.id || slaveObj?.deviceId || foundSlave?.deviceId || (openGroup?.deviceIds?.length === 1 ? openGroup.deviceIds[0] : null)
+        const isOff = parentDev ? isOffline(parentDev) : false
+        return {
+          id: sId,
+          name,
+          deviceId: devId,
+          deviceName: devName,
+          isOff,
+        }
+      })
+    }
+
+    // If no explicit slaveIds, resolve slaves from the devices in this group
+    return openGroupDevices.flatMap((d) =>
+      (d.slaves || []).map((s) => ({
+        id: s.id,
+        name: s.name || 'Slave',
+        deviceId: d.id,
+        deviceName: d.name,
+        isOff: isOffline(d),
+      }))
+    )
+  }, [openGroup, openGroupDevices, liveDevices])
 
   const handleOpenGroup = (groupId) => {
     setSelectedSlaveDetails(null)
