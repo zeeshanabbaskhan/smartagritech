@@ -1065,7 +1065,22 @@ export default function OrgDashboard() {
                 mode="group"
                 group={openGroup}
                 memberSlaves={openGroupMemberSlaves}
-                currentLiveKw={openGroup?.loadKw ?? openGroup?.load ?? 0}
+                currentLiveKw={(() => {
+                  let sum = 0
+                  for (const s of openGroupMemberSlaves) {
+                    const dev = liveDevices.find((d) => d.id === s.deviceId)
+                    if (!dev || isOffline(dev)) continue
+                    const sl = (dev.slaves || []).find((x) => x.id === s.id)
+                    if (sl?.currentKw != null && Number(sl.currentKw) > 0) {
+                      sum += Number(sl.currentKw)
+                    } else if (openGroupMemberSlaves.length === 1) {
+                      const p = readDeviceMetric(dev, 'power')
+                      if (Number.isFinite(p) && p > 0) sum += p
+                    }
+                  }
+                  if (sum > 0) return +sum.toFixed(2)
+                  return openGroup?.loadKw ?? openGroup?.load ?? 0
+                })()}
                 onBack={() => setShowGroupAnalytics(false)}
               />
             ) : showSlaveAnalytics && selectedSlaveDetails ? (

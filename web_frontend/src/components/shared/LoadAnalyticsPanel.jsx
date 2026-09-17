@@ -65,22 +65,22 @@ function getPresetRange(presetId) {
     case 'thisWeek': {
       const day = today.getDay()
       const diff = today.getDate() - day + (day === 0 ? -6 : 1) // adjust when day is sunday
-      const monday = new Date(today.setDate(diff))
-      return { from: toYmd(monday), to: toYmd(now) }
+      const monday = new Date(today.getFullYear(), today.getMonth(), diff)
+      return { from: toYmd(monday), to: toYmd(today) }
     }
     case 'last7':
-      return { from: toYmd(addDays(today, -6)), to: toYmd(now) }
+      return { from: toYmd(addDays(today, -6)), to: toYmd(today) }
     case 'thisMonth':
-      return { from: toYmd(new Date(today.getFullYear(), today.getMonth(), 1)), to: toYmd(now) }
+      return { from: toYmd(new Date(today.getFullYear(), today.getMonth(), 1)), to: toYmd(today) }
     case 'last30':
-      return { from: toYmd(addDays(today, -29)), to: toYmd(now) }
+      return { from: toYmd(addDays(today, -29)), to: toYmd(today) }
     case 'lastMonth': {
       const first = new Date(today.getFullYear(), today.getMonth() - 1, 1)
       const last = new Date(today.getFullYear(), today.getMonth(), 0)
       return { from: toYmd(first), to: toYmd(last) }
     }
     default:
-      return { from: toYmd(addDays(today, -6)), to: toYmd(now) }
+      return { from: toYmd(addDays(today, -6)), to: toYmd(today) }
   }
 }
 
@@ -124,7 +124,7 @@ export default function LoadAnalyticsPanel({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
-  // In-memory cache to make range switching instant (0ms)
+  // In-memory cache with TTL to ensure real-time consistency across all laptops and sessions
   const cacheRef = useRef({})
   const hasLoadedRef = useRef(false)
 
@@ -159,9 +159,17 @@ export default function LoadAnalyticsPanel({
     async (forceRefresh = false) => {
       if (!dateFrom || !dateTo) return
 
+      const todayYmd = toYmd(new Date())
+      const isLiveRange = dateTo >= todayYmd
+      // Active/live ranges cached for 10s to keep range-switching instant but prevent stale sessions.
+      // Past historical ranges cached for 5 minutes.
+      const CACHE_TTL_MS = isLiveRange ? 10000 : 300000
+
       const cacheKey = `${mode}:${slavesKey}:${dateFrom}:${dateTo}`
-      if (!forceRefresh && cacheRef.current[cacheKey]) {
-        const cached = cacheRef.current[cacheKey]
+      const cached = cacheRef.current[cacheKey]
+      const now = Date.now()
+
+      if (!forceRefresh && cached && (now - cached.timestamp < CACHE_TTL_MS)) {
         setChartData(cached.chartData)
         setSlaveStats(cached.slaveStats)
         setLoading(false)
@@ -175,8 +183,9 @@ export default function LoadAnalyticsPanel({
       }
       setError(null)
 
-      const startDate = new Date(`${dateFrom}T00:00:00`).toISOString()
-      const endDate = new Date(`${dateTo}T23:59:59.999`).toISOString()
+      // Send standard date bounds (YYYY-MM-DD) so backend parses uniform database timestamps across all client timezones
+      const startDate = dateFrom
+      const endDate = `${dateTo}T23:59:59.999`
 
       try {
         if (mode === 'slave') {
@@ -205,7 +214,11 @@ export default function LoadAnalyticsPanel({
             }
           })
 
-          cacheRef.current[cacheKey] = { chartData: formatted, slaveStats: {} }
+          cacheRef.current[cacheKey] = {
+            chartData: formatted,
+            slaveStats: {},
+            timestamp: Date.now(),
+          }
           setChartData(formatted)
           hasLoadedRef.current = true
         } else {
@@ -282,7 +295,11 @@ export default function LoadAnalyticsPanel({
               ...row.slaves,
             }))
 
-          cacheRef.current[cacheKey] = { chartData: sortedChart, slaveStats: statsMap }
+          cacheRef.current[cacheKey] = {
+            chartData: sortedChart,
+            slaveStats: statsMap,
+            timestamp: Date.now(),
+          }
           setChartData(sortedChart)
           setSlaveStats(statsMap)
           hasLoadedRef.current = true
@@ -300,6 +317,17 @@ export default function LoadAnalyticsPanel({
   useEffect(() => {
     loadData(false)
   }, [loadData])
+
+  // Periodic real-time update when viewing today or current range (every 10s)
+  useEffect(() => {
+    const todayYmd = toYmd(new Date())
+    const isLive = dateTo >= todayYmd
+    if (!isLive) return
+    const timer = setInterval(() => {
+      loadData(true)
+    }, 10000)
+    return () => clearInterval(timer)
+  }, [dateTo, loadData])
 
   // Aggregate summary calculations from real points
   const stats = useMemo(() => {
