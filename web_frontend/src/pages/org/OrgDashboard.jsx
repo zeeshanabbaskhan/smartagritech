@@ -302,25 +302,51 @@ export default function OrgDashboard() {
         const devName = parentDev?.name || foundSlave?.deviceName || 'Device'
         const devId = parentDev?.id || slaveObj?.deviceId || foundSlave?.deviceId || (openGroup?.deviceIds?.length === 1 ? openGroup.deviceIds[0] : null)
         const isOff = parentDev ? isOffline(parentDev) : false
+
+        let currentKw = slaveObj?.currentKw != null ? Number(slaveObj.currentKw) : null
+        if (currentKw == null || !Number.isFinite(currentKw)) {
+          if (foundSlave) {
+            const p = readDeviceMetric(foundSlave, 'power')
+            if (Number.isFinite(p)) currentKw = p
+          }
+        }
+        if ((currentKw == null || !Number.isFinite(currentKw)) && parentDev && (parentDev.slaves || []).length <= 1) {
+          const p = readDeviceMetric(parentDev, 'power')
+          if (Number.isFinite(p)) currentKw = p
+        }
+
         return {
           id: sId,
           name,
           deviceId: devId,
           deviceName: devName,
           isOff,
+          currentKw: currentKw != null && Number.isFinite(currentKw) ? +currentKw.toFixed(2) : 0,
         }
       })
     }
 
     // If no explicit slaveIds, resolve slaves from the devices in this group
     return openGroupDevices.flatMap((d) =>
-      (d.slaves || []).map((s) => ({
-        id: s.id,
-        name: s.name || 'Slave',
-        deviceId: d.id,
-        deviceName: d.name,
-        isOff: isOffline(d),
-      }))
+      (d.slaves || []).map((s) => {
+        let currentKw = s.currentKw != null ? Number(s.currentKw) : null
+        if (currentKw == null || !Number.isFinite(currentKw)) {
+          const p = readDeviceMetric(s, 'power')
+          if (Number.isFinite(p)) currentKw = p
+          else if ((d.slaves || []).length <= 1) {
+            const dp = readDeviceMetric(d, 'power')
+            if (Number.isFinite(dp)) currentKw = dp
+          }
+        }
+        return {
+          id: s.id,
+          name: s.name || 'Slave',
+          deviceId: d.id,
+          deviceName: d.name,
+          isOff: isOffline(d),
+          currentKw: currentKw != null && Number.isFinite(currentKw) ? +currentKw.toFixed(2) : 0,
+        }
+      })
     )
   }, [openGroup, openGroupDevices, liveDevices])
 
@@ -1083,14 +1109,18 @@ export default function OrgDashboard() {
                 currentLiveKw={(() => {
                   let sum = 0
                   for (const s of openGroupMemberSlaves) {
-                    const dev = liveDevices.find((d) => d.id === s.deviceId)
-                    if (!dev || isOffline(dev)) continue
-                    const sl = (dev.slaves || []).find((x) => x.id === s.id)
-                    if (sl?.currentKw != null && Number(sl.currentKw) > 0) {
-                      sum += Number(sl.currentKw)
-                    } else if (openGroupMemberSlaves.length === 1) {
-                      const p = readDeviceMetric(dev, 'power')
-                      if (Number.isFinite(p) && p > 0) sum += p
+                    if (s.currentKw != null && Number(s.currentKw) > 0) {
+                      sum += Number(s.currentKw)
+                    } else {
+                      const dev = liveDevices.find((d) => d.id === s.deviceId)
+                      if (!dev || isOffline(dev)) continue
+                      const sl = (dev.slaves || []).find((x) => x.id === s.id)
+                      if (sl?.currentKw != null && Number(sl.currentKw) > 0) {
+                        sum += Number(sl.currentKw)
+                      } else if (openGroupMemberSlaves.length === 1) {
+                        const p = readDeviceMetric(dev, 'power')
+                        if (Number.isFinite(p) && p > 0) sum += p
+                      }
                     }
                   }
                   if (sum > 0) return +sum.toFixed(2)
@@ -1103,6 +1133,9 @@ export default function OrgDashboard() {
                 mode="slave"
                 slave={selectedSlaveDetails}
                 currentLiveKw={(() => {
+                  if (selectedSlaveDetails.currentKw != null && Number(selectedSlaveDetails.currentKw) > 0) {
+                    return +Number(selectedSlaveDetails.currentKw).toFixed(2)
+                  }
                   const dev = liveDevices.find((d) => d.id === selectedSlaveDetails.deviceId)
                   if (!dev || isOffline(dev)) return 0
                   const sl = (dev.slaves || []).find((s) => s.id === selectedSlaveDetails.slaveId)
@@ -1180,7 +1213,7 @@ export default function OrgDashboard() {
                     </p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {openGroupMemberSlaves.map((slaveItem) => {
-                        const { id: sId, name, deviceId: devId, deviceName: devName, isOff } = slaveItem
+                        const { id: sId, name, deviceId: devId, deviceName: devName, isOff, currentKw } = slaveItem
                         return (
                           <div
                             key={sId}
@@ -1191,6 +1224,7 @@ export default function OrgDashboard() {
                                   slaveName: name,
                                   deviceId: devId,
                                   deviceName: devName,
+                                  currentKw,
                                 })
                               }
                             }}
@@ -1208,6 +1242,11 @@ export default function OrgDashboard() {
                               </div>
                             </div>
                             <div className="flex items-center gap-2">
+                              {currentKw != null && Number(currentKw) > 0 && (
+                                <span className="font-mono text-[11px] font-bold text-primary-600 dark:text-primary-400 bg-primary-50 dark:bg-primary-950/50 px-1.5 py-0.5 rounded border border-primary-200/60 dark:border-primary-800/60">
+                                  ⚡ {currentKw} kW
+                                </span>
+                              )}
                               <span className={`badge ${isOff ? 'badge-neutral' : 'badge-success'} text-[9px]`}>
                                 {isOff ? 'Offline' : 'Online'}
                               </span>

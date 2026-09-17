@@ -73,7 +73,7 @@ const VARIABLE_ALIASES = {
   currentc: ['currentc', 'current c', 'phasecurrentc', 'phaseccurrent', 'current_c', 'i_c', 'i3', 'current3'],
   currentimbalance: ['currentimbalance', 'current_imbalance', 'i_imbalance', 'iimbalance'],
   powerfactor: ['powerfactor', 'power factor', 'pf', 'totalpowerfactor', 'averagepowerfactor'],
-  activepower: ['activepower', ' activepower', 'active power', 'totalpower', 'total active power', 'power', 'powera'],
+  activepower: ['activepower', ' activepower', 'active power', 'totalpower', 'total active power', 'power', 'totalkw', 'kw'],
   powerconsumption: ['powerconsumption', 'energy', 'units', 'kwh', 'totalenergy', 'importenergy', 'activeenergy'],
   frequency: ['frequency', 'freq', 'hz'],
   thd_v: ['thd_v', 'thdv', 'thd-v', 'thd v', 'thd_voltage'],
@@ -90,10 +90,9 @@ const getVariableAliases = (name) => {
 
 const RAW_VARIABLE_CANDIDATES = {
   activepower: [
-    'ActivePower', 'Total Power', 'Total Active Power', 'Active Power',
+    'Total Power', 'Total Active Power', 'Active Power', 'ActivePower',
     'TotalPower', 'TotalActivePower', 'ActivePowerTotal', 'Power',
-    'kW', 'PowerConsumption', 'PowerA', 'PowerB', 'PowerC',
-    'Total Active Power (kW)', 'Total Active Power(kW)', 'Active Power Total',
+    'Total kW', 'kW', 'Total Active Power (kW)', 'Total Active Power(kW)', 'Active Power Total',
   ],
   exportpower: ['ExportPower', 'SolarPower', 'Export', 'Solar', 'ExportActivePower', 'Solar Power'],
   powerconsumption: ['Units', 'PowerConsumption', 'EnergyConsumption', 'ActiveEnergy', 'kWh', 'TotalEnergy', 'Energy', 'ImportEnergy', 'Active Energy', 'Total Energy'],

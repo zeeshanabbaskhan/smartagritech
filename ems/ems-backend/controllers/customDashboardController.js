@@ -605,40 +605,59 @@ async function buildPowerFlowData(req, orgId, config) {
     if (allowedSet && !deviceRows.length && !slaveRows.length) continue
 
     const deviceIds = deviceRows.map((d) => d.deviceId)
-    const slaveIds = slaveRows.map((s) => s.slaveId)
+    let effectiveSlaves = slaveRows.map((s) => ({
+      id: s.slave?.id,
+      name: s.slave?.name,
+      deviceId: s.slave?.deviceId,
+      deviceName: s.slave?.device?.name,
+      deviceStatus: s.slave?.device?.status,
+      isDefault: s.slave?.isDefault,
+    }))
+
+    // If no explicit slave rows exist but devices are linked, resolve all active slaves of those devices
+    if (effectiveSlaves.length === 0 && deviceIds.length > 0) {
+      const devSlaves = await prisma.deviceConfigSlave.findMany({
+        where: { deviceId: { in: deviceIds }, isActive: true },
+        include: { device: { select: { id: true, name: true, status: true } } },
+      })
+      effectiveSlaves = devSlaves.map((s) => ({
+        id: s.id,
+        name: s.name,
+        deviceId: s.deviceId,
+        deviceName: s.device?.name,
+        deviceStatus: s.device?.status,
+        isDefault: s.isDefault,
+      }))
+    }
+
+    // Attach real-time live kW to each individual slave
+    let groupSumKw = 0
+    for (const s of effectiveSlaves) {
+      const kw = await readSlaveLoadKw(s.deviceId, s.id)
+      s.currentKw = kw
+      groupSumKw += kw
+    }
+
+    const slaveIds = effectiveSlaves.map((s) => s.id)
     deviceIds.forEach((id) => allDeviceIds.add(id))
-    slaveRows.forEach((s) => s.slave?.deviceId && allDeviceIds.add(s.slave.deviceId))
+    effectiveSlaves.forEach((s) => s.deviceId && allDeviceIds.add(s.deviceId))
+
+    const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100
 
     mappedGroups.push({
       id: g.id,
       name: g.name,
       description: g.description,
       deviceCount: deviceRows.length,
-      slaveCount: slaveRows.length,
+      slaveCount: effectiveSlaves.length,
       deviceIds,
       slaveIds,
       devices: deviceRows.map((d) => d.device),
-      slaves: slaveRows.map((s) => ({
-        id: s.slave?.id,
-        name: s.slave?.name,
-        deviceId: s.slave?.deviceId,
-        deviceName: s.slave?.device?.name,
-        deviceStatus: s.slave?.device?.status,
-        isDefault: s.slave?.isDefault,
-      })),
-      loadKw: 0,
-      load: 0,
+      slaves: effectiveSlaves,
+      loadKw: round2(groupSumKw),
+      load: round2(groupSumKw),
     })
   }
-
-  // Resolve per-group loads concurrently instead of serially per group
-  const groupLoads = await Promise.all(
-    mappedGroups.map((g) => sumLoadsForSlavesAndDevices(g.deviceIds, g.slaveIds))
-  )
-  mappedGroups.forEach((g, i) => {
-    g.loadKw = groupLoads[i]
-    g.load = groupLoads[i]
-  })
 
   let sources = Array.isArray(config.sources) ? config.sources.map((s) => ({ ...s })) : []
   // Ensure builtins exist
