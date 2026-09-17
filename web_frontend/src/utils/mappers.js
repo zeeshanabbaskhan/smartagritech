@@ -1,7 +1,6 @@
 /** Map API entities to UI table/card shapes used across pages */
 import { apiRoleToLabel } from './roles'
 import { themeDisplayName, DEFAULT_PRIMARY_COLOR } from './branding'
-import { readDeviceMetric } from './deviceMetrics'
 
 const fmtDate = (d) => {
   if (!d) return '—'
@@ -140,11 +139,7 @@ export const mapDevice = (d) => {
         isParentOnline
       )
       const effectiveLast = last || (isOnline ? d.lastDataReceivedAt : null)
-      let slaveKw = s.currentKw != null ? Number(s.currentKw) : null
-      if (slaveKw == null || !Number.isFinite(slaveKw)) {
-        const metricKw = readDeviceMetric(s, 'power')
-        if (Number.isFinite(metricKw)) slaveKw = metricKw
-      }
+      const slaveKw = s.currentKw != null && Number.isFinite(Number(s.currentKw)) ? Number(s.currentKw) : null
       return {
         id: s.id,
         name: s.name,
@@ -157,7 +152,7 @@ export const mapDevice = (d) => {
         lastSeen: fmtDate(effectiveLast),
         lastSeenRaw: effectiveLast || null,
         latestMetrics: s.latestMetrics || {},
-        currentKw: slaveKw != null && Number.isFinite(slaveKw) ? slaveKw : null,
+        currentKw: slaveKw,
       }
     }),
     _raw: d,
