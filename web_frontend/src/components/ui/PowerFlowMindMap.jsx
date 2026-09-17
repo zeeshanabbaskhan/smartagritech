@@ -103,6 +103,7 @@ export default function PowerFlowMindMap({
   sources = [],
   sites = [],
   savings,
+  gridMetrics = null,
   orgName,
   groups = [],
   devices = [],
@@ -436,24 +437,24 @@ export default function PowerFlowMindMap({
     ? Number(totalLoadKw)
     : sourcesSum
 
-  const solarKw = scopedSources
-    .filter((s) => s.type === 'solar' || s.id === 'solar')
+  // ─── Option 1: Dynamic Grid Utility & Electricity Cost ───
+  const gridKw = scopedSources
+    .filter((s) => s.type === 'grid' || s.id === 'grid' || String(s.id).startsWith('grid'))
     .reduce((acc, s) => acc + (Number(s.valueKw) || 0), 0)
-  const SOLAR_PEAK_SUN_HOURS = 5.5
-  const fallbackDailyKWh = +(solarKw * SOLAR_PEAK_SUN_HOURS).toFixed(1)
-  const dailyKWh = Number(savings?.dailyKWh) > 0 ? Number(savings.dailyKWh) : fallbackDailyKWh
-  const dailySavings = Number(savings?.daily) > 0 ? Number(savings.daily) : Math.round(dailyKWh * TARIFF_PKR_PER_KWH)
-  const weeklySavings = Number(savings?.weekly) > 0 ? Number(savings.weekly) : Math.round(dailyKWh * 7 * TARIFF_PKR_PER_KWH)
-  const monthlySavings = Number(savings?.monthly) > 0 ? Number(savings.monthly) : Math.round(dailyKWh * 30 * TARIFF_PKR_PER_KWH)
 
-  const savingsView = {
-    daily: dailySavings,
-    weekly: weeklySavings,
-    monthly: monthlySavings,
-    dailyKWh,
-  }
-  const weeklyKWh = +(dailyKWh * 7).toFixed(1)
-  const monthlyKWh = +(dailyKWh * 30).toFixed(1)
+  const TARIFF_PKR_PER_KWH = Number(gridMetrics?.tariffRate) || Number(savings?.tariffRate) || 38.5
+  const todayKwh = Number(gridMetrics?.todayKwh) > 0
+    ? Number(gridMetrics.todayKwh)
+    : +(gridKw * Math.max(0.1, (Date.now() - new Date().setHours(0, 0, 0, 0)) / (1000 * 3600))).toFixed(1)
+  const todayCost = Number(gridMetrics?.todayCost) > 0
+    ? Number(gridMetrics.todayCost)
+    : Math.round(todayKwh * TARIFF_PKR_PER_KWH)
+  const weeklyKwh = Number(gridMetrics?.weeklyKwh) > 0 ? Number(gridMetrics.weeklyKwh) : +(todayKwh * 7).toFixed(1)
+  const weeklyCost = Number(gridMetrics?.weeklyCost) > 0 ? Number(gridMetrics.weeklyCost) : Math.round(weeklyKwh * TARIFF_PKR_PER_KWH)
+  const monthlyKwh = Number(gridMetrics?.monthlyKwh) > 0 ? Number(gridMetrics.monthlyKwh) : +(todayKwh * 30).toFixed(1)
+  const monthlyCost = Number(gridMetrics?.monthlyCost) > 0 ? Number(gridMetrics.monthlyCost) : Math.round(monthlyKwh * TARIFF_PKR_PER_KWH)
+  const powerFactor = Number(gridMetrics?.powerFactor) || 0.975
+  const frequency = Number(gridMetrics?.frequency) || 50.0
 
   const editingBuiltin = sourceModal && sourceModal !== 'create'
     && BUILTIN_TYPES.includes(sourceModal.type || sourceModal.id)
@@ -522,22 +523,31 @@ export default function PowerFlowMindMap({
           <span className="w-1.5 h-1.5 rounded-full bg-success-500 animate-pulse ml-1" />
         </div>
 
-        <div className="relative w-full max-w-[220px] z-[99] ml-auto">
+        {/* ─── Top Header: Grid Utility Card (Option 1) ─── */}
+        <div className="relative w-full max-w-[245px] z-[99] ml-auto">
           <button
             type="button"
             onClick={() => setSavingsOpen((o) => !o)}
-            className="w-full flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-2xl text-white transition-all hover:opacity-95 text-left shadow-lg"
-            style={{ background: 'linear-gradient(135deg, #6366F1 0%, #7C3AED 50%, #9333EA 100%)' }}
+            className="w-full flex items-center justify-between gap-2.5 px-3.5 py-2.5 rounded-2xl text-white transition-all hover:opacity-95 text-left shadow-lg"
+            style={{ background: 'linear-gradient(135deg, #1E3A8A 0%, #2563EB 50%, #4F46E5 100%)' }}
             aria-expanded={savingsOpen}
           >
             <div className="flex items-center gap-2.5 min-w-0">
-              <PiggyBank size={16} className="flex-shrink-0 opacity-95" />
+              <div className="w-8 h-8 rounded-xl bg-white/15 backdrop-blur-sm flex items-center justify-center flex-shrink-0 text-amber-300 shadow-inner">
+                <Zap size={17} className="animate-pulse" />
+              </div>
               <div className="leading-tight min-w-0">
-                <p className="text-[9px] font-bold opacity-80 uppercase tracking-wider">Today&apos;s Savings</p>
-                <p className="text-sm font-black truncate">{formatPKR(savingsView.daily)}</p>
+                <div className="flex items-center gap-1.5">
+                  <p className="text-[9px] font-black opacity-80 uppercase tracking-widest text-blue-100">Grid Utility</p>
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                </div>
+                <div className="flex items-baseline gap-1.5 mt-0.5">
+                  <p className="text-sm font-black truncate">{gridKw.toFixed(1)} kW</p>
+                  <span className="text-[10px] font-bold text-blue-200/90 truncate">({formatPKR(todayCost)})</span>
+                </div>
               </div>
             </div>
-            <ChevronDown size={14} className={`flex-shrink-0 transition-transform ${savingsOpen ? 'rotate-180' : ''}`} />
+            <ChevronDown size={14} className={`flex-shrink-0 text-blue-200 transition-transform ${savingsOpen ? 'rotate-180' : ''}`} />
           </button>
 
           {savingsOpen && (
@@ -545,57 +555,97 @@ export default function PowerFlowMindMap({
               <button
                 type="button"
                 className="fixed inset-0 z-[998] cursor-default"
-                aria-label="Close savings"
+                aria-label="Close grid ledger"
                 onClick={() => setSavingsOpen(false)}
               />
-              <div className="absolute right-0 top-full mt-2 w-72 bg-white dark:bg-surface-900 border border-surface-200 dark:border-surface-700 shadow-floating rounded-2xl overflow-hidden z-[999]">
-                <div className="px-4 py-2.5 bg-primary-50 dark:bg-primary-950/40 border-b border-primary-100 dark:border-primary-900">
-                  <p className="text-[10px] font-black text-primary-600 uppercase tracking-widest">Savings Reports</p>
+              <div className="absolute right-0 top-full mt-2 w-80 bg-white dark:bg-surface-900 border border-surface-200 dark:border-surface-700 shadow-2xl rounded-2xl overflow-hidden z-[999]">
+                {/* Header */}
+                <div className="px-4 py-3 bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Zap size={16} className="text-amber-400" />
+                    <div>
+                      <p className="text-[11px] font-black uppercase tracking-wider">Grid Utility & Expense</p>
+                      <p className="text-[9px] opacity-75 font-semibold">Real-Time Power & Utility Billing</p>
+                    </div>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-blue-500/30 text-blue-200 border border-blue-400/30">
+                    LIVE
+                  </span>
                 </div>
+
+                {/* Real-time Telemetry Bar */}
+                <div className="grid grid-cols-3 gap-2 p-3 bg-surface-50 dark:bg-surface-800/60 border-b border-surface-200 dark:border-surface-700 text-center">
+                  <div className="p-2 rounded-xl bg-white dark:bg-surface-800 shadow-xs border border-surface-200 dark:border-surface-700">
+                    <p className="text-[9px] font-bold text-surface-400 uppercase">Live Load</p>
+                    <p className="text-xs font-black text-blue-600 dark:text-blue-400 mt-0.5">{gridKw.toFixed(1)} kW</p>
+                  </div>
+                  <div className="p-2 rounded-xl bg-white dark:bg-surface-800 shadow-xs border border-surface-200 dark:border-surface-700">
+                    <p className="text-[9px] font-bold text-surface-400 uppercase">Power Factor</p>
+                    <p className="text-xs font-black text-emerald-600 dark:text-emerald-400 mt-0.5">{powerFactor.toFixed(3)}</p>
+                  </div>
+                  <div className="p-2 rounded-xl bg-white dark:bg-surface-800 shadow-xs border border-surface-200 dark:border-surface-700">
+                    <p className="text-[9px] font-bold text-surface-400 uppercase">Frequency</p>
+                    <p className="text-xs font-black text-surface-700 dark:text-surface-300 mt-0.5">{frequency.toFixed(1)} Hz</p>
+                  </div>
+                </div>
+
+                {/* Ledger Rows */}
                 <div className="flex flex-col divide-y divide-surface-100 dark:divide-surface-800">
-                  <div className="p-3.5">
+                  {/* Today */}
+                  <div className="p-3.5 hover:bg-surface-50 dark:hover:bg-surface-800/40 transition-colors">
                     <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-[9px] font-black text-surface-400 uppercase tracking-wider">Weekly Savings</p>
-                        <p className="text-lg font-black text-primary-600 leading-tight">{formatPKR(savingsView.weekly)}</p>
-                        <p className="text-[10px] text-surface-400 font-semibold mt-0.5">{weeklyKWh} kWh offset / week</p>
+                      <div>
+                        <span className="text-[9px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-wider bg-blue-50 dark:bg-blue-950/50 px-1.5 py-0.5 rounded">
+                          Today&apos;s Electricity Cost
+                        </span>
+                        <p className="text-xl font-black text-surface-900 dark:text-white mt-1 leading-tight">{formatPKR(todayCost)}</p>
+                        <p className="text-[10px] text-surface-400 font-semibold mt-0.5">{todayKwh.toLocaleString()} kWh units consumed</p>
                       </div>
                       <button
                         type="button"
-                        onClick={() => downloadCSV(`${orgName || 'org'}_weekly_savings.csv`, [
-                          ['Period', 'Offset kWh', 'Savings PKR'],
-                          ['Weekly', weeklyKWh, savingsView.weekly],
+                        onClick={() => downloadCSV(`${orgName || 'org'}_grid_today.csv`, [
+                          ['Metric', 'Value', 'Unit'],
+                          ['Live Power', gridKw, 'kW'],
+                          ['Units Consumed Today', todayKwh, 'kWh'],
+                          ['Today Utility Expense', todayCost, 'PKR'],
+                          ['Tariff Rate', TARIFF_PKR_PER_KWH, 'PKR/kWh'],
+                          ['Power Factor', powerFactor, 'PF'],
+                          ['Frequency', frequency, 'Hz'],
                         ])}
-                        className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-black uppercase rounded-lg bg-primary-50 text-primary-600 hover:bg-primary-100 flex-shrink-0"
+                        className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-black uppercase rounded-lg bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-300 hover:bg-blue-100 flex-shrink-0"
                       >
                         <Download size={11} /> CSV
                       </button>
                     </div>
                   </div>
-                  <div className="p-3.5">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-[9px] font-black text-surface-400 uppercase tracking-wider">Monthly Savings</p>
-                        <p className="text-lg font-black text-primary-700 leading-tight">{formatPKR(savingsView.monthly)}</p>
-                        <p className="text-[10px] text-surface-400 font-semibold mt-0.5">{monthlyKWh} kWh offset / month</p>
+
+                  {/* Weekly projection */}
+                  <div className="p-3 hover:bg-surface-50 dark:hover:bg-surface-800/40 transition-colors">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-[9px] font-bold text-surface-400 uppercase">7-Day Projected Cost</p>
+                        <p className="text-sm font-black text-surface-800 dark:text-surface-100">{formatPKR(weeklyCost)}</p>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => downloadCSV(`${orgName || 'org'}_monthly_savings.csv`, [
-                          ['Period', 'Offset kWh', 'Savings PKR'],
-                          ['Monthly', monthlyKWh, savingsView.monthly],
-                        ])}
-                        className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-black uppercase rounded-lg bg-primary-50 text-primary-700 hover:bg-primary-100 flex-shrink-0"
-                      >
-                        <Download size={11} /> CSV
-                      </button>
+                      <p className="text-[10px] font-bold text-surface-500">{weeklyKwh.toLocaleString()} kWh</p>
+                    </div>
+                  </div>
+
+                  {/* Monthly projection */}
+                  <div className="p-3 hover:bg-surface-50 dark:hover:bg-surface-800/40 transition-colors">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-[9px] font-bold text-surface-400 uppercase">30-Day Projected Bill</p>
+                        <p className="text-sm font-black text-surface-800 dark:text-surface-100">{formatPKR(monthlyCost)}</p>
+                      </div>
+                      <p className="text-[10px] font-bold text-surface-500">{monthlyKwh.toLocaleString()} kWh</p>
                     </div>
                   </div>
                 </div>
-                <div className="px-4 py-2.5 border-t border-surface-100 dark:border-surface-800 bg-surface-50/80 dark:bg-surface-950/40">
-                  <p className="text-[10px] font-semibold text-surface-400">
-                    ~{Number(savingsView.dailyKWh || 0).toFixed(1)} kWh/day offset at PKR {TARIFF_PKR_PER_KWH}/kWh
-                  </p>
+
+                {/* Footer Tariff Notice */}
+                <div className="px-4 py-2.5 border-t border-surface-100 dark:border-surface-800 bg-surface-50/80 dark:bg-surface-950/40 flex items-center justify-between text-[10px]">
+                  <span className="text-surface-400 font-medium">Effective Tariff:</span>
+                  <span className="font-bold text-surface-700 dark:text-surface-300">PKR {TARIFF_PKR_PER_KWH} / kWh</span>
                 </div>
               </div>
             </>

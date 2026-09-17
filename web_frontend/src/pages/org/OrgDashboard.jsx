@@ -104,6 +104,7 @@ export default function OrgDashboard() {
       sources,
       sites: Array.isArray(payload.sites) ? payload.sites : [],
       savings: payload.savings || null,
+      gridMetrics: payload.gridMetrics || null,
       groups,
       totalLoadKw: Number(payload.totalLoadKw) || 0,
       solarKw: Number(payload.solarKw) || 0,
@@ -689,6 +690,7 @@ export default function OrgDashboard() {
                 sources={liveSources}
                 sites={powerFlow?.sites || []}
                 savings={savings}
+                gridMetrics={powerFlow?.gridMetrics}
                 groups={groupLoads}
                 devices={liveDevices}
                 totalLoadKw={totalOrgLoadKw}

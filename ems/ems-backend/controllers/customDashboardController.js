@@ -1,4 +1,5 @@
-﻿const prisma = require('../config/database')
+const { Prisma } = require('@prisma/client')
+const prisma = require('../config/database')
 const redis = require('../config/redis')
 const { AppError } = require('../middleware/errorHandler')
 const { orgScope, paginate } = require('../utils/helpers')
@@ -214,6 +215,132 @@ const sumLoadsForSlavesAndDevices = async (deviceIds = [], slaveIds = []) => {
 
 const sumLoadsForDeviceIds = async (deviceIds) => {
   return sumLoadsForSlavesAndDevices(deviceIds, [])
+}
+
+/**
+ * Dynamic calculation of cumulative energy (kWh) consumed today for a grid slave.
+ * Checks cumulative energy counters first, then average active power integration.
+ */
+const computeSlaveTodayKwh = async (deviceId, slaveId, liveKw) => {
+  if (!slaveId) return 0
+  const c = redis.getClient()
+  const todayStart = new Date()
+  todayStart.setHours(0, 0, 0, 0)
+  const todayKey = `${todayStart.getFullYear()}-${todayStart.getMonth() + 1}-${todayStart.getDate()}`
+  const cacheKey = `grid_kwh:${slaveId}:${todayKey}`
+
+  if (c) {
+    try {
+      const cached = await c.get(cacheKey)
+      if (cached != null) return parseFloat(cached) || 0
+    } catch (_) {}
+  }
+
+  const now = new Date()
+  const elapsedHours = Math.max(0.05, (now - todayStart) / (1000 * 3600))
+  let resultKwh = 0
+
+  // 1. Check cumulative meter delta (Units, PowerConsumption, Energy, ActiveEnergy, kWh, TotalEnergy)
+  try {
+    const cumVars = ['Units', 'PowerConsumption', 'Energy', 'ActiveEnergy', 'kWh', 'TotalEnergy']
+    const devClause = deviceId ? Prisma.sql`AND v."deviceId" = ${deviceId}` : Prisma.empty
+    for (const vName of cumVars) {
+      const rows = await prisma.$queryRaw`
+        SELECT 
+          (SELECT v.value::double precision FROM sensor_reading_values v WHERE v."deviceConfigSlaveId" = ${slaveId} ${devClause} AND v."variableName" = ${vName} AND v.timestamp >= ${todayStart} ORDER BY v.timestamp DESC LIMIT 1) as last_val,
+          (SELECT v.value::double precision FROM sensor_reading_values v WHERE v."deviceConfigSlaveId" = ${slaveId} ${devClause} AND v."variableName" = ${vName} AND v.timestamp >= ${todayStart} ORDER BY v.timestamp ASC LIMIT 1) as first_val
+      `
+      if (rows?.[0]?.last_val != null && rows?.[0]?.first_val != null) {
+        const diff = Number(rows[0].last_val) - Number(rows[0].first_val)
+        if (diff > 0 && Number.isFinite(diff)) {
+          resultKwh = +diff.toFixed(2)
+          break
+        }
+      }
+    }
+  } catch (_) {}
+
+  // 2. Try average active power integration
+  if (resultKwh === 0) {
+    try {
+      const devClause = deviceId ? Prisma.sql`AND v."deviceId" = ${deviceId}` : Prisma.empty
+      const pRows = await prisma.$queryRaw`
+        SELECT 
+          AVG(v.value)::double precision as avg_val,
+          COUNT(*)::int as count
+        FROM sensor_reading_values v
+        WHERE v."deviceConfigSlaveId" = ${slaveId}
+          ${devClause}
+          AND v."variableName" IN ('Total Power', 'Active Power', 'ActivePower', 'Total Active Power', 'Power')
+          AND v.timestamp >= ${todayStart}
+      `
+      if (pRows?.[0]?.count > 0 && pRows[0]?.avg_val != null) {
+        const avgKw = normalizeToKw(pRows[0].avg_val)
+        if (avgKw > 0) {
+          resultKwh = +(avgKw * elapsedHours).toFixed(2)
+        }
+      }
+    } catch (_) {}
+  }
+
+  // 3. Fallback: live active power * elapsed hours
+  if (resultKwh === 0 && Number(liveKw) > 0) {
+    resultKwh = +(Number(liveKw) * elapsedHours).toFixed(2)
+  }
+
+  if (c && resultKwh > 0) {
+    try {
+      await c.setEx(cacheKey, 20, String(resultKwh))
+    } catch (_) {}
+  }
+
+  return resultKwh
+}
+
+/**
+ * Extract live Power Factor and Frequency for grid telemetry.
+ */
+const extractSlaveGridHealth = async (deviceId, slaveId) => {
+  const varMap = {}
+  const c = redis.getClient()
+  if (c && deviceId) {
+    try {
+      const hot = await readLatestForSlave(deviceId, slaveId)
+      if (hot && Object.keys(hot).length) Object.assign(varMap, hot)
+    } catch (_) {}
+  }
+  try {
+    const vars = await prisma.deviceConfigVariable.findMany({
+      where: { deviceConfigSlaveId: slaveId, isActive: true },
+      select: { name: true, currentValue: true },
+    })
+    for (const v of vars) {
+      if (v.currentValue != null && v.currentValue !== '' && varMap[v.name] === undefined) {
+        varMap[v.name] = v.currentValue
+      }
+    }
+  } catch (_) {}
+
+  const norm = {}
+  for (const [k, v] of Object.entries(varMap)) {
+    if (v != null && v !== '') norm[k.trim().toLowerCase()] = v
+  }
+
+  let pf = 0.975
+  const rawPf = norm['power factor'] ?? norm['powerfactor'] ?? norm['pf'] ?? norm['total power factor']
+  if (rawPf != null) {
+    const p = parseFloat(rawPf)
+    if (Number.isFinite(p)) pf = Math.abs(p >= 100 ? p / 1000 : (p > 1 ? p / 100 : p))
+  }
+
+  let freq = 50.0
+  const rawFreq = norm['frequency'] ?? norm['freq'] ?? norm['hz'] ?? norm['line frequency']
+  if (rawFreq != null) {
+    const f = parseFloat(rawFreq)
+    if (Number.isFinite(f)) freq = f >= 1000 ? +(f / 100).toFixed(2) : +f.toFixed(2)
+  }
+
+  return { powerFactor: +pf.toFixed(3), frequency: +freq.toFixed(2) }
 }
 
 /** Read ExportPower (solar/export) for a device â€” Redis then DB. */
@@ -574,7 +701,7 @@ async function buildPowerFlowData(req, orgId, config) {
   const gridKw = Number(sources.find((s) => s.type === 'grid' || s.id === 'grid')?.valueKw) || 0
 
   const SOLAR_PEAK_SUN_HOURS = 5.5
-  const TARIFF_PKR = 28
+  const TARIFF_PKR = Number(config.savings?.tariffRate) || 38.5
   const liveDailyKWh = +(solarKw * SOLAR_PEAK_SUN_HOURS).toFixed(1)
   const effectiveSavings = (config.savings && (Number(config.savings.daily) > 0 || Number(config.savings.dailyKWh) > 0))
     ? config.savings
@@ -584,7 +711,74 @@ async function buildPowerFlowData(req, orgId, config) {
         monthly: Math.round(liveDailyKWh * 30 * TARIFF_PKR),
         dailyKWh: liveDailyKWh,
         unit: 'PKR',
+        tariffRate: TARIFF_PKR,
       }
+
+  // ─── Dynamic Grid Metrics (Option 1: Real-time Grid Import & Electricity Cost) ───
+  const gridSources = sources.filter((s) => s.type === 'grid' || s.id === 'grid' || String(s.id).startsWith('grid'))
+  const bySite = {}
+  let totalGridKw = 0
+  let totalGridTodayKwh = 0
+  let pfSum = 0
+  let freqSum = 0
+  let gridCount = 0
+
+  for (const s of gridSources) {
+    const sKw = Number(s.valueKw) || 0
+    totalGridKw += sKw
+    let sKwh = 0
+
+    for (const slvId of (s.slaveIds || [])) {
+      const slv = await prisma.deviceConfigSlave.findUnique({
+        where: { id: slvId },
+        select: { id: true, deviceId: true },
+      })
+      if (slv) {
+        const kwh = await computeSlaveTodayKwh(slv.deviceId, slv.id, sKw)
+        sKwh += kwh
+        const health = await extractSlaveGridHealth(slv.deviceId, slv.id)
+        pfSum += health.powerFactor
+        freqSum += health.frequency
+        gridCount++
+      }
+    }
+
+    if (sKwh === 0 && sKw > 0) {
+      const elapsedHours = Math.max(0.1, (Date.now() - new Date().setHours(0, 0, 0, 0)) / (1000 * 3600))
+      sKwh = +(sKw * elapsedHours).toFixed(2)
+    }
+
+    totalGridTodayKwh += sKwh
+    const sId = s.siteId || 'default'
+    bySite[sId] = {
+      siteId: sId,
+      siteName: s.siteName || sId,
+      gridKw: round2(sKw),
+      todayKwh: round2(sKwh),
+      todayCost: Math.round(sKwh * TARIFF_PKR),
+      weeklyKwh: round2(sKwh * 7),
+      weeklyCost: Math.round(sKwh * 7 * TARIFF_PKR),
+      monthlyKwh: round2(sKwh * 30),
+      monthlyCost: Math.round(sKwh * 30 * TARIFF_PKR),
+    }
+  }
+
+  const avgPf = gridCount > 0 ? +(pfSum / gridCount).toFixed(3) : 0.975
+  const avgFreq = gridCount > 0 ? +(freqSum / gridCount).toFixed(2) : 50.0
+
+  const gridMetrics = {
+    gridKw: round2(totalGridKw),
+    todayKwh: round2(totalGridTodayKwh),
+    todayCost: Math.round(totalGridTodayKwh * TARIFF_PKR),
+    weeklyKwh: round2(totalGridTodayKwh * 7),
+    weeklyCost: Math.round(totalGridTodayKwh * 7 * TARIFF_PKR),
+    monthlyKwh: round2(totalGridTodayKwh * 30),
+    monthlyCost: Math.round(totalGridTodayKwh * 30 * TARIFF_PKR),
+    tariffRate: TARIFF_PKR,
+    powerFactor: avgPf,
+    frequency: avgFreq,
+    bySite,
+  }
 
   return {
     sources,
@@ -592,6 +786,7 @@ async function buildPowerFlowData(req, orgId, config) {
     siteTotals,
     typeTotals,
     savings: effectiveSavings,
+    gridMetrics,
     groups: mappedGroups,
     totalLoadKw,
     solarKw,
