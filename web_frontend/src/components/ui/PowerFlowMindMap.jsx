@@ -817,12 +817,6 @@ export default function PowerFlowMindMap({
             </div>
           </div>
 
-          {savingsView.dailyKWh > 0 && (
-            <p className="text-center text-[10px] font-bold text-surface-400 mt-2">
-              ~{Number(savingsView.dailyKWh).toFixed(1)} kWh/day offset by clean sources · saving {formatPKR(savingsView.daily)} at PKR {TARIFF_PKR_PER_KWH}/unit
-            </p>
-          )}
-
           <div className="flex justify-center my-1"><div className="w-px h-6 bg-surface-300" /></div>
 
           {/* LAYER 4 — groups */}
