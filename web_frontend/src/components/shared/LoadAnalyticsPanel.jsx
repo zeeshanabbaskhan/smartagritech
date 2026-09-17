@@ -276,20 +276,28 @@ export default function LoadAnalyticsPanel({
             return
           }
 
-          const slaveResponses = await Promise.all(
-            slavesToQuery.map(async (s) => {
+          // Group member slaves by parent deviceId to batch requests (1 call per device instead of N per slave)
+          const devMap = new Map()
+          slavesToQuery.forEach((s) => {
+            if (!devMap.has(s.deviceId)) devMap.set(s.deviceId, [])
+            devMap.get(s.deviceId).push(s)
+          })
+
+          const deviceResponses = await Promise.all(
+            Array.from(devMap.entries()).map(async ([devId, devSlaves]) => {
               try {
+                const sIds = devSlaves.map((s) => s.id)
                 const res = await emsApi.getSensorAggregate({
-                  deviceId: s.deviceId,
-                  slaveId: s.id,
+                  deviceId: devId,
+                  slaveIds: sIds.join(','),
                   variableName: 'ActivePower',
                   startDate,
                   endDate,
                 })
                 const points = Array.isArray(res?.data) ? res.data : []
-                return { slaveId: s.id, slaveName: s.name, points }
+                return { devId, devSlaves, points }
               } catch {
-                return { slaveId: s.id, slaveName: s.name, points: [] }
+                return { devId, devSlaves, points: [] }
               }
             }),
           )
@@ -307,12 +315,14 @@ export default function LoadAnalyticsPanel({
             }
           })
 
-          slaveResponses.forEach(({ slaveId, points }) => {
+          deviceResponses.forEach(({ devSlaves, points }) => {
             points.forEach((p) => {
               const ts = new Date(p.timestamp).getTime()
               if (Number.isNaN(ts)) return
               const rawKw = powerReadingToKw('ActivePower', p.value)
               const val = Number.isFinite(rawKw) ? Math.abs(rawKw) : 0
+              const sId = p.slaveId || (devSlaves.length === 1 ? devSlaves[0].id : null)
+              if (!sId) return
 
               if (!timeMap.has(ts)) {
                 timeMap.set(ts, {
@@ -324,11 +334,11 @@ export default function LoadAnalyticsPanel({
                 })
               }
               const bucket = timeMap.get(ts)
-              bucket.slaves[slaveId] = +val.toFixed(2)
+              bucket.slaves[sId] = +val.toFixed(2)
               bucket.combinedKw = +(bucket.combinedKw + val).toFixed(2)
 
-              if (statsMap[slaveId]) {
-                statsMap[slaveId].values.push(val)
+              if (statsMap[sId]) {
+                statsMap[sId].values.push(val)
               }
             })
           })

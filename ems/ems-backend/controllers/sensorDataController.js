@@ -268,13 +268,17 @@ const bucketMsForSpan = (spanMs) => {
 // @access SUPER_ADMIN | ORG_ADMIN | USER (own devices)
 const getAggregate = async (req, res, next) => {
   try {
-    const { deviceId, slaveId, variableName, timeRange, startDate, endDate } = req.query
+    const { deviceId, slaveId, slaveIds, variableName, timeRange, startDate, endDate } = req.query
     if (!deviceId || !variableName) {
       return next(new AppError('deviceId and variableName are required', 400))
     }
     if (!timeRange && !startDate && !endDate) {
       return next(new AppError('timeRange or startDate/endDate is required', 400))
     }
+
+    const parsedSlaveIds = slaveIds
+      ? (Array.isArray(slaveIds) ? slaveIds : String(slaveIds).split(',').map((s) => s.trim()).filter(Boolean))
+      : null
 
     const device = await authoriseDevice(deviceId, req.user, slaveId)
     if (isSwitchOff(device)) {
@@ -295,10 +299,12 @@ const getAggregate = async (req, res, next) => {
       bucketMs = BUCKET_MS[timeRange]
     }
 
-    const cacheKey = `agg:${deviceId}:${slaveId || 'all'}:${variableName}:${timeRange || `${startDate}_${endDate}`}`
-    const data = await cached(cacheKey, 30, () => bucketVariable(prisma, {
+    const sKey = parsedSlaveIds ? `multi:${parsedSlaveIds.sort().join('_')}` : (slaveId || 'all')
+    const cacheKey = `agg:${deviceId}:${sKey}:${variableName}:${timeRange || `${startDate}_${endDate}`}`
+    const data = await cached(cacheKey, 60, () => bucketVariable(prisma, {
       deviceId,
       slaveId: slaveId || null,
+      slaveIds: parsedSlaveIds,
       variableName,
       startDate: rangeStart,
       endDate: rangeEnd,

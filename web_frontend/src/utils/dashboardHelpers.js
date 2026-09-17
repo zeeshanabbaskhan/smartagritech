@@ -192,7 +192,6 @@ export async function fetchOrgEnergyOverview(deviceIds = [], timeRange = '24h', 
     const device = byId[id]
     const loadVar = resolveDeviceVariable(device, LOAD_VARS, 'ActivePower')
     const exportVar = resolveDeviceVariable(device, EXPORT_VARS, null)
-    const energyVar = resolveDeviceVariable(device, ENERGY_VARS, null)
     if (loadVar && !loadVariableHint) loadVariableHint = loadVar
 
     const tasks = [
@@ -205,51 +204,46 @@ export async function fetchOrgEnergyOverview(deviceIds = [], timeRange = '24h', 
           .then((res) => ({ kind: 'export', varName: exportVar, points: res?.data ?? [] })),
       )
     }
-    if (energyVar) {
-      tasks.push(
-        fetchCachedSensorAggregate({ deviceId: id, variableName: energyVar, timeRange: '30d' })
-          .then((res) => ({ kind: 'energy', varName: energyVar, points: res?.data ?? [] })),
-      )
-    }
 
     const results = await Promise.all(tasks)
     const deviceLoad = new Map()
     for (const r of results) {
       if (r.kind === 'load') addPoints(r.points, loadByTs, deviceLoad, r.varName)
       if (r.kind === 'export') addPoints(r.points, solarByTs, null, r.varName)
-      if (r.kind === 'energy' && r.points?.length >= 2) {
-        const first = Number(r.points[0].value)
-        const last = Number(r.points[r.points.length - 1].value)
-        if (Number.isFinite(first) && Number.isFinite(last) && last >= first) {
-          energyDeltaSum += last - first
-          energyDeltaCount += 1
-        }
-      }
     }
     if (deviceLoad.size) loadByDevice[id] = deviceLoad
   }))
 
-  // 2. Fetch aggregates for explicitly linked slave IDs (e.g. Solar, Generator, Grid, custom groups)
-  await Promise.all(slaveIds.map(async (sId) => {
+  // 2. Fetch aggregates for explicitly linked slave IDs (batched by parent device)
+  const slaveDevMap = new Map()
+  slaveIds.forEach((sId) => {
     const slave = slaveById[sId]
     const devId = slave?.parentDeviceId || slave?.deviceId || ids[0]
-    if (!devId) return
-
-    const slaveLoad = new Map()
-    const res = await fetchCachedSensorAggregate({ deviceId: devId, slaveId: sId, variableName: 'ActivePower', timeRange })
-    
-    let points = res?.data ?? []
-    if (!points.length) {
-      const resTp = await fetchCachedSensorAggregate({ deviceId: devId, slaveId: sId, variableName: 'Total Power', timeRange })
-      points = resTp?.data ?? []
+    if (devId) {
+      if (!slaveDevMap.has(devId)) slaveDevMap.set(devId, [])
+      slaveDevMap.get(devId).push(sId)
     }
+  })
 
-    const isSolar = slave?.name && /solar/i.test(slave.name)
-    addPoints(points, isSolar ? solarByTs : null, slaveLoad, 'ActivePower')
-    if (slaveLoad.size) {
-      loadByDevice[sId] = slaveLoad
-    }
-  }))
+  await Promise.all(
+    Array.from(slaveDevMap.entries()).map(async ([devId, sIds]) => {
+      const res = await fetchCachedSensorAggregate({
+        deviceId: devId,
+        slaveIds: sIds.join(','),
+        variableName: 'ActivePower',
+        timeRange,
+      })
+      const points = res?.data ?? []
+      for (const p of points) {
+        const targetSlaveId = p.slaveId || (sIds.length === 1 ? sIds[0] : null)
+        if (!targetSlaveId) continue
+        const sObj = slaveById[targetSlaveId]
+        const isSolar = sObj?.name && /solar/i.test(sObj.name)
+        if (!loadByDevice[targetSlaveId]) loadByDevice[targetSlaveId] = new Map()
+        addPoints([p], isSolar ? solarByTs : null, loadByDevice[targetSlaveId], 'ActivePower')
+      }
+    })
+  )
 
   // Legacy EMS fallback when aggregates returned nothing (PowerConsumption naming)
   const missing = ids.filter((id) => !loadByDevice[id])
