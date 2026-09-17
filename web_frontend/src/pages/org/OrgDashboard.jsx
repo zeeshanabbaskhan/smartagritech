@@ -1072,7 +1072,14 @@ export default function OrgDashboard() {
               <LoadAnalyticsPanel
                 mode="slave"
                 slave={selectedSlaveDetails}
-                currentLiveKw={0}
+                currentLiveKw={(() => {
+                  const dev = liveDevices.find((d) => d.id === selectedSlaveDetails.deviceId)
+                  if (!dev || isOffline(dev)) return 0
+                  const sl = (dev.slaves || []).find((s) => s.id === selectedSlaveDetails.slaveId)
+                  if (sl?.currentKw != null && Number(sl.currentKw) > 0) return +Number(sl.currentKw).toFixed(2)
+                  const p = readDeviceMetric(dev, 'power')
+                  return Number(p) || 0
+                })()}
                 onBack={() => setShowSlaveAnalytics(false)}
               />
             ) : selectedSlaveDetails ? (

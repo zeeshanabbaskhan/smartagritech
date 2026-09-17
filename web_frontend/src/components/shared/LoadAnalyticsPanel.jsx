@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   ResponsiveContainer,
   AreaChart,
@@ -15,7 +15,6 @@ import {
   TrendingUp,
   Activity,
   ChevronLeft,
-  Clock,
   Layers,
   BarChart3,
   RefreshCw,
@@ -101,7 +100,7 @@ function formatChartTime(isoString, isMultiDay) {
 }
 
 /**
- * Reusable Load & Historical Analytics View
+ * Reusable, High-Performance Load & Historical Analytics View
  * @param {'group' | 'slave'} mode
  * @param {object} group - group object (when mode === 'group')
  * @param {object} slave - slave details object { slaveId, slaveName, deviceId, deviceName } (when mode === 'slave')
@@ -125,10 +124,23 @@ export default function LoadAnalyticsPanel({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
+  // In-memory cache to make range switching instant (0ms)
+  const cacheRef = useRef({})
+  const hasLoadedRef = useRef(false)
+
   const isMultiDay = useMemo(() => {
     if (!dateFrom || !dateTo) return false
     return dateFrom !== dateTo
   }, [dateFrom, dateTo])
+
+  // Stable key representing member slaves / slave ID
+  const slavesKey = useMemo(() => {
+    if (mode === 'slave') return `${slave?.deviceId}_${slave?.slaveId}`
+    return (memberSlaves || [])
+      .map((s) => `${s.deviceId}_${s.id}`)
+      .sort()
+      .join(';')
+  }, [mode, slave?.deviceId, slave?.slaveId, memberSlaves])
 
   const handlePresetSelect = (presetId) => {
     setSelectedPreset(presetId)
@@ -143,128 +155,150 @@ export default function LoadAnalyticsPanel({
     if (to !== undefined) setDateTo(to)
   }
 
-  const loadData = useCallback(async () => {
-    if (!dateFrom || !dateTo) return
-    setLoading(true)
-    setError(null)
+  const loadData = useCallback(
+    async (forceRefresh = false) => {
+      if (!dateFrom || !dateTo) return
 
-    const startDate = new Date(`${dateFrom}T00:00:00`).toISOString()
-    const endDate = new Date(`${dateTo}T23:59:59.999`).toISOString()
+      const cacheKey = `${mode}:${slavesKey}:${dateFrom}:${dateTo}`
+      if (!forceRefresh && cacheRef.current[cacheKey]) {
+        const cached = cacheRef.current[cacheKey]
+        setChartData(cached.chartData)
+        setSlaveStats(cached.slaveStats)
+        setLoading(false)
+        setError(null)
+        return
+      }
 
-    try {
-      if (mode === 'slave') {
-        const devId = slave?.deviceId
-        const sId = slave?.slaveId
-        if (!devId || !sId) {
-          setChartData([])
-          setLoading(false)
-          return
-        }
+      // Only show full loading spinner if we have no chart data currently rendered
+      if (!hasLoadedRef.current || forceRefresh) {
+        setLoading(true)
+      }
+      setError(null)
 
-        const res = await emsApi.getSensorAggregate({
-          deviceId: devId,
-          slaveId: sId,
-          variableName: 'ActivePower',
-          startDate,
-          endDate,
-        })
-        const points = Array.isArray(res?.data) ? res.data : []
-        const formatted = points.map((p) => {
-          const val = Math.abs(Number(p.value) || 0)
-          return {
-            timestamp: p.timestamp,
-            time: formatChartTime(p.timestamp, isMultiDay),
-            loadKw: +val.toFixed(2),
+      const startDate = new Date(`${dateFrom}T00:00:00`).toISOString()
+      const endDate = new Date(`${dateTo}T23:59:59.999`).toISOString()
+
+      try {
+        if (mode === 'slave') {
+          const devId = slave?.deviceId
+          const sId = slave?.slaveId
+          if (!devId || !sId) {
+            setChartData([])
+            setLoading(false)
+            return
           }
-        })
-        setChartData(formatted)
-      } else {
-        // Group Mode: Fetch series for each member slave and combine
-        const slavesToQuery = memberSlaves.filter((s) => s.id && s.deviceId)
-        if (slavesToQuery.length === 0) {
-          setChartData([])
-          setLoading(false)
-          return
-        }
 
-        const slaveResponses = await Promise.all(
-          slavesToQuery.map(async (s) => {
-            try {
-              const res = await emsApi.getSensorAggregate({
-                deviceId: s.deviceId,
-                slaveId: s.id,
-                variableName: 'ActivePower',
-                startDate,
-                endDate,
-              })
-              const points = Array.isArray(res?.data) ? res.data : []
-              return { slaveId: s.id, slaveName: s.name, points }
-            } catch {
-              return { slaveId: s.id, slaveName: s.name, points: [] }
-            }
-          }),
-        )
-
-        // Merge all points by timestamp bucket
-        const timeMap = new Map()
-        const statsMap = {}
-
-        slavesToQuery.forEach((s) => {
-          statsMap[s.id] = {
-            id: s.id,
-            name: s.name || 'Slave',
-            deviceName: s.deviceName || 'Device',
-            values: [],
-          }
-        })
-
-        slaveResponses.forEach(({ slaveId, points }) => {
-          points.forEach((p) => {
-            const ts = new Date(p.timestamp).getTime()
-            if (Number.isNaN(ts)) return
+          const res = await emsApi.getSensorAggregate({
+            deviceId: devId,
+            slaveId: sId,
+            variableName: 'ActivePower',
+            startDate,
+            endDate,
+          })
+          const points = Array.isArray(res?.data) ? res.data : []
+          const formatted = points.map((p) => {
             const val = Math.abs(Number(p.value) || 0)
-
-            if (!timeMap.has(ts)) {
-              timeMap.set(ts, {
-                rawTimestamp: ts,
-                isoTimestamp: p.timestamp,
-                time: formatChartTime(p.timestamp, isMultiDay),
-                combinedKw: 0,
-                slaves: {},
-              })
-            }
-            const bucket = timeMap.get(ts)
-            bucket.slaves[slaveId] = +val.toFixed(2)
-            bucket.combinedKw = +(bucket.combinedKw + val).toFixed(2)
-
-            if (statsMap[slaveId]) {
-              statsMap[slaveId].values.push(val)
+            return {
+              timestamp: p.timestamp,
+              time: formatChartTime(p.timestamp, isMultiDay),
+              loadKw: +val.toFixed(2),
             }
           })
-        })
 
-        const sortedChart = Array.from(timeMap.values())
-          .sort((a, b) => a.rawTimestamp - b.rawTimestamp)
-          .map((row) => ({
-            timestamp: row.isoTimestamp,
-            time: row.time,
-            loadKw: row.combinedKw,
-            ...row.slaves,
-          }))
+          cacheRef.current[cacheKey] = { chartData: formatted, slaveStats: {} }
+          setChartData(formatted)
+          hasLoadedRef.current = true
+        } else {
+          // Group Mode: Fetch series for each member slave and combine
+          const slavesToQuery = memberSlaves.filter((s) => s.id && s.deviceId)
+          if (slavesToQuery.length === 0) {
+            setChartData([])
+            setLoading(false)
+            return
+          }
 
-        setChartData(sortedChart)
-        setSlaveStats(statsMap)
+          const slaveResponses = await Promise.all(
+            slavesToQuery.map(async (s) => {
+              try {
+                const res = await emsApi.getSensorAggregate({
+                  deviceId: s.deviceId,
+                  slaveId: s.id,
+                  variableName: 'ActivePower',
+                  startDate,
+                  endDate,
+                })
+                const points = Array.isArray(res?.data) ? res.data : []
+                return { slaveId: s.id, slaveName: s.name, points }
+              } catch {
+                return { slaveId: s.id, slaveName: s.name, points: [] }
+              }
+            }),
+          )
+
+          // Merge all points by timestamp bucket
+          const timeMap = new Map()
+          const statsMap = {}
+
+          slavesToQuery.forEach((s) => {
+            statsMap[s.id] = {
+              id: s.id,
+              name: s.name || 'Slave',
+              deviceName: s.deviceName || 'Device',
+              values: [],
+            }
+          })
+
+          slaveResponses.forEach(({ slaveId, points }) => {
+            points.forEach((p) => {
+              const ts = new Date(p.timestamp).getTime()
+              if (Number.isNaN(ts)) return
+              const val = Math.abs(Number(p.value) || 0)
+
+              if (!timeMap.has(ts)) {
+                timeMap.set(ts, {
+                  rawTimestamp: ts,
+                  isoTimestamp: p.timestamp,
+                  time: formatChartTime(p.timestamp, isMultiDay),
+                  combinedKw: 0,
+                  slaves: {},
+                })
+              }
+              const bucket = timeMap.get(ts)
+              bucket.slaves[slaveId] = +val.toFixed(2)
+              bucket.combinedKw = +(bucket.combinedKw + val).toFixed(2)
+
+              if (statsMap[slaveId]) {
+                statsMap[slaveId].values.push(val)
+              }
+            })
+          })
+
+          const sortedChart = Array.from(timeMap.values())
+            .sort((a, b) => a.rawTimestamp - b.rawTimestamp)
+            .map((row) => ({
+              timestamp: row.isoTimestamp,
+              time: row.time,
+              loadKw: row.combinedKw,
+              ...row.slaves,
+            }))
+
+          cacheRef.current[cacheKey] = { chartData: sortedChart, slaveStats: statsMap }
+          setChartData(sortedChart)
+          setSlaveStats(statsMap)
+          hasLoadedRef.current = true
+        }
+      } catch (err) {
+        setError(err?.message || 'Failed to load historical telemetry')
+        if (!hasLoadedRef.current) setChartData([])
+      } finally {
+        setLoading(false)
       }
-    } catch (err) {
-      setError(err?.message || 'Failed to load historical telemetry')
-      setChartData([])
-    } finally {
-      setLoading(false)
-    }
-  }, [mode, slave, memberSlaves, dateFrom, dateTo, isMultiDay])
+    },
+    [mode, slavesKey, slave, memberSlaves, dateFrom, dateTo, isMultiDay],
+  )
 
   useEffect(() => {
-    loadData()
+    loadData(false)
   }, [loadData])
 
   // Aggregate summary calculations from real points
@@ -275,7 +309,6 @@ export default function LoadAnalyticsPanel({
         peak: 0,
         avg: 0,
         min: 0,
-        energyKwh: 0,
         count: 0,
       }
     }
@@ -285,18 +318,11 @@ export default function LoadAnalyticsPanel({
     const sum = values.reduce((a, b) => a + b, 0)
     const avg = sum / values.length
 
-    // Approximate energy (kWh) based on time span or bucket average
-    const firstTs = new Date(chartData[0].timestamp).getTime()
-    const lastTs = new Date(chartData[chartData.length - 1].timestamp).getTime()
-    const spanHours = Math.max(1, (lastTs - firstTs) / (1000 * 3600))
-    const energyKwh = +(avg * spanHours).toFixed(2)
-
     return {
       current: currentLiveKw > 0 ? currentLiveKw : +(values[values.length - 1] || 0).toFixed(2),
       peak: +peak.toFixed(2),
       avg: +avg.toFixed(2),
       min: +min.toFixed(2),
-      energyKwh,
       count: values.length,
     }
   }, [chartData, currentLiveKw])
@@ -372,7 +398,7 @@ export default function LoadAnalyticsPanel({
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={loadData}
+            onClick={() => loadData(true)}
             title="Refresh Historical Data"
             disabled={loading}
             className="btn-ghost p-1.5 text-surface-500 hover:text-surface-800 dark:hover:text-surface-200"
@@ -390,8 +416,8 @@ export default function LoadAnalyticsPanel({
         </div>
       </div>
 
-      {/* Summary KPI Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+      {/* Summary KPI Cards - Est. Energy removed per user request */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
         <div className="p-3 bg-white dark:bg-surface-900 rounded-xl border border-surface-200 dark:border-surface-800">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-bold text-surface-400 uppercase tracking-wider">
@@ -431,16 +457,6 @@ export default function LoadAnalyticsPanel({
           </div>
           <p className="text-lg font-black text-surface-900 dark:text-surface-100 mt-1">
             {stats.min.toFixed(2)} <span className="text-xs font-semibold text-surface-400">kW</span>
-          </p>
-        </div>
-
-        <div className="p-3 bg-white dark:bg-surface-900 rounded-xl border border-surface-200 dark:border-surface-800 col-span-2 sm:col-span-1">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold text-surface-400 uppercase tracking-wider">Est. Energy</span>
-            <Clock size={13} className="text-purple-500" />
-          </div>
-          <p className="text-lg font-black text-surface-900 dark:text-surface-100 mt-1">
-            {stats.energyKwh.toFixed(2)} <span className="text-xs font-semibold text-surface-400">kWh</span>
           </p>
         </div>
       </div>
@@ -509,7 +525,7 @@ export default function LoadAnalyticsPanel({
           </span>
         </div>
 
-        {loading ? (
+        {loading && chartData.length === 0 ? (
           <div className="h-64 flex flex-col items-center justify-center gap-2 text-surface-400">
             <RefreshCw size={24} className="animate-spin text-primary-500" />
             <p className="text-xs">Loading historical telemetry...</p>
@@ -526,7 +542,12 @@ export default function LoadAnalyticsPanel({
             <p className="text-[11px]">No active telemetry found for the selected date window ({dateFrom} to {dateTo}).</p>
           </div>
         ) : (
-          <div className="h-64 w-full">
+          <div className="h-64 w-full relative">
+            {loading && (
+              <div className="absolute top-2 right-2 z-10 flex items-center gap-1 text-[10px] text-primary-500 font-semibold bg-white/80 dark:bg-surface-900/80 px-2 py-0.5 rounded-md backdrop-blur-sm border border-primary-500/20 shadow-sm">
+                <RefreshCw size={10} className="animate-spin" /> Updating...
+              </div>
+            )}
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <defs>
