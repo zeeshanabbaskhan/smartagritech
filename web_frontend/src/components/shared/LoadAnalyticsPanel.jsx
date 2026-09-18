@@ -388,12 +388,16 @@ export default function LoadAnalyticsPanel({
 
   // Aggregate summary calculations from real points
   const stats = useMemo(() => {
+    const liveVal = currentLiveKw != null && Number.isFinite(Number(currentLiveKw))
+      ? +Number(currentLiveKw).toFixed(2)
+      : (chartData.length ? +(Number(chartData[chartData.length - 1]?.loadKw) || 0).toFixed(2) : 0)
+
     if (!chartData.length) {
       return {
-        current: currentLiveKw || 0,
-        peak: 0,
-        avg: 0,
-        min: 0,
+        current: liveVal,
+        peak: liveVal,
+        avg: liveVal,
+        min: liveVal,
         count: 0,
       }
     }
@@ -404,7 +408,7 @@ export default function LoadAnalyticsPanel({
     const avg = sum / values.length
 
     return {
-      current: currentLiveKw > 0 ? currentLiveKw : +(values[values.length - 1] || 0).toFixed(2),
+      current: liveVal,
       peak: +peak.toFixed(2),
       avg: +avg.toFixed(2),
       min: +min.toFixed(2),

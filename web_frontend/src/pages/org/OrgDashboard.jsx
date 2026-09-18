@@ -1186,15 +1186,22 @@ export default function OrgDashboard() {
                 mode="slave"
                 slave={selectedSlaveDetails}
                 currentLiveKw={(() => {
-                  if (selectedSlaveDetails.currentKw != null && Number(selectedSlaveDetails.currentKw) > 0) {
+                  if (selectedSlaveDetails.currentKw != null && Number.isFinite(Number(selectedSlaveDetails.currentKw))) {
                     return +Number(selectedSlaveDetails.currentKw).toFixed(2)
                   }
                   const dev = liveDevices.find((d) => d.id === selectedSlaveDetails.deviceId)
-                  if (!dev || isOffline(dev)) return 0
-                  const sl = (dev.slaves || []).find((s) => s.id === selectedSlaveDetails.slaveId)
-                  if (sl?.currentKw != null && Number(sl.currentKw) > 0) return +Number(sl.currentKw).toFixed(2)
-                  const p = readDeviceMetric(dev, 'power')
-                  return Number(p) || 0
+                  if (!dev || isOffline(dev) || isSwitchOff(dev)) return 0
+                  const sl = (dev.slaves || dev.configSlaves || []).find((s) => s.id === selectedSlaveDetails.slaveId)
+                  if (sl) {
+                    const p = readDeviceMetric(sl, 'power')
+                    if (Number.isFinite(p)) return +p.toFixed(2)
+                    if (sl.currentKw != null && Number.isFinite(Number(sl.currentKw))) return +Number(sl.currentKw).toFixed(2)
+                  }
+                  if ((dev.slaves || dev.configSlaves || []).length <= 1) {
+                    const p = readDeviceMetric(dev, 'power')
+                    if (Number.isFinite(p)) return +p.toFixed(2)
+                  }
+                  return 0
                 })()}
                 onBack={() => setShowSlaveAnalytics(false)}
               />
