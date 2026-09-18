@@ -179,13 +179,57 @@ export default function OrgDashboard() {
       const sIds = g.slaveIds || []
       const groupDevices = liveDevices.filter((d) => ids.includes(d.id))
       const active = groupDevices.filter((d) => !isSwitchOff(d))
-      let load = g.loadKw != null ? Number(g.loadKw) : (g.load != null ? Number(g.load) : 0)
-      if (!g.loadKw && !sIds.length) {
-        load = active.reduce((s, d) => {
+
+      let dynamicSum = 0
+      let hasDynamic = false
+
+      if (g.slaves?.length || sIds.length) {
+        const slaveItems = g.slaves?.length ? g.slaves : sIds
+        let sum = 0
+        for (const item of slaveItems) {
+          const sId = typeof item === 'string' ? item : item.id
+          let foundSlave = typeof item === 'object' ? item : null
+          let parentDev = liveDevices.find((d) => d.id === foundSlave?.deviceId)
+          if (!parentDev || !foundSlave) {
+            for (const d of liveDevices) {
+              const sl = (d.slaves || d.configSlaves || []).find((s) => s.id === sId)
+              if (sl) {
+                foundSlave = sl
+                parentDev = d
+                break
+              }
+            }
+          }
+          if (parentDev) {
+            hasDynamic = true
+            if (!isOffline(parentDev) && !isSwitchOff(parentDev)) {
+              let p = 0
+              if (foundSlave) {
+                const sp = readDeviceMetric(foundSlave, 'power')
+                if (Number.isFinite(sp)) p = sp
+              }
+              if (p === 0 && (parentDev.slaves || parentDev.configSlaves || []).length <= 1) {
+                const dp = readDeviceMetric(parentDev, 'power')
+                if (Number.isFinite(dp)) p = dp
+              }
+              sum += p
+            }
+          }
+        }
+        if (hasDynamic) dynamicSum = sum
+      } else if (groupDevices.length > 0) {
+        hasDynamic = true
+        dynamicSum = active.reduce((s, d) => {
+          if (isOffline(d)) return s
           const v = readDeviceMetric(d, 'power')
           return s + (Number.isFinite(v) ? v : 0)
         }, 0)
       }
+
+      let load = hasDynamic && liveDevices.length > 0
+        ? dynamicSum
+        : (g.loadKw != null ? Number(g.loadKw) : (g.load != null ? Number(g.load) : 0))
+
       return {
         ...g,
         deviceIds: ids,
@@ -290,7 +334,7 @@ export default function OrgDashboard() {
         let parentDev = liveDevices.find((d) => d.id === slaveObj?.deviceId)
         if (!foundSlave || !parentDev) {
           for (const d of liveDevices) {
-            const sl = (d.slaves || []).find((s) => s.id === sId)
+            const sl = (d.slaves || d.configSlaves || []).find((s) => s.id === sId)
             if (sl) {
               foundSlave = sl
               parentDev = d
@@ -298,21 +342,24 @@ export default function OrgDashboard() {
             }
           }
         }
-        const name = foundSlave?.name || 'Slave'
-        const devName = parentDev?.name || foundSlave?.deviceName || 'Device'
+        const name = slaveObj?.name || foundSlave?.name || 'Slave'
+        const devName = parentDev?.name || foundSlave?.deviceName || slaveObj?.deviceName || 'Device'
         const devId = parentDev?.id || slaveObj?.deviceId || foundSlave?.deviceId || (openGroup?.deviceIds?.length === 1 ? openGroup.deviceIds[0] : null)
-        const isOff = parentDev ? isOffline(parentDev) : false
+        const isOff = parentDev ? (isOffline(parentDev) || isSwitchOff(parentDev)) : false
 
-        let currentKw = slaveObj?.currentKw != null ? Number(slaveObj.currentKw) : null
-        if (currentKw == null || !Number.isFinite(currentKw)) {
+        let currentKw = 0
+        if (!isOff) {
           if (foundSlave) {
             const p = readDeviceMetric(foundSlave, 'power')
             if (Number.isFinite(p)) currentKw = p
           }
-        }
-        if ((currentKw == null || !Number.isFinite(currentKw)) && parentDev && (parentDev.slaves || []).length <= 1) {
-          const p = readDeviceMetric(parentDev, 'power')
-          if (Number.isFinite(p)) currentKw = p
+          if (currentKw === 0 && slaveObj?.currentKw != null && Number.isFinite(Number(slaveObj.currentKw))) {
+            currentKw = Number(slaveObj.currentKw)
+          }
+          if (currentKw === 0 && parentDev && (parentDev.slaves || parentDev.configSlaves || []).length <= 1) {
+            const p = readDeviceMetric(parentDev, 'power')
+            if (Number.isFinite(p)) currentKw = p
+          }
         }
 
         return {
@@ -321,34 +368,59 @@ export default function OrgDashboard() {
           deviceId: devId,
           deviceName: devName,
           isOff,
-          currentKw: currentKw != null && Number.isFinite(currentKw) ? +currentKw.toFixed(2) : 0,
+          currentKw: +Number(currentKw || 0).toFixed(2),
         }
       })
     }
 
     // If no explicit slaveIds, resolve slaves from the devices in this group
-    return openGroupDevices.flatMap((d) =>
-      (d.slaves || []).map((s) => {
-        let currentKw = s.currentKw != null ? Number(s.currentKw) : null
-        if (currentKw == null || !Number.isFinite(currentKw)) {
-          const p = readDeviceMetric(s, 'power')
-          if (Number.isFinite(p)) currentKw = p
-          else if ((d.slaves || []).length <= 1) {
-            const dp = readDeviceMetric(d, 'power')
-            if (Number.isFinite(dp)) currentKw = dp
+    return openGroupDevices.flatMap((d) => {
+      const devSlaves = d.slaves || d.configSlaves || []
+      const isOff = isOffline(d) || isSwitchOff(d)
+      if (devSlaves.length > 0) {
+        return devSlaves.map((s) => {
+          let currentKw = 0
+          if (!isOff) {
+            const p = readDeviceMetric(s, 'power')
+            if (Number.isFinite(p)) currentKw = p
+            else if (s.currentKw != null && Number.isFinite(Number(s.currentKw))) currentKw = Number(s.currentKw)
+            else if (devSlaves.length <= 1) {
+              const dp = readDeviceMetric(d, 'power')
+              if (Number.isFinite(dp)) currentKw = dp
+            }
           }
-        }
-        return {
-          id: s.id,
-          name: s.name || 'Slave',
-          deviceId: d.id,
-          deviceName: d.name,
-          isOff: isOffline(d),
-          currentKw: currentKw != null && Number.isFinite(currentKw) ? +currentKw.toFixed(2) : 0,
-        }
-      })
-    )
+          return {
+            id: s.id,
+            name: s.name || 'Slave',
+            deviceId: d.id,
+            deviceName: d.name,
+            isOff,
+            currentKw: +Number(currentKw || 0).toFixed(2),
+          }
+        })
+      }
+      let currentKw = 0
+      if (!isOff) {
+        const p = readDeviceMetric(d, 'power')
+        if (Number.isFinite(p)) currentKw = p
+      }
+      return [{
+        id: d.id,
+        name: d.name,
+        deviceId: d.id,
+        deviceName: d.name,
+        isOff,
+        currentKw: +Number(currentKw || 0).toFixed(2),
+      }]
+    })
   }, [openGroup, openGroupDevices, liveDevices])
+
+  const openGroupModalTotalKw = useMemo(() => {
+    if (openGroupMemberSlaves.length > 0) {
+      return +openGroupMemberSlaves.reduce((acc, s) => acc + (s.currentKw || 0), 0).toFixed(2)
+    }
+    return openGroup?.loadKw ?? openGroup?.load ?? 0
+  }, [openGroupMemberSlaves, openGroup])
 
   const handleOpenGroup = (groupId) => {
     setSelectedSlaveDetails(null)
@@ -1106,26 +1178,7 @@ export default function OrgDashboard() {
                 mode="group"
                 group={openGroup}
                 memberSlaves={openGroupMemberSlaves}
-                currentLiveKw={(() => {
-                  let sum = 0
-                  for (const s of openGroupMemberSlaves) {
-                    if (s.currentKw != null && Number(s.currentKw) > 0) {
-                      sum += Number(s.currentKw)
-                    } else {
-                      const dev = liveDevices.find((d) => d.id === s.deviceId)
-                      if (!dev || isOffline(dev)) continue
-                      const sl = (dev.slaves || []).find((x) => x.id === s.id)
-                      if (sl?.currentKw != null && Number(sl.currentKw) > 0) {
-                        sum += Number(sl.currentKw)
-                      } else if (openGroupMemberSlaves.length === 1) {
-                        const p = readDeviceMetric(dev, 'power')
-                        if (Number.isFinite(p) && p > 0) sum += p
-                      }
-                    }
-                  }
-                  if (sum > 0) return +sum.toFixed(2)
-                  return openGroup?.loadKw ?? openGroup?.load ?? 0
-                })()}
+                currentLiveKw={openGroupModalTotalKw}
                 onBack={() => setShowGroupAnalytics(false)}
               />
             ) : showSlaveAnalytics && selectedSlaveDetails ? (
@@ -1192,7 +1245,7 @@ export default function OrgDashboard() {
                     <div>
                       <span className="text-[10px] font-bold uppercase tracking-wider text-surface-400 block">Total Group Load</span>
                       <p className="text-base font-black text-surface-900 dark:text-surface-100">
-                        {openGroup?.loadKw ?? openGroup?.load ?? 0} <span className="text-xs font-semibold text-surface-400">kW</span>
+                        {openGroupModalTotalKw} <span className="text-xs font-semibold text-surface-400">kW</span>
                       </p>
                     </div>
                   </div>

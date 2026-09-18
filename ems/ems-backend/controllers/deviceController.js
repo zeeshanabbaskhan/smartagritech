@@ -92,8 +92,8 @@ const attachLatestMetrics = async (devices) => {
       const targetVars = slaveVars.length ? slaveVars : vars
       for (const sv of targetVars) {
         if (!sv?.name) continue
-        const sRedisVal = slaveHot[sv.name] ?? hot[sv.name]
-        const sRaw = sRedisVal != null && sRedisVal !== '' ? sRedisVal : sv.currentValue
+        const sRedisVal = slaveHot[sv.name] ?? (slaves.length <= 1 ? hot[sv.name] : null)
+        const sRaw = sRedisVal != null && sRedisVal !== '' ? sRedisVal : (slaves.length <= 1 || sv.deviceConfigSlaveId === s.id ? sv.currentValue : null)
         const sNum = sRaw != null && sRaw !== '' ? Number(sRaw) : NaN
         const sMeta = { name: sv.name, displayName: sv.displayName, unit: sv.unit }
         const sDisplayValue = Number.isFinite(sNum) ? legacyDisplayValue(sNum, sMeta) : null

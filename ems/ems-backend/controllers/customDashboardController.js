@@ -48,7 +48,7 @@ const normalizeToKw = (val) => {
   const n = parseFloat(val)
   if (!Number.isFinite(n)) return 0
   const abs = Math.abs(n)
-  if (abs >= 200000) return +(abs / 1000).toFixed(3)
+  if (abs >= 2500) return +(abs / 1000).toFixed(3)
   return +abs.toFixed(3)
 }
 
