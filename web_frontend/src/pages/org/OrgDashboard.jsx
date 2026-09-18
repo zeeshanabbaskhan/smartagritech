@@ -188,18 +188,18 @@ export default function OrgDashboard() {
         let sum = 0
         for (const item of slaveItems) {
           const sId = typeof item === 'string' ? item : item.id
-          let foundSlave = typeof item === 'object' ? item : null
-          let parentDev = liveDevices.find((d) => d.id === foundSlave?.deviceId)
-          if (!parentDev || !foundSlave) {
+          const slaveObj = typeof item === 'object' ? item : (g.slaves || []).find((s) => s.id === sId)
+          let parentDev = liveDevices.find((d) => d.id === slaveObj?.deviceId)
+          if (!parentDev) {
             for (const d of liveDevices) {
-              const sl = (d.slaves || d.configSlaves || []).find((s) => s.id === sId)
+              const sl = (d.configSlaves || d.slaves || []).find((s) => s.id === sId)
               if (sl) {
-                foundSlave = sl
                 parentDev = d
                 break
               }
             }
           }
+          const foundSlave = parentDev ? (parentDev.configSlaves || parentDev.slaves || []).find((s) => s.id === sId) : null
           if (parentDev) {
             hasDynamic = true
             if (!isOffline(parentDev) && !isSwitchOff(parentDev)) {
@@ -208,15 +208,20 @@ export default function OrgDashboard() {
                 const sp = readDeviceMetric(foundSlave, 'power')
                 if (Number.isFinite(sp)) p = sp
               }
-              if (p === 0 && (parentDev.slaves || parentDev.configSlaves || []).length <= 1) {
+              if (p === 0 && slaveObj?.currentKw != null && Number.isFinite(Number(slaveObj.currentKw))) {
+                p = Number(slaveObj.currentKw)
+              }
+              if (p === 0 && (parentDev.configSlaves || parentDev.slaves || []).length <= 1) {
                 const dp = readDeviceMetric(parentDev, 'power')
                 if (Number.isFinite(dp)) p = dp
               }
               sum += p
             }
+          } else if (slaveObj?.currentKw != null && Number.isFinite(Number(slaveObj.currentKw))) {
+            sum += Number(slaveObj.currentKw)
           }
         }
-        if (hasDynamic) dynamicSum = sum
+        if (hasDynamic || sum > 0) dynamicSum = sum
       } else if (groupDevices.length > 0) {
         hasDynamic = true
         dynamicSum = active.reduce((s, d) => {
@@ -226,9 +231,9 @@ export default function OrgDashboard() {
         }, 0)
       }
 
-      let load = hasDynamic && liveDevices.length > 0
+      let load = (hasDynamic && dynamicSum > 0)
         ? dynamicSum
-        : (g.loadKw != null ? Number(g.loadKw) : (g.load != null ? Number(g.load) : 0))
+        : (g.loadKw != null && Number(g.loadKw) > 0 ? Number(g.loadKw) : (dynamicSum > 0 ? dynamicSum : (g.load != null ? Number(g.load) : 0)))
 
       return {
         ...g,
@@ -330,18 +335,17 @@ export default function OrgDashboard() {
       return items.map((item) => {
         const sId = typeof item === 'string' ? item : item.id
         const slaveObj = typeof item === 'object' ? item : openGroup.slaves?.find((s) => s.id === sId)
-        let foundSlave = slaveObj
         let parentDev = liveDevices.find((d) => d.id === slaveObj?.deviceId)
-        if (!foundSlave || !parentDev) {
+        if (!parentDev) {
           for (const d of liveDevices) {
-            const sl = (d.slaves || d.configSlaves || []).find((s) => s.id === sId)
+            const sl = (d.configSlaves || d.slaves || []).find((s) => s.id === sId)
             if (sl) {
-              foundSlave = sl
               parentDev = d
               break
             }
           }
         }
+        const foundSlave = parentDev ? (parentDev.configSlaves || parentDev.slaves || []).find((s) => s.id === sId) : null
         const name = slaveObj?.name || foundSlave?.name || 'Slave'
         const devName = parentDev?.name || foundSlave?.deviceName || slaveObj?.deviceName || 'Device'
         const devId = parentDev?.id || slaveObj?.deviceId || foundSlave?.deviceId || (openGroup?.deviceIds?.length === 1 ? openGroup.deviceIds[0] : null)
@@ -356,7 +360,7 @@ export default function OrgDashboard() {
           if (currentKw === 0 && slaveObj?.currentKw != null && Number.isFinite(Number(slaveObj.currentKw))) {
             currentKw = Number(slaveObj.currentKw)
           }
-          if (currentKw === 0 && parentDev && (parentDev.slaves || parentDev.configSlaves || []).length <= 1) {
+          if (currentKw === 0 && parentDev && (parentDev.configSlaves || parentDev.slaves || []).length <= 1) {
             const p = readDeviceMetric(parentDev, 'power')
             if (Number.isFinite(p)) currentKw = p
           }
