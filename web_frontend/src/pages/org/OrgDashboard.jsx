@@ -849,7 +849,7 @@ export default function OrgDashboard() {
             >
               <StatCard
                 label="Online Slaves"
-                value={`${stats?.onlineSlaves ?? 0} / ${stats?.totalSlaves ?? 0}`}
+                value={stats?.onlineSlaves ?? 0}
                 icon={CheckCircle}
                 color="success"
                 sub={stats?.offlineSlaves > 0 ? `${stats.offlineSlaves} offline · Click to inspect` : 'All slaves online'}
@@ -864,9 +864,9 @@ export default function OrgDashboard() {
           <>
           {/* 4. Power Sources — Last 24 Hours (linked sources only) */}
           <div className="card p-5">
-            <h3 className="text-sm font-bold text-surface-900 dark:text-surface-100 leading-none">Power Sources — Last 24 Hours</h3>
+            <h3 className="text-sm font-bold text-surface-900 dark:text-surface-100 leading-none">Power Sources — Last 24 Hours (kW)</h3>
             <p className="text-xs text-surface-400 mt-1 mb-4">
-              Live history for each power source from its linked devices (ActivePower)
+              Live history for each power source from its linked devices (ActivePower in kW)
             </p>
             {!(liveSources || []).some((s) => (s.deviceIds?.length || 0) + (s.slaveIds?.length || 0) > 0) ? (
               <EmptyChart>Link devices or slaves to Grid, Solar, Generator, or a custom source above to see their 24h history here.</EmptyChart>
@@ -886,7 +886,7 @@ export default function OrgDashboard() {
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
                     <XAxis dataKey="time" tick={{ fontSize: 10, fill: '#9AA09A' }} stroke="#D1D5C8" />
-                    <YAxis tick={{ fontSize: 10, fill: '#9AA09A' }} stroke="#D1D5C8" />
+                    <YAxis tick={{ fontSize: 10, fill: '#9AA09A' }} stroke="#D1D5C8" unit=" kW" />
                     <Tooltip content={<CustomTooltip />} />
                     {powerSourceChart.series.map((s) => (
                       <Area
@@ -906,7 +906,7 @@ export default function OrgDashboard() {
                   {powerSourceChart.series.map((s) => (
                     <span key={s.key} className="flex items-center gap-1.5 text-[10px] font-bold text-surface-500">
                       <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: s.color }} />
-                      {s.name}
+                      {s.name} (kW)
                     </span>
                   ))}
                 </div>
@@ -916,7 +916,7 @@ export default function OrgDashboard() {
 
           {/* 5. Asset Group Load — Last 24 Hours */}
           <div className="card p-5">
-            <h3 className="text-sm font-bold text-surface-900 dark:text-surface-100 leading-none">Asset Group Load — Last 24 Hours</h3>
+            <h3 className="text-sm font-bold text-surface-900 dark:text-surface-100 leading-none">Asset Group Load — Last 24 Hours (kW)</h3>
             <p className="text-xs text-surface-400 mt-1 mb-4">
               Sum of each group&apos;s device load (kW) at {orgName} — hover for values, or click a group to open its devices
             </p>
@@ -938,7 +938,7 @@ export default function OrgDashboard() {
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
                     <XAxis dataKey="time" tick={{ fontSize: 10, fill: '#9AA09A' }} stroke="#D1D5C8" />
-                    <YAxis tick={{ fontSize: 10, fill: '#9AA09A' }} stroke="#D1D5C8" />
+                    <YAxis tick={{ fontSize: 10, fill: '#9AA09A' }} stroke="#D1D5C8" unit=" kW" />
                     <Tooltip content={<CustomTooltip />} />
                     {groupSeriesData.groups.map((g, i) => (
                       <Area
@@ -963,7 +963,7 @@ export default function OrgDashboard() {
                       className="flex items-center gap-1.5 text-[10px] font-bold text-surface-500 hover:text-surface-800 dark:hover:text-surface-200 px-2 py-1 rounded-lg hover:bg-surface-50 dark:hover:bg-surface-800 transition-colors"
                     >
                       <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: GROUP_LINE_COLORS[i % GROUP_LINE_COLORS.length] }} />
-                      {g.name}
+                      {g.name} (kW)
                     </button>
                   ))}
                 </div>
@@ -974,8 +974,8 @@ export default function OrgDashboard() {
           {/* 6. Power Consumption — Last 24 Hours */}
           <div className="card p-5 flex flex-col justify-between">
             <div>
-              <h3 className="text-sm font-bold text-surface-900 leading-none">Power Consumption — Last 24 Hours</h3>
-              <p className="text-xs text-surface-400 mt-1 mb-4">Total fleet load (kW) across all devices at {orgName}</p>
+              <h3 className="text-sm font-bold text-surface-900 leading-none">Power Consumption — Last 24 Hours (kWh)</h3>
+              <p className="text-xs text-surface-400 mt-1 mb-4">Total energy consumption (kWh) across all devices at {orgName}</p>
             </div>
             {sourceSeries.length === 0 ? (
               <EmptyChart>No logged readings in the last 24 hours yet.</EmptyChart>
@@ -990,9 +990,9 @@ export default function OrgDashboard() {
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
                   <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
-                  <YAxis tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
+                  <YAxis tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" unit=" kWh" />
                   <Tooltip content={<CustomTooltip />} />
-                  <Area type="monotone" dataKey="load" stroke="#F5A623" fill="url(#orgPowerGrad)" strokeWidth={2} name="Load" unit="kW" />
+                  <Area type="monotone" dataKey="load" stroke="#F5A623" fill="url(#orgPowerGrad)" strokeWidth={2} name="Consumption" unit="kWh" />
                 </AreaChart>
               </ResponsiveContainer>
             )}
