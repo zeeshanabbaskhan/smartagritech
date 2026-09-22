@@ -1182,6 +1182,7 @@ export default function OrgDashboard() {
                 mode="group"
                 group={openGroup}
                 memberSlaves={openGroupMemberSlaves}
+                memberDevices={openGroupDevices}
                 currentLiveKw={openGroupModalTotalKw}
                 onBack={() => setShowGroupAnalytics(false)}
               />

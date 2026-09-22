@@ -159,6 +159,7 @@ export default function LoadAnalyticsPanel({
   group = null,
   slave = null,
   memberSlaves = [],
+  memberDevices = [],
   currentLiveKw = 0,
   onBack,
 }) {
@@ -179,14 +180,36 @@ export default function LoadAnalyticsPanel({
     return dateFrom !== dateTo
   }, [dateFrom, dateTo])
 
-  // Stable key representing member slaves / slave ID
+  // Direct devices in this group that don't already have specific member slaves
+  const effectiveDevices = useMemo(() => {
+    if (mode !== 'group') return []
+    const slaveDevIds = new Set((memberSlaves || []).map((s) => s.deviceId).filter(Boolean))
+    return (memberDevices || []).filter((d) => d.id && !slaveDevIds.has(d.id))
+  }, [mode, memberSlaves, memberDevices])
+
+  // All individual members (slaves + direct devices) for legends & breakdowns
+  const allGroupMembers = useMemo(() => {
+    if (mode !== 'group') return []
+    const list = [...(memberSlaves || [])]
+    effectiveDevices.forEach((d) => {
+      list.push({
+        id: d.id,
+        name: d.name || 'Device',
+        deviceId: d.id,
+        deviceName: d.name || 'Device',
+        isDirectDevice: true,
+      })
+    })
+    return list
+  }, [mode, memberSlaves, effectiveDevices])
+
+  // Stable key representing member slaves / devices
   const slavesKey = useMemo(() => {
     if (mode === 'slave') return `${slave?.deviceId}_${slave?.slaveId}`
-    return (memberSlaves || [])
-      .map((s) => `${s.deviceId}_${s.id}`)
-      .sort()
-      .join(';')
-  }, [mode, slave?.deviceId, slave?.slaveId, memberSlaves])
+    const slaveParts = (memberSlaves || []).map((s) => `${s.deviceId}_${s.id}`).sort()
+    const devParts = effectiveDevices.map((d) => `dev_${d.id}`).sort()
+    return [...slaveParts, ...devParts].join(';')
+  }, [mode, slave?.deviceId, slave?.slaveId, memberSlaves, effectiveDevices])
 
   const handlePresetSelect = (presetId) => {
     setSelectedPreset(presetId)
@@ -268,9 +291,11 @@ export default function LoadAnalyticsPanel({
           setChartData(formatted)
           hasLoadedRef.current = true
         } else {
-          // Group Mode: Fetch series for each member slave and combine
+          // Group Mode: Fetch series for member slaves AND direct member devices
           const slavesToQuery = memberSlaves.filter((s) => s.id && s.deviceId)
-          if (slavesToQuery.length === 0) {
+          const devicesToQuery = effectiveDevices.filter((d) => d.id)
+
+          if (slavesToQuery.length === 0 && devicesToQuery.length === 0) {
             setChartData([])
             setLoading(false)
             return
@@ -283,8 +308,8 @@ export default function LoadAnalyticsPanel({
             devMap.get(s.deviceId).push(s)
           })
 
-          const deviceResponses = await Promise.all(
-            Array.from(devMap.entries()).map(async ([devId, devSlaves]) => {
+          const tasks = [
+            ...Array.from(devMap.entries()).map(async ([devId, devSlaves]) => {
               try {
                 const sIds = devSlaves.map((s) => s.id)
                 const res = await emsApi.getSensorAggregate({
@@ -295,52 +320,96 @@ export default function LoadAnalyticsPanel({
                   endDate,
                 })
                 const points = Array.isArray(res?.data) ? res.data : []
-                return { devId, devSlaves, points }
+                return { kind: 'slaves', devId, devSlaves, points }
               } catch {
-                return { devId, devSlaves, points: [] }
+                return { kind: 'slaves', devId, devSlaves, points: [] }
               }
             }),
-          )
+            ...devicesToQuery.map(async (d) => {
+              try {
+                const res = await emsApi.getSensorAggregate({
+                  deviceId: d.id,
+                  variableName: 'ActivePower',
+                  startDate,
+                  endDate,
+                })
+                const points = Array.isArray(res?.data) ? res.data : []
+                return { kind: 'device', device: d, points }
+              } catch {
+                return { kind: 'device', device: d, points: [] }
+              }
+            }),
+          ]
+
+          const responses = await Promise.all(tasks)
 
           // Merge all points by timestamp bucket
           const timeMap = new Map()
           const statsMap = {}
 
-          slavesToQuery.forEach((s) => {
-            statsMap[s.id] = {
-              id: s.id,
-              name: s.name || 'Slave',
-              deviceName: s.deviceName || 'Device',
+          allGroupMembers.forEach((m) => {
+            statsMap[m.id] = {
+              id: m.id,
+              name: m.name || 'Member',
+              deviceName: m.deviceName || 'Device',
               values: [],
             }
           })
 
-          deviceResponses.forEach(({ devSlaves, points }) => {
-            points.forEach((p) => {
-              const ts = new Date(p.timestamp).getTime()
-              if (Number.isNaN(ts)) return
-              const rawKw = powerReadingToKw('ActivePower', p.value)
-              const val = Number.isFinite(rawKw) ? Math.abs(rawKw) : 0
-              const sId = p.slaveId || (devSlaves.length === 1 ? devSlaves[0].id : null)
-              if (!sId) return
+          responses.forEach((resp) => {
+            if (resp.kind === 'slaves') {
+              const { devSlaves, points } = resp
+              points.forEach((p) => {
+                const ts = new Date(p.timestamp).getTime()
+                if (Number.isNaN(ts)) return
+                const rawKw = powerReadingToKw('ActivePower', p.value)
+                const val = Number.isFinite(rawKw) ? Math.abs(rawKw) : 0
+                const sId = p.slaveId || (devSlaves.length === 1 ? devSlaves[0].id : null)
+                if (!sId) return
 
-              if (!timeMap.has(ts)) {
-                timeMap.set(ts, {
-                  rawTimestamp: ts,
-                  isoTimestamp: p.timestamp,
-                  time: formatChartTime(p.timestamp, isMultiDay),
-                  combinedKw: 0,
-                  slaves: {},
-                })
-              }
-              const bucket = timeMap.get(ts)
-              bucket.slaves[sId] = +val.toFixed(2)
-              bucket.combinedKw = +(bucket.combinedKw + val).toFixed(2)
+                if (!timeMap.has(ts)) {
+                  timeMap.set(ts, {
+                    rawTimestamp: ts,
+                    isoTimestamp: p.timestamp,
+                    time: formatChartTime(p.timestamp, isMultiDay),
+                    combinedKw: 0,
+                    members: {},
+                  })
+                }
+                const bucket = timeMap.get(ts)
+                bucket.members[sId] = +val.toFixed(2)
+                bucket.combinedKw = +(bucket.combinedKw + val).toFixed(2)
 
-              if (statsMap[sId]) {
-                statsMap[sId].values.push(val)
-              }
-            })
+                if (statsMap[sId]) {
+                  statsMap[sId].values.push(val)
+                }
+              })
+            } else if (resp.kind === 'device') {
+              const { device, points } = resp
+              points.forEach((p) => {
+                const ts = new Date(p.timestamp).getTime()
+                if (Number.isNaN(ts)) return
+                const rawKw = powerReadingToKw('ActivePower', p.value)
+                const val = Number.isFinite(rawKw) ? Math.abs(rawKw) : 0
+
+                if (!timeMap.has(ts)) {
+                  timeMap.set(ts, {
+                    rawTimestamp: ts,
+                    isoTimestamp: p.timestamp,
+                    time: formatChartTime(p.timestamp, isMultiDay),
+                    combinedKw: 0,
+                    members: {},
+                  })
+                }
+                const bucket = timeMap.get(ts)
+                bucket.members[device.id] = +val.toFixed(2)
+                bucket.combinedKw = +(bucket.combinedKw + val).toFixed(2)
+
+                if (statsMap[device.id]) {
+                  statsMap[device.id].values.push(val)
+                }
+              })
+            }
           })
 
           const sortedChart = Array.from(timeMap.values())
@@ -349,7 +418,7 @@ export default function LoadAnalyticsPanel({
               timestamp: row.isoTimestamp,
               time: row.time,
               loadKw: row.combinedKw,
-              ...row.slaves,
+              ...row.members,
             }))
 
           cacheRef.current[cacheKey] = {
@@ -368,7 +437,7 @@ export default function LoadAnalyticsPanel({
         setLoading(false)
       }
     },
-    [mode, slavesKey, slave, memberSlaves, dateFrom, dateTo, isMultiDay],
+    [mode, slavesKey, slave, memberSlaves, effectiveDevices, allGroupMembers, dateFrom, dateTo, isMultiDay],
   )
 
   useEffect(() => {
@@ -427,12 +496,12 @@ export default function LoadAnalyticsPanel({
         : `${slave?.slaveName || 'Slave'}_Load_Historical_${dateFrom}_to_${dateTo}`
 
     if (mode === 'group') {
-      const slaveHeaders = memberSlaves.map((s) => `"${s.name} (kW)"`).join(',')
-      csvContent = `Timestamp,"Formatted Time",${slaveHeaders ? slaveHeaders + ',' : ''}"Combined Group Load (kW)"\n`
+      const memberHeaders = allGroupMembers.map((m) => `"${m.name} (${m.isDirectDevice ? 'Direct Device' : 'Slave'}) (kW)"`).join(',')
+      csvContent = `Timestamp,"Formatted Time",${memberHeaders ? memberHeaders + ',' : ''}"Combined Group Load (kW)"\n`
 
       chartData.forEach((row) => {
-        const slaveVals = memberSlaves.map((s) => row[s.id] ?? 0).join(',')
-        csvContent += `"${row.timestamp}","${row.time}",${slaveVals ? slaveVals + ',' : ''}${row.loadKw}\n`
+        const memberVals = allGroupMembers.map((m) => row[m.id] ?? 0).join(',')
+        csvContent += `"${row.timestamp}","${row.time}",${memberVals ? memberVals + ',' : ''}${row.loadKw}\n`
       })
     } else {
       csvContent = `Timestamp,"Formatted Time","Slave Name","Parent Device","Load (kW)","Unit"\n`
@@ -671,12 +740,12 @@ export default function LoadAnalyticsPanel({
                           {mode === 'group' ? 'Combined Load: ' : 'Load: '}
                           {row.loadKw} kW
                         </p>
-                        {mode === 'group' && memberSlaves.length > 1 && (
+                        {mode === 'group' && allGroupMembers.length > 1 && (
                           <div className="pt-1 border-t border-surface-800 space-y-0.5 text-[10px]">
-                            {memberSlaves.map((s) => (
-                              <div key={s.id} className="flex items-center justify-between gap-3 text-surface-300">
-                                <span className="truncate">{s.name}:</span>
-                                <span className="font-mono font-bold text-white">{row[s.id] ?? 0} kW</span>
+                            {allGroupMembers.map((m) => (
+                              <div key={m.id} className="flex items-center justify-between gap-3 text-surface-300">
+                                <span className="truncate">{m.name}:</span>
+                                <span className="font-mono font-bold text-white">{row[m.id] ?? 0} kW</span>
                               </div>
                             ))}
                           </div>
@@ -699,14 +768,14 @@ export default function LoadAnalyticsPanel({
         )}
       </div>
 
-      {/* Group Mode: Member Slaves Breakdown Table */}
-      {mode === 'group' && memberSlaves.length > 0 && (
+      {/* Group Mode: Member Breakdown Table */}
+      {mode === 'group' && allGroupMembers.length > 0 && (
         <div className="p-4 bg-white dark:bg-surface-900 rounded-xl border border-surface-200 dark:border-surface-800 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Layers size={14} className="text-primary-500" />
               <h5 className="text-xs font-bold text-surface-800 dark:text-surface-200 uppercase tracking-wider">
-                Member Slaves Load Breakdown ({memberSlaves.length})
+                Group Member Breakdown ({allGroupMembers.length})
               </h5>
             </div>
           </div>
@@ -715,8 +784,8 @@ export default function LoadAnalyticsPanel({
             <table className="w-full text-xs">
               <thead className="bg-surface-50 dark:bg-surface-950 text-surface-500">
                 <tr>
-                  <th className="text-left px-3 py-2.5 font-semibold">Slave Name</th>
-                  <th className="text-left px-3 py-2.5 font-semibold">Parent Device</th>
+                  <th className="text-left px-3 py-2.5 font-semibold">Node Name</th>
+                  <th className="text-left px-3 py-2.5 font-semibold">Type / Parent</th>
                   <th className="text-right px-3 py-2.5 font-semibold">Min (kW)</th>
                   <th className="text-right px-3 py-2.5 font-semibold">Avg (kW)</th>
                   <th className="text-right px-3 py-2.5 font-semibold">Peak (kW)</th>
@@ -724,34 +793,34 @@ export default function LoadAnalyticsPanel({
                 </tr>
               </thead>
               <tbody>
-                {memberSlaves.map((s) => {
-                  const sVals = slaveStats[s.id]?.values || []
-                  const sMin = sVals.length ? Math.min(...sVals).toFixed(2) : '—'
-                  const sMax = sVals.length ? Math.max(...sVals).toFixed(2) : '—'
-                  const sAvg = sVals.length
-                    ? (sVals.reduce((a, b) => a + b, 0) / sVals.length).toFixed(2)
+                {allGroupMembers.map((m) => {
+                  const mVals = slaveStats[m.id]?.values || []
+                  const mMin = mVals.length ? Math.min(...mVals).toFixed(2) : '—'
+                  const mMax = mVals.length ? Math.max(...mVals).toFixed(2) : '—'
+                  const mAvg = mVals.length
+                    ? (mVals.reduce((a, b) => a + b, 0) / mVals.length).toFixed(2)
                     : '—'
                   const sharePct =
-                    stats.avg > 0 && sAvg !== '—'
-                      ? Math.min(100, Math.round((Number(sAvg) / stats.avg) * 100))
+                    stats.avg > 0 && mAvg !== '—'
+                      ? Math.min(100, Math.round((Number(mAvg) / stats.avg) * 100))
                       : '—'
 
                   return (
-                    <tr key={s.id} className="border-t border-surface-100 dark:border-surface-800">
+                    <tr key={m.id} className="border-t border-surface-100 dark:border-surface-800">
                       <td className="px-3 py-2 font-bold text-surface-800 dark:text-surface-100">
-                        {s.name}
+                        {m.name}
                       </td>
                       <td className="px-3 py-2 text-surface-400">
-                        {s.deviceName || 'Device'}
+                        {m.isDirectDevice ? 'Direct Device' : (m.deviceName || 'Device')}
                       </td>
                       <td className="px-3 py-2 text-right font-mono text-surface-600 dark:text-surface-300">
-                        {sMin}
+                        {mMin}
                       </td>
                       <td className="px-3 py-2 text-right font-mono font-bold text-surface-800 dark:text-surface-100">
-                        {sAvg}
+                        {mAvg}
                       </td>
                       <td className="px-3 py-2 text-right font-mono text-rose-500 font-bold">
-                        {sMax}
+                        {mMax}
                       </td>
                       <td className="px-3 py-2 text-right">
                         {sharePct !== '—' ? (
@@ -762,7 +831,7 @@ export default function LoadAnalyticsPanel({
                             {sharePct}%
                           </span>
                         ) : (
-                          '—'
+                          <span className="text-surface-400 font-mono">—</span>
                         )}
                       </td>
                     </tr>

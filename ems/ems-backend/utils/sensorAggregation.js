@@ -126,6 +126,7 @@ const bucketVariable = async (prisma, opts) => {
   const { deviceId, slaveId, slaveIds, variableName, startDate, endDate, bucketMs } = opts
   const rawNames = getRawCandidateNames(variableName)
   const isMultiSlave = Array.isArray(slaveIds) && slaveIds.length > 0
+  const targetSlaveIds = isMultiSlave ? slaveIds : (slaveId ? [slaveId] : [null])
 
   if (!isMultiSlave && useHourlyAggregate(opts.startDate) && (await probeHourlyView(db))) {
     try {
@@ -135,39 +136,66 @@ const bucketVariable = async (prisma, opts) => {
     }
   }
 
-  // High-performance index scan on sensor_reading_values using IN (...)
+  // 1. Resolve actual active configured variable names for the device / slaves to minimize B-Tree candidate branches
+  let varNameBySlave = null
+  try {
+    const configuredVars = await prisma.deviceConfigVariable.findMany({
+      where: {
+        ...(deviceId ? { deviceId } : {}),
+        isActive: true,
+        ...(isMultiSlave ? { deviceConfigSlaveId: { in: slaveIds } } : (slaveId ? { deviceConfigSlaveId: slaveId } : {})),
+        name: { in: rawNames },
+      },
+      select: { name: true, deviceConfigSlaveId: true },
+    })
+    if (configuredVars.length > 0) {
+      varNameBySlave = new Map()
+      configuredVars.forEach((v) => {
+        const key = v.deviceConfigSlaveId || 'default'
+        if (!varNameBySlave.has(key)) varNameBySlave.set(key, [])
+        varNameBySlave.get(key).push(v.name)
+      })
+    }
+  } catch (_) {}
+
+  // 2. High-performance index scan on sensor_reading_values using targeted per-slave queries
   try {
     const endClause = endDate ? Prisma.sql`AND v."timestamp" <= ${endDate}` : Prisma.empty
     const devClause = deviceId ? Prisma.sql`AND v."deviceId" = ${deviceId}` : Prisma.empty
-    const slvClause = isMultiSlave
-      ? Prisma.sql`AND v."deviceConfigSlaveId" IN (${Prisma.join(slaveIds)})`
-      : (slaveId ? Prisma.sql`AND v."deviceConfigSlaveId" = ${slaveId}` : Prisma.empty)
 
     if (isMultiSlave) {
-      const multiRows = await db.$queryRaw`
-        SELECT
-          v."deviceConfigSlaveId" AS slave_id,
-          (floor(extract(epoch from v."timestamp") * 1000 / ${bucketMs}) * ${bucketMs})::bigint AS bucket_ms,
-          AVG(v.value)::double precision AS avg_val
-        FROM sensor_reading_values v
-        WHERE v."timestamp" >= ${startDate}
-          ${devClause}
-          ${slvClause}
-          ${endClause}
-          AND v."variableName" IN (${Prisma.join(rawNames)})
-          AND v.value > -10000000
-          AND v.value < 10000000
-        GROUP BY v."deviceConfigSlaveId", bucket_ms
-        ORDER BY bucket_ms ASC
-      `
-      if (Array.isArray(multiRows) && multiRows.length > 0) {
-        return multiRows.map((r) => ({
+      const slaveTasks = targetSlaveIds.map(async (sId) => {
+        const matchingVars = (varNameBySlave && varNameBySlave.get(sId)) || rawNames
+        const slvClause = Prisma.sql`AND v."deviceConfigSlaveId" = ${sId}`
+        const rows = await db.$queryRaw`
+          SELECT
+            ${sId}::text AS slave_id,
+            (floor(extract(epoch from v."timestamp") * 1000 / ${bucketMs}) * ${bucketMs})::bigint AS bucket_ms,
+            AVG(v.value)::double precision AS avg_val
+          FROM sensor_reading_values v
+          WHERE v."timestamp" >= ${startDate}
+            ${devClause}
+            ${slvClause}
+            ${endClause}
+            AND v."variableName" IN (${Prisma.join(matchingVars)})
+            AND v.value > -10000000
+            AND v.value < 10000000
+          GROUP BY bucket_ms
+          ORDER BY bucket_ms ASC
+        `
+        return rows.map((r) => ({
           slaveId: r.slave_id,
           timestamp: new Date(Number(r.bucket_ms)),
           value: parseFloat(Number(r.avg_val).toFixed(4)),
         }))
-      }
+      })
+
+      const slaveResults = await Promise.all(slaveTasks)
+      const merged = slaveResults.flat()
+      if (merged.length > 0) return merged
     } else {
+      const matchingVars = (varNameBySlave && (varNameBySlave.get(slaveId) || varNameBySlave.get('default'))) || rawNames
+      const slvClause = slaveId ? Prisma.sql`AND v."deviceConfigSlaveId" = ${slaveId}` : Prisma.empty
       const narrow = await db.$queryRaw`
         SELECT
           (floor(extract(epoch from v."timestamp") * 1000 / ${bucketMs}) * ${bucketMs})::bigint AS bucket_ms,
@@ -177,7 +205,7 @@ const bucketVariable = async (prisma, opts) => {
           ${devClause}
           ${slvClause}
           ${endClause}
-          AND v."variableName" IN (${Prisma.join(rawNames)})
+          AND v."variableName" IN (${Prisma.join(matchingVars)})
           AND v.value > -10000000
           AND v.value < 10000000
         GROUP BY bucket_ms
@@ -196,29 +224,35 @@ const bucketVariable = async (prisma, opts) => {
   try {
     const endClauseSr = endDate ? Prisma.sql`AND sr."timestamp" <= ${endDate}` : Prisma.empty
     if (isMultiSlave) {
-      const rows = await db.$queryRaw`
-        SELECT
-          sr."deviceConfigSlaveId" AS slave_id,
-          (floor(extract(epoch from sr."timestamp") * 1000 / ${bucketMs}) * ${bucketMs})::bigint AS bucket_ms,
-          AVG((elem->>'value')::double precision) AS avg_val
-        FROM "sensor_readings" sr,
-             jsonb_array_elements(sr.readings::jsonb) AS elem
-        WHERE sr."deviceId" = ${deviceId}
-          AND sr."timestamp" >= ${startDate}
-          ${endClauseSr}
-          AND sr."deviceConfigSlaveId" IN (${Prisma.join(slaveIds)})
-          AND elem->>'variableName' IN (${Prisma.join(rawNames)})
-          AND (elem->>'value')::double precision > -10000000
-          AND (elem->>'value')::double precision < 10000000
-        GROUP BY sr."deviceConfigSlaveId", bucket_ms
-        ORDER BY bucket_ms ASC
-      `
-      return rows.map((r) => ({
-        slaveId: r.slave_id,
-        timestamp: new Date(Number(r.bucket_ms)),
-        value: parseFloat(Number(r.avg_val).toFixed(4)),
-      }))
+      const slaveTasks = targetSlaveIds.map(async (sId) => {
+        const matchingVars = (varNameBySlave && varNameBySlave.get(sId)) || rawNames
+        const rows = await db.$queryRaw`
+          SELECT
+            ${sId}::text AS slave_id,
+            (floor(extract(epoch from sr."timestamp") * 1000 / ${bucketMs}) * ${bucketMs})::bigint AS bucket_ms,
+            AVG((elem->>'value')::double precision) AS avg_val
+          FROM "sensor_readings" sr,
+               jsonb_array_elements(sr.readings::jsonb) AS elem
+          WHERE sr."deviceId" = ${deviceId}
+            AND sr."timestamp" >= ${startDate}
+            ${endClauseSr}
+            AND sr."deviceConfigSlaveId" = ${sId}
+            AND elem->>'variableName' IN (${Prisma.join(matchingVars)})
+            AND (elem->>'value')::double precision > -10000000
+            AND (elem->>'value')::double precision < 10000000
+          GROUP BY bucket_ms
+          ORDER BY bucket_ms ASC
+        `
+        return rows.map((r) => ({
+          slaveId: r.slave_id,
+          timestamp: new Date(Number(r.bucket_ms)),
+          value: parseFloat(Number(r.avg_val).toFixed(4)),
+        }))
+      })
+      const slaveResults = await Promise.all(slaveTasks)
+      return slaveResults.flat()
     } else {
+      const matchingVars = (varNameBySlave && (varNameBySlave.get(slaveId) || varNameBySlave.get('default'))) || rawNames
       const rows = await db.$queryRaw`
         SELECT
           (floor(extract(epoch from sr."timestamp") * 1000 / ${bucketMs}) * ${bucketMs})::bigint AS bucket_ms,
@@ -228,7 +262,7 @@ const bucketVariable = async (prisma, opts) => {
         WHERE sr."deviceId" = ${deviceId}
           AND sr."timestamp" >= ${startDate}
           ${endClauseSr}
-          AND elem->>'variableName' IN (${Prisma.join(rawNames)})
+          AND elem->>'variableName' IN (${Prisma.join(matchingVars)})
           AND (elem->>'value')::double precision > -10000000
           AND (elem->>'value')::double precision < 10000000
           ${slaveClause(slaveId)}

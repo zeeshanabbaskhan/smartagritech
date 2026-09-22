@@ -259,8 +259,8 @@ const getHistory = async (req, res, next) => {
 const bucketMsForSpan = (spanMs) => {
   if (spanMs <= 2 * 3_600_000) return 60_000            // ≤2h → 1 min
   if (spanMs <= 86_400_000) return 15 * 60_000          // ≤1d → 15 min
-  if (spanMs <= 7 * 86_400_000) return 3_600_000        // ≤7d → 1 hour
-  if (spanMs <= 30 * 86_400_000) return 6 * 3_600_000   // ≤30d → 6 hour
+  if (spanMs <= 14 * 86_400_000) return 3_600_000       // ≤14d → 1 hour
+  if (spanMs <= 31 * 86_400_000) return 6 * 3_600_000   // ≤31d → 6 hour
   return 86_400_000                                      // else → 1 day
 }
 
@@ -299,9 +299,13 @@ const getAggregate = async (req, res, next) => {
       bucketMs = BUCKET_MS[timeRange]
     }
 
+    // Historical completed ranges (immutable) cached for 24h; active/live ranges for 15s
+    const isHistorical = rangeEnd && rangeEnd.getTime() < (Date.now() - 3600_000)
+    const ttlSeconds = isHistorical ? 86400 : (timeRange === '1h' ? 10 : 20)
+
     const sKey = parsedSlaveIds ? `multi:${parsedSlaveIds.sort().join('_')}` : (slaveId || 'all')
     const cacheKey = `agg:${deviceId}:${sKey}:${variableName}:${timeRange || `${startDate}_${endDate}`}`
-    const data = await cached(cacheKey, 60, () => bucketVariable(prisma, {
+    const data = await cached(cacheKey, ttlSeconds, () => bucketVariable(prisma, {
       deviceId,
       slaveId: slaveId || null,
       slaveIds: parsedSlaveIds,
