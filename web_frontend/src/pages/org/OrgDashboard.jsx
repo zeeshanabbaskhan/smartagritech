@@ -231,7 +231,7 @@ export default function OrgDashboard() {
         }, 0)
       }
 
-      let load = (hasDynamic && dynamicSum > 0)
+      let load = hasDynamic
         ? dynamicSum
         : (g.loadKw != null && Number(g.loadKw) > 0 ? Number(g.loadKw) : (dynamicSum > 0 ? dynamicSum : (g.load != null ? Number(g.load) : 0)))
 

@@ -120,14 +120,25 @@ export function readDeviceMetric(device, type) {
     return n
   }
 
-  // 1. Direct variable name (exact match)
+  // 1. 3-Phase summation priority for multi-phase hardware meters
+  if (type === 'power' || normType === 'power' || normType === 'activepower' || normType === 'totalpower') {
+    const pA = parseMetricRaw(metrics['PowerA'] ?? metrics['Power A'] ?? metrics['Power_A'] ?? metrics['P1'])
+    const pB = parseMetricRaw(metrics['PowerB'] ?? metrics['Power B'] ?? metrics['Power_B'] ?? metrics['P2'])
+    const pC = parseMetricRaw(metrics['PowerC'] ?? metrics['Power C'] ?? metrics['Power_C'] ?? metrics['P3'])
+    if (Number.isFinite(pA) || Number.isFinite(pB) || Number.isFinite(pC)) {
+      const sum = (Number.isFinite(pA) ? Math.abs(pA) : 0) + (Number.isFinite(pB) ? Math.abs(pB) : 0) + (Number.isFinite(pC) ? Math.abs(pC) : 0)
+      if (sum > 0) return +sum.toFixed(2)
+      if (Number.isFinite(pA) && Number.isFinite(pB) && Number.isFinite(pC)) return 0
+    }
+  }
+
+  // 2. Direct variable name (exact match)
   if (metrics[type] != null && metrics[type] !== '') {
     const n = finish(type, metrics[type])
     if (Number.isFinite(n)) return n
   }
 
-  // 2. Direct normalized match (case-insensitive, ignoring spaces and underscores)
-  const normType = String(type || '').toLowerCase().replace(/[\s_\-]/g, '')
+  // 3. Direct normalized match (case-insensitive, ignoring spaces and underscores)
   for (const [k, v] of Object.entries(metrics)) {
     if (k.toLowerCase().replace(/[\s_\-]/g, '') === normType) {
       const n = finish(k, v)
@@ -135,7 +146,7 @@ export function readDeviceMetric(device, type) {
     }
   }
 
-  // 3. Known aliases lookup
+  // 4. Known aliases lookup
   const keys = ALIASES[type] ?? []
   for (const key of keys) {
     if (metrics[key] != null && metrics[key] !== '') {
@@ -148,17 +159,6 @@ export function readDeviceMetric(device, type) {
         const n = finish(k, v)
         if (Number.isFinite(n) && n > 0) return n
       }
-    }
-  }
-
-  // 4. 3-Phase summation fallback for meters split into phase powers
-  if (type === 'power' || normType === 'power' || normType === 'activepower' || normType === 'totalpower') {
-    const pA = parseMetricRaw(metrics['PowerA'] ?? metrics['Power A'] ?? metrics['Power_A'] ?? metrics['P1'])
-    const pB = parseMetricRaw(metrics['PowerB'] ?? metrics['Power B'] ?? metrics['Power_B'] ?? metrics['P2'])
-    const pC = parseMetricRaw(metrics['PowerC'] ?? metrics['Power C'] ?? metrics['Power_C'] ?? metrics['P3'])
-    if (Number.isFinite(pA) || Number.isFinite(pB) || Number.isFinite(pC)) {
-      const sum = (Number.isFinite(pA) ? Math.abs(pA) : 0) + (Number.isFinite(pB) ? Math.abs(pB) : 0) + (Number.isFinite(pC) ? Math.abs(pC) : 0)
-      if (sum > 0) return +sum.toFixed(2)
     }
   }
 

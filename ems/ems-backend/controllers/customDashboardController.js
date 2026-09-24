@@ -66,17 +66,8 @@ const extractKwFromVariables = (varMap = {}, isExport = false) => {
     }
   }
 
-  const priorityKeys = isExport ? EXPORT_PRIORITY_KEYS : POWER_PRIORITY_KEYS
-
-  // Tier 1: Check primary total active power registers
-  for (const key of priorityKeys) {
-    if (normalized[key] != null) {
-      const kw = normalizeToKw(normalized[key])
-      if (kw > 0) return kw
-    }
-  }
-
-  // Tier 2: Check 3-phase split power registers (PowerA + PowerB + PowerC or Power1 + Power2 + Power3)
+  // Tier 1: Check 3-phase split power registers (PowerA + PowerB + PowerC or Power1 + Power2 + Power3)
+  // When hardware reports 3-phase power, this is the most accurate real-time telemetry.
   const pA = normalized['powera'] ?? normalized['power a'] ?? normalized['power_a'] ?? normalized['p1'] ?? normalized['power1']
   const pB = normalized['powerb'] ?? normalized['power b'] ?? normalized['power_b'] ?? normalized['p2'] ?? normalized['power2']
   const pC = normalized['powerc'] ?? normalized['power c'] ?? normalized['power_c'] ?? normalized['p3'] ?? normalized['power3']
@@ -84,6 +75,16 @@ const extractKwFromVariables = (varMap = {}, isExport = false) => {
   if (pA != null || pB != null || pC != null) {
     const sumPhase = (normalizeToKw(pA) || 0) + (normalizeToKw(pB) || 0) + (normalizeToKw(pC) || 0)
     if (sumPhase > 0) return +sumPhase.toFixed(3)
+    if (pA != null && pB != null && pC != null) return 0
+  }
+
+  // Tier 2: Check primary total active power registers
+  const priorityKeys = isExport ? EXPORT_PRIORITY_KEYS : POWER_PRIORITY_KEYS
+  for (const key of priorityKeys) {
+    if (normalized[key] != null) {
+      const kw = normalizeToKw(normalized[key])
+      if (kw > 0) return kw
+    }
   }
 
   // Tier 3: Check Apparent Power x Power Factor (S * PF)
@@ -122,25 +123,27 @@ const readDeviceLoadKw = async (deviceId) => {
   })
   if (String(device?.switchState || '').toUpperCase() === 'OFF') return 0
 
-  const varMap = {}
-
   const c = redis.getClient()
   if (c) {
     try {
       const hot = await readLatestMerged(deviceId)
       if (hot && Object.keys(hot).length) {
-        Object.assign(varMap, hot)
+        const liveKw = extractKwFromVariables(hot)
+        if (liveKw > 0 || hot.PowerA != null || hot['Power A'] != null || hot['Current A'] != null || hot.VoltageA != null) {
+          return liveKw
+        }
       }
     } catch (_) {}
   }
 
+  const varMap = {}
   try {
     const vars = await prisma.deviceConfigVariable.findMany({
       where: { deviceId, isActive: true },
       select: { name: true, currentValue: true },
     })
     for (const v of vars) {
-      if (v.currentValue != null && v.currentValue !== '' && varMap[v.name] === undefined) {
+      if (v.currentValue != null && v.currentValue !== '') {
         varMap[v.name] = v.currentValue
       }
     }
@@ -160,25 +163,27 @@ const readSlaveLoadKw = async (deviceId, slaveId) => {
     if (String(device?.switchState || '').toUpperCase() === 'OFF') return 0
   }
 
-  const varMap = {}
-
   const c = redis.getClient()
   if (c && deviceId) {
     try {
       const hot = await readLatestForSlave(deviceId, slaveId)
       if (hot && Object.keys(hot).length) {
-        Object.assign(varMap, hot)
+        const liveKw = extractKwFromVariables(hot)
+        if (liveKw > 0 || hot.PowerA != null || hot['Power A'] != null || hot['Current A'] != null || hot.VoltageA != null) {
+          return liveKw
+        }
       }
     } catch (_) {}
   }
 
+  const varMap = {}
   try {
     const vars = await prisma.deviceConfigVariable.findMany({
       where: { deviceConfigSlaveId: slaveId, isActive: true },
       select: { name: true, currentValue: true },
     })
     for (const v of vars) {
-      if (v.currentValue != null && v.currentValue !== '' && varMap[v.name] === undefined) {
+      if (v.currentValue != null && v.currentValue !== '') {
         varMap[v.name] = v.currentValue
       }
     }
