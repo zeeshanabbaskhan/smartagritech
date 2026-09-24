@@ -22,6 +22,20 @@ const lastEmitByDevice = new Map()
 const skipPgCurrentValue = () =>
   redis.isEnabled() && process.env.SKIP_PG_CURRENT_VALUE !== 'false'
 
+const INGEST_PERSIST_INTERVAL_MS = parseInt(process.env.INGEST_PERSIST_INTERVAL_MS || '600000', 10)
+const lastPersistMap = new Map()
+
+const shouldPersist = (deviceId, slaveId, nowMs) => {
+  if (INGEST_PERSIST_INTERVAL_MS <= 0) return true
+  const key = `${deviceId}:${slaveId || 'none'}`
+  const last = lastPersistMap.get(key) || 0
+  if (nowMs - last >= INGEST_PERSIST_INTERVAL_MS) {
+    lastPersistMap.set(key, nowMs)
+    return true
+  }
+  return false
+}
+
 const cacheLatestValues = async (deviceId, slaveId, readings) => {
   try {
     await writeLatestCache(deviceId, slaveId, readings)
@@ -104,50 +118,80 @@ const persistIngest = async ({ deviceId, slaveId, readings, organizationId }) =>
   const computed = applyIngestFormulas(configVars, readings, slaveId)
   const varUpdates = buildVarUpdates(configVars, computed, slaveId)
 
-  const sensorReading = await prisma.$transaction(async (tx) => {
-    const reading = await tx.sensorReading.create({
-      data: { deviceId, deviceConfigSlaveId: slaveId || null, organizationId, readings, timestamp: ts },
+  const doPersist = shouldPersist(deviceId, slaveId, now)
+  let reading = null
+  let isOnline = true
+  let gatewayId = null
+
+  if (doPersist) {
+    const sensorReading = await prisma.$transaction(async (tx) => {
+      const r = await tx.sensorReading.create({
+        data: { deviceId, deviceConfigSlaveId: slaveId || null, organizationId, readings, timestamp: ts },
+      })
+      const existing = await tx.device.findUnique({
+        where: { id: deviceId },
+        select: { switchState: true, gatewayId: true },
+      })
+      const goOnline = existing?.switchState !== 'OFF'
+      await tx.device.update({
+        where: { id: deviceId },
+        data: {
+          lastDataReceivedAt: ts,
+          ...(goOnline ? { status: 'ONLINE' } : {}),
+        },
+      })
+      await tx.deviceTimestamp.upsert({
+        where:  { deviceId },
+        update: { lastActiveAt: ts },
+        create: { deviceId, organizationId, lastActiveAt: ts },
+      })
+      await bulkUpdateVariables(tx, deviceId, varUpdates, ts)
+      await insertReadingValues(tx, r.id, { deviceId, slaveId, readings: computed, organizationId }, ts)
+      return { reading: r, goOnline, gatewayId: existing?.gatewayId || null }
     })
-    const existing = await tx.device.findUnique({
+    reading = sensorReading.reading
+    isOnline = sensorReading.goOnline
+    gatewayId = sensorReading.gatewayId
+  } else {
+    // 10-min resolution: skip heavy table inserts, but update presence and currentValues
+    const existing = await prisma.device.findUnique({
       where: { id: deviceId },
       select: { switchState: true, gatewayId: true },
     })
-    const goOnline = existing?.switchState !== 'OFF'
-    await tx.device.update({
+    isOnline = existing?.switchState !== 'OFF'
+    gatewayId = existing?.gatewayId || null
+    await prisma.device.update({
       where: { id: deviceId },
       data: {
         lastDataReceivedAt: ts,
-        ...(goOnline ? { status: 'ONLINE' } : {}),
+        ...(isOnline ? { status: 'ONLINE' } : {}),
       },
     })
-    await tx.deviceTimestamp.upsert({
+    await prisma.deviceTimestamp.upsert({
       where:  { deviceId },
       update: { lastActiveAt: ts },
       create: { deviceId, organizationId, lastActiveAt: ts },
     })
-    await bulkUpdateVariables(tx, deviceId, varUpdates, ts)
-    await insertReadingValues(tx, reading.id, { deviceId, slaveId, readings: computed, organizationId }, ts)
-    return { reading, goOnline, gatewayId: existing?.gatewayId || null }
-  })
+    await bulkUpdateVariables(prisma, deviceId, varUpdates, ts)
+  }
 
   await cacheLatestValues(deviceId, slaveId, computed)
-  if (sensorReading.goOnline) {
+  if (isOnline) {
     try {
       const { emitDeviceStatus, touchGatewayOnline } = require('./devicePresenceService')
       emitDeviceStatus(organizationId, deviceId, 'ONLINE', {
         reason: 'ingest',
         lastDataReceivedAt: ts,
       })
-      if (sensorReading.gatewayId) {
-        // Outside the device transaction — gateway touch is best-effort presence
-        await touchGatewayOnline(sensorReading.gatewayId, ts)
+      if (gatewayId) {
+        await touchGatewayOnline(gatewayId, ts)
       }
     } catch (_) {}
   }
   return {
-    sensorReading: sensorReading.reading,
+    sensorReading: reading,
     now: ts,
-    goOnline: sensorReading.goOnline,
+    goOnline: isOnline,
     computedReadings: computed,
   }
 }
@@ -158,6 +202,7 @@ const processIngestBatch = async (payloads) => {
   if (payloads.length === 1) return processIngest(payloads[0])
 
   const now = new Date()
+  const nowMs = now.getTime()
   const deviceIds = [...new Set(payloads.map((p) => p.deviceId))]
   const allConfigVars = await prisma.deviceConfigVariable.findMany({
     where: { deviceId: { in: deviceIds } },
@@ -174,37 +219,42 @@ const processIngestBatch = async (payloads) => {
     computed: applyIngestFormulas(varsByDevice[p.deviceId] ?? [], p.readings, p.slaveId),
   }))
 
-  const readingRows = payloads.map((p) => ({
-    id:                  crypto.randomUUID(),
-    deviceId:            p.deviceId,
-    deviceConfigSlaveId: p.slaveId || null,
-    organizationId:      p.organizationId,
-    readings:            p.readings, // raw
-    timestamp:           now,
-  }))
+  const payloadsToPersist = payloads.filter((p) => shouldPersist(p.deviceId, p.slaveId, nowMs))
 
-  await prisma.sensorReading.createMany({ data: readingRows })
+  if (payloadsToPersist.length) {
+    const readingRows = payloadsToPersist.map((p) => ({
+      id:                  crypto.randomUUID(),
+      deviceId:            p.deviceId,
+      deviceConfigSlaveId: p.slaveId || null,
+      organizationId:      p.organizationId,
+      readings:            p.readings, // raw
+      timestamp:           now,
+    }))
 
-  const valueRows = []
-  for (let i = 0; i < readingRows.length; i++) {
-    const row = readingRows[i]
-    const computed = computedByPayload[i].computed
-    for (const r of computed) {
-      const num = parseFloat(r.value)
-      if (r.variableName == null || Number.isNaN(num)) continue
-      valueRows.push({
-        id:                  crypto.randomUUID(),
-        sensorReadingId:     row.id,
-        deviceId:            row.deviceId,
-        deviceConfigSlaveId: row.deviceConfigSlaveId,
-        organizationId:      row.organizationId,
-        variableName:        r.variableName,
-        value:               num,
-        timestamp:           now,
-      })
+    await prisma.sensorReading.createMany({ data: readingRows })
+
+    const valueRows = []
+    for (let i = 0; i < readingRows.length; i++) {
+      const row = readingRows[i]
+      const p = payloadsToPersist[i]
+      const computed = applyIngestFormulas(varsByDevice[p.deviceId] ?? [], p.readings, p.slaveId)
+      for (const r of computed) {
+        const num = parseFloat(r.value)
+        if (r.variableName == null || Number.isNaN(num)) continue
+        valueRows.push({
+          id:                  crypto.randomUUID(),
+          sensorReadingId:     row.id,
+          deviceId:            row.deviceId,
+          deviceConfigSlaveId: row.deviceConfigSlaveId,
+          organizationId:      row.organizationId,
+          variableName:        r.variableName,
+          value:               num,
+          timestamp:           now,
+        })
+      }
     }
+    if (valueRows.length) await prisma.sensorReadingValue.createMany({ data: valueRows })
   }
-  if (valueRows.length) await prisma.sensorReadingValue.createMany({ data: valueRows })
 
   if (!skipPgCurrentValue()) {
     await prisma.$transaction(async (tx) => {
