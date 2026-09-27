@@ -185,10 +185,7 @@ const mapReadings = (device, slaveName, registers) => {
       if (sn.includes('1st') && targetNorm.includes('1st') && (sn.includes('pr') || sn.includes('rp')) && (targetNorm.includes('pr') || targetNorm.includes('rp'))) return true
       return false
     }) ||
-    (device.configSlaves.length === 1 ? device.configSlaves[0] : null) ||
-    device.configSlaves.find((s) => s.name.trim().toLowerCase() === 'main') ||
-    device.configSlaves.find((s) => s.name.trim().toLowerCase() === 'incoming') ||
-    device.configSlaves[0]
+    (device.configSlaves.length === 1 ? device.configSlaves[0] : null)
 
   if (!slave) return null
 
