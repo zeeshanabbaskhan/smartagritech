@@ -30,6 +30,7 @@ const DEVICE_SELECT = {
     select: {
       id: true,
       name: true,
+      templateSlave: { select: { name: true } },
       configVariables: {
         where: { isActive: true },
         select: {
@@ -178,9 +179,12 @@ const mapReadings = (device, slaveName, registers) => {
   const slave =
     device.configSlaves.find((s) => s.name.trim().toLowerCase() === slaveName.trim().toLowerCase()) ||
     device.configSlaves.find((s) => normalizeSlave(s.name) === targetNorm) ||
+    device.configSlaves.find((s) => s.templateSlave?.name?.trim().toLowerCase() === slaveName.trim().toLowerCase()) ||
+    device.configSlaves.find((s) => normalizeSlave(s.templateSlave?.name) === targetNorm) ||
     device.configSlaves.find((s) => {
       const sn = normalizeSlave(s.name)
-      if (sn === targetNorm) return true
+      const stn = normalizeSlave(s.templateSlave?.name)
+      if (sn === targetNorm || stn === targetNorm) return true
       if (sn.includes('ground') && targetNorm.includes('ground') && sn.slice(-1) === targetNorm.slice(-1)) return true
       if (sn.includes('1st') && targetNorm.includes('1st') && (sn.includes('pr') || sn.includes('rp')) && (targetNorm.includes('pr') || targetNorm.includes('rp'))) return true
       return false
