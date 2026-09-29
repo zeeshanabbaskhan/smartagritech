@@ -56,10 +56,10 @@ const syncTemplateToDevices = async (templateId) => {
         })
         slavesAdded += 1
       } else {
-        // Keep provisioned slave metadata in sync with template (name/default/etc.)
+        // Keep provisioned slave metadata in sync with template (templateSlaveId/default/etc.)
+        // Preserve any custom display name configured on the slave
         const needsMeta =
           !configSlave.templateSlaveId ||
-          configSlave.name !== tSlave.name ||
           configSlave.description !== tSlave.description ||
           configSlave.isDefault !== tSlave.isDefault
         if (needsMeta) {
@@ -67,7 +67,6 @@ const syncTemplateToDevices = async (templateId) => {
             where: { id: configSlave.id },
             data: {
               templateSlaveId: tSlave.id,
-              name: tSlave.name,
               description: tSlave.description,
               isDefault: tSlave.isDefault,
             },
