@@ -468,7 +468,7 @@ export default function PowerFlowMindMap({
     return () => clearInterval(timer)
   }, [])
 
-  /** One source card — identical styling to the pre-site layout. */
+  /** One source card — compact and clean styling */
   function renderSourceCard(s, idx) {
     const type = s.type || s.id
     const meta = metaForType(type, s.iconIdx ?? idx)
@@ -479,14 +479,14 @@ export default function PowerFlowMindMap({
       <div
         key={s.id}
         ref={registerRef(sourceRefs, s.id)}
-        className="relative group flex items-center gap-2.5 rounded-2xl px-4 py-3 text-white shadow-lg"
-        style={{ background: `linear-gradient(145deg, ${from}, ${to})`, boxShadow: `0 6px 16px -4px ${to}66` }}
+        className="relative group flex items-center gap-2 rounded-xl px-3 py-2 text-white shadow-md"
+        style={{ background: `linear-gradient(145deg, ${from}, ${to})`, boxShadow: `0 4px 12px -3px ${to}66` }}
       >
-        <Icon size={18} strokeWidth={2.25} />
+        <Icon size={16} strokeWidth={2.25} />
         <div className="leading-tight">
-          <p className="text-[11px] font-bold opacity-90">{s.name || meta.label}</p>
-          <p className="text-sm font-black leading-tight">{Number(s.valueKw || 0).toFixed(1)} kW</p>
-          <p className="text-[9px] opacity-70 font-semibold mt-0.5">
+          <p className="text-[10px] font-bold opacity-90">{s.name || meta.label}</p>
+          <p className="text-xs font-black leading-tight">{Number(s.valueKw || 0).toFixed(1)} kW</p>
+          <p className="text-[8.5px] opacity-70 font-semibold mt-0.5">
             {formatLinkedSummary(s.deviceIds, s.slaveIds)}
           </p>
         </div>
@@ -515,34 +515,34 @@ export default function PowerFlowMindMap({
   }
 
   return (
-    <div className="w-full select-none space-y-4">
-      <div className="flex justify-between items-start w-full relative pb-2 gap-3">
-        <div className="flex items-center gap-1.5 text-xs font-bold text-surface-400 pt-2">
-          <Clock3 size={14} className="text-primary-400" />
+    <div className="w-full select-none space-y-3">
+      <div className="flex justify-between items-center w-full relative pb-1 gap-2">
+        <div className="flex items-center gap-1.5 text-xs font-bold text-surface-400">
+          <Clock3 size={13} className="text-primary-400" />
           <span>{currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
           <span className="w-1.5 h-1.5 rounded-full bg-success-500 animate-pulse ml-1" />
         </div>
 
         {/* ─── Top Header: Today's Solar Savings Card ─── */}
         {savings && (
-          <div className="relative w-full max-w-[220px] z-[99] ml-auto">
+          <div className="relative w-full max-w-[200px] z-[99] ml-auto">
             <button
               type="button"
               onClick={() => setSavingsOpen((o) => !o)}
-              className="w-full flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-2xl text-white transition-all hover:opacity-95 text-left shadow-lg"
+              className="w-full flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl text-white transition-all hover:opacity-95 text-left shadow-md"
               style={{ background: 'linear-gradient(135deg, #4F46E5 0%, #7C3AED 55%, #9333EA 100%)' }}
               aria-expanded={savingsOpen}
             >
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div className="w-8 h-8 rounded-xl bg-white/15 backdrop-blur-sm flex items-center justify-center flex-shrink-0 text-white shadow-inner">
-                  <PiggyBank size={17} />
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="w-7 h-7 rounded-lg bg-white/15 backdrop-blur-sm flex items-center justify-center flex-shrink-0 text-white shadow-inner">
+                  <PiggyBank size={15} />
                 </div>
                 <div className="leading-tight min-w-0">
-                  <p className="text-[9px] font-black opacity-80 uppercase tracking-widest text-purple-100">Today&apos;s Savings</p>
-                  <p className="text-sm font-black truncate">{formatPKR(savings.daily)}</p>
+                  <p className="text-[8px] font-black opacity-80 uppercase tracking-widest text-purple-100">Today&apos;s Savings</p>
+                  <p className="text-xs font-black truncate">{formatPKR(savings.daily)}</p>
                 </div>
               </div>
-              <ChevronDown size={14} className={`flex-shrink-0 text-purple-200 transition-transform ${savingsOpen ? 'rotate-180' : ''}`} />
+              <ChevronDown size={13} className={`flex-shrink-0 text-purple-200 transition-transform ${savingsOpen ? 'rotate-180' : ''}`} />
             </button>
 
             {savingsOpen && (
@@ -649,75 +649,75 @@ export default function PowerFlowMindMap({
 
         <div className="relative z-[1]">
           {/* LAYER 1 — site groupings: a plain outlined panel per site */}
-          <div className="flex justify-center items-start gap-4 flex-wrap">
+          <div className="flex justify-center items-start gap-3 flex-wrap">
             {localSites.map((site) => {
               const siteSources = scopedSources.filter((s) => s.siteId === site.id)
               const canDelete = editable && localSites.length > 1
               return (
                 <div
                   key={site.id}
-                  className="group/site relative flex flex-col items-center gap-2 rounded-2xl p-3 border border-surface-200 dark:border-surface-800 min-w-[340px]"
+                  className="group/site relative flex flex-col items-center gap-2 rounded-xl p-2.5 border border-surface-200 dark:border-surface-800 min-w-[310px]"
                 >
                   {/* TOP — site name card + total site load */}
-                  <div className="w-full grid grid-cols-[1fr_auto_1fr] items-center px-1 pb-1">
-                  <div className="justify-self-start rounded-2xl px-3.5 py-2 bg-white dark:bg-surface-900 border border-surface-200 dark:border-surface-800 shadow-sm flex items-center gap-2">
-                    {renamingSiteId === site.id ? (
-                      <input
-                        autoFocus
-                        value={renameValue}
-                        onChange={(e) => setRenameValue(e.target.value)}
-                        onBlur={commitRename}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') commitRename()
-                          if (e.key === 'Escape') setRenamingSiteId(null)
-                        }}
-                        className="text-xs font-bold text-center bg-transparent border-b border-primary-400 outline-none w-28 text-surface-700 dark:text-surface-200"
-                      />
-                    ) : (
-                      <>
+                  <div className="w-full grid grid-cols-[1fr_auto_1fr] items-center px-0.5 pb-0.5">
+                    <div className="justify-self-start rounded-xl px-2.5 py-1 bg-white dark:bg-surface-900 border border-surface-200 dark:border-surface-800 shadow-xs flex items-center gap-1.5">
+                      {renamingSiteId === site.id ? (
+                        <input
+                          autoFocus
+                          value={renameValue}
+                          onChange={(e) => setRenameValue(e.target.value)}
+                          onBlur={commitRename}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') commitRename()
+                            if (e.key === 'Escape') setRenamingSiteId(null)
+                          }}
+                          className="text-[11px] font-bold text-center bg-transparent border-b border-primary-400 outline-none w-24 text-surface-700 dark:text-surface-200"
+                        />
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => startRename(site)}
+                            title={editable ? 'Rename site' : undefined}
+                            className="text-[11px] font-bold text-surface-500 dark:text-surface-300 hover:text-primary-600"
+                          >
+                            {site.name}
+                          </button>
+                          <button
+                            type="button"
+                            title="Rename site"
+                            onClick={() => startRename(site)}
+                            className="w-4 h-4 rounded-full bg-surface-100 dark:bg-surface-800 text-primary-600 flex items-center justify-center"
+                          >
+                            <Edit3 size={8} strokeWidth={2.5} />
+                          </button>
+                        </>
+                      )}
+                      {canDelete && (
                         <button
                           type="button"
-                          onClick={() => startRename(site)}
-                          title={editable ? 'Rename site' : undefined}
-                          className="text-xs font-bold text-surface-500 dark:text-surface-300 hover:text-primary-600"
+                          title="Remove site"
+                          onClick={() => deleteSite(site)}
+                          className="w-4 h-4 rounded-full bg-danger-500 border-2 border-white dark:border-surface-900 text-white flex items-center justify-center"
                         >
-                          {site.name}
+                          <X size={8} strokeWidth={3} />
                         </button>
-                        <button
-                          type="button"
-                          title="Rename site"
-                          onClick={() => startRename(site)}
-                          className="w-5 h-5 rounded-full bg-surface-100 dark:bg-surface-800 text-primary-600 flex items-center justify-center"
-                        >
-                          <Edit3 size={9} strokeWidth={2.5} />
-                        </button>
-                      </>
-                    )}
-                    {canDelete && (
-                      <button
-                        type="button"
-                        title="Remove site"
-                        onClick={() => deleteSite(site)}
-                        className="w-5 h-5 rounded-full bg-danger-500 border-2 border-white dark:border-surface-900 text-white flex items-center justify-center"
-                      >
-                        <X size={9} strokeWidth={3} />
-                      </button>
-                    )}
-                  </div>
+                      )}
+                    </div>
 
                     {/* Styled Total Site Load Card */}
                     <div
-                      className="justify-self-center flex items-center gap-2.5 rounded-2xl px-3.5 py-2 text-white shadow-lg"
+                      className="justify-self-center flex items-center gap-2 rounded-xl px-2.5 py-1 text-white shadow-md"
                       style={{
                         background: 'linear-gradient(135deg, #6366F1 0%, #4F46E5 100%)',
-                        boxShadow: '0 4px 14px rgba(79, 70, 229, 0.45)',
+                        boxShadow: '0 3px 10px rgba(79, 70, 229, 0.4)',
                       }}
                     >
-                      <Zap size={15} strokeWidth={2.5} className="text-indigo-200" />
+                      <Zap size={13} strokeWidth={2.5} className="text-indigo-200" />
                       <div className="leading-tight">
-                        <p className="text-[10px] font-bold opacity-80 uppercase tracking-wider">Total Site Load</p>
-                        <p className="text-sm font-black leading-tight text-white">
-                          {Number(siteTotals[site.id] || 0).toFixed(1)} <span className="text-[11px] font-semibold opacity-90">kW</span>
+                        <p className="text-[9px] font-bold opacity-80 uppercase tracking-wider">Total Site Load</p>
+                        <p className="text-xs font-black leading-tight text-white">
+                          {Number(siteTotals[site.id] || 0).toFixed(1)} <span className="text-[10px] font-semibold opacity-90">kW</span>
                         </p>
                       </div>
                     </div>
@@ -727,16 +727,16 @@ export default function PowerFlowMindMap({
                   </div>
 
                   {/* MIDDLE — this site's sources */}
-                  <div className="flex justify-center gap-3 flex-wrap max-w-[34rem]">
+                  <div className="flex justify-center gap-2 flex-wrap max-w-[32rem]">
                     {siteSources.map((s, idx) => renderSourceCard(s, idx))}
                     {editable && (
                       <button
                         type="button"
                         onClick={() => openCreateSource(site.id)}
-                        className="flex items-center gap-1.5 rounded-2xl px-3.5 py-2.5 border border-dashed border-surface-300 text-surface-400 hover:text-primary-600 hover:border-primary-400"
+                        className="flex items-center gap-1 rounded-xl px-2.5 py-1.5 border border-dashed border-surface-300 text-surface-400 hover:text-primary-600 hover:border-primary-400 text-[11px]"
                       >
-                        <Plus size={14} />
-                        <span className="text-xs font-bold">Add Source</span>
+                        <Plus size={12} />
+                        <span className="font-bold">Add Source</span>
                       </button>
                     )}
                   </div>
@@ -748,62 +748,62 @@ export default function PowerFlowMindMap({
               <button
                 type="button"
                 onClick={addSite}
-                className="flex items-center gap-1.5 rounded-2xl px-3.5 py-2.5 border border-dashed border-surface-300 text-surface-400 hover:text-primary-600 hover:border-primary-400"
+                className="self-center flex items-center gap-1 rounded-xl px-2.5 py-2 border border-dashed border-surface-300 text-surface-400 hover:text-primary-600 hover:border-primary-400 text-xs"
               >
-                <Plus size={14} />
-                <span className="text-xs font-bold">Add Site</span>
+                <Plus size={13} />
+                <span className="font-bold">Add Site</span>
               </button>
             )}
           </div>
 
           {/* LAYER 2 — cross-site source-type totals, in the source-card style */}
-          <div className="flex justify-center gap-3 sm:gap-4 flex-wrap mt-8">
+          <div className="flex justify-center gap-2.5 sm:gap-3 flex-wrap mt-4 sm:mt-5">
             {typeTotals.map((t) => (
               <div
                 key={t.type}
                 ref={registerRef(typeRefs, t.type)}
-                className="relative group flex items-center gap-2.5 rounded-2xl px-4 py-3 text-white shadow-lg"
-                style={{ background: `linear-gradient(145deg, ${t.from}, ${t.to})`, boxShadow: `0 6px 16px -4px ${t.to}66` }}
+                className="relative group flex items-center gap-2 rounded-xl px-3.5 py-2 text-white shadow-md"
+                style={{ background: `linear-gradient(145deg, ${t.from}, ${t.to})`, boxShadow: `0 4px 12px -3px ${t.to}66` }}
               >
-                <t.Icon size={18} strokeWidth={2.25} />
+                <t.Icon size={16} strokeWidth={2.25} />
                 <div className="leading-tight">
-                  <p className="text-[11px] font-bold opacity-90">{t.label}</p>
-                  <p className="text-sm font-black leading-tight">{Number(t.kw).toFixed(1)} kW</p>
-                  <p className="text-[9px] opacity-70 font-semibold mt-0.5">All sites combined</p>
+                  <p className="text-[10px] font-bold opacity-90">{t.label}</p>
+                  <p className="text-xs font-black leading-tight">{Number(t.kw).toFixed(1)} kW</p>
+                  <p className="text-[8.5px] opacity-70 font-semibold mt-0.5">All sites combined</p>
                 </div>
               </div>
             ))}
           </div>
 
           {/* LAYER 3 — total organization load */}
-          <div className="flex justify-center mt-8">
+          <div className="flex justify-center mt-4 sm:mt-5">
             <div
               ref={orgRef}
-              className="flex items-center gap-3 rounded-2xl px-6 py-4 text-white shadow-xl"
+              className="flex items-center gap-2.5 rounded-xl px-4.5 py-2.5 text-white shadow-lg"
               style={{ background: 'linear-gradient(145deg, #34D399, #0EA5E9)' }}
             >
-              <div className="w-11 h-11 rounded-xl bg-white/20 flex items-center justify-center">
-                <Building2 size={22} />
+              <div className="w-9 h-9 rounded-lg bg-white/20 flex items-center justify-center">
+                <Building2 size={18} />
               </div>
               <div className="leading-tight">
-                <p className="text-[11px] font-bold opacity-90">Total Organization Load</p>
-                <p className="text-xl font-black">{load.toFixed(1)} kW</p>
-                <p className="text-[9px] font-semibold opacity-75 mt-0.5">Total supply from all active energy sources</p>
+                <p className="text-[10px] font-bold opacity-90">Total Organization Load</p>
+                <p className="text-lg font-black leading-tight">{load.toFixed(1)} kW</p>
+                <p className="text-[8.5px] font-semibold opacity-75 mt-0.5">Total supply from all active energy sources</p>
               </div>
             </div>
           </div>
 
-          <div className="flex justify-center my-1"><div className="w-px h-6 bg-surface-300" /></div>
+          <div className="flex justify-center my-0.5"><div className="w-px h-4 bg-surface-300 dark:bg-surface-700" /></div>
 
           {/* LAYER 4 — groups */}
-          <div className="flex justify-center gap-3 flex-wrap">
+          <div className="flex justify-center gap-2 flex-wrap">
             {groups.length === 0 ? (
               <Link
                 to={groupsPath}
-                className="flex items-center gap-1.5 rounded-2xl px-3.5 py-2.5 border border-dashed border-surface-300 text-surface-400 hover:text-primary-600"
+                className="flex items-center gap-1 rounded-xl px-3 py-1.5 border border-dashed border-surface-300 text-surface-400 hover:text-primary-600 text-xs"
               >
-                <Plus size={14} />
-                <span className="text-xs font-bold">Create a Group</span>
+                <Plus size={13} />
+                <span className="font-bold">Create a Group</span>
               </Link>
             ) : (
               <>
@@ -820,16 +820,16 @@ export default function PowerFlowMindMap({
                   return (
                     <div
                       key={g.id}
-                      className="group relative flex items-center gap-2.5 rounded-2xl px-3.5 py-2.5 bg-white dark:bg-surface-900 border border-surface-200 dark:border-surface-800 shadow-md min-w-[9.5rem] text-left hover:border-primary-300 hover:shadow-lg"
+                      className="group relative flex items-center gap-2 rounded-xl px-3 py-1.5 bg-white dark:bg-surface-900 border border-surface-200 dark:border-surface-800 shadow-xs min-w-[8.5rem] text-left hover:border-primary-300 hover:shadow-md"
                     >
                       <button
                         type="button"
                         onClick={() => onGroupClick?.(g.id)}
-                        className="absolute inset-0 rounded-2xl z-0"
+                        className="absolute inset-0 rounded-xl z-0"
                         aria-label={`Open ${g.name}`}
                       />
                       <span
-                        className={`absolute top-2 right-2 w-2 h-2 rounded-full z-[1] ${g.active ? 'bg-success-500 animate-pulse' : 'bg-surface-300 dark:bg-surface-600'} ${(editable && (onGroupEdit || onGroupDelete)) ? 'group-hover:opacity-0' : ''}`}
+                        className={`absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full z-[1] ${g.active ? 'bg-success-500 animate-pulse' : 'bg-surface-300 dark:bg-surface-600'} ${(editable && (onGroupEdit || onGroupDelete)) ? 'group-hover:opacity-0' : ''}`}
                         title={g.active ? 'Active' : 'Idle'}
                       />
                       {editable && (onGroupEdit || onGroupDelete) && (
@@ -839,9 +839,9 @@ export default function PowerFlowMindMap({
                               type="button"
                               title="Edit group"
                               onClick={(e) => { e.stopPropagation(); onGroupEdit(g.id) }}
-                              className="w-5 h-5 rounded-full bg-primary-500 border-2 border-white dark:border-surface-900 text-white flex items-center justify-center shadow-sm hover:bg-primary-600"
+                              className="w-4 h-4 rounded-full bg-primary-500 border border-white dark:border-surface-900 text-white flex items-center justify-center shadow-xs hover:bg-primary-600"
                             >
-                              <Edit3 size={9} strokeWidth={2.5} />
+                              <Edit3 size={8} strokeWidth={2.5} />
                             </button>
                           )}
                           {onGroupDelete && (
@@ -849,33 +849,33 @@ export default function PowerFlowMindMap({
                               type="button"
                               title="Delete group"
                               onClick={(e) => { e.stopPropagation(); onGroupDelete(g.id) }}
-                              className="w-5 h-5 rounded-full bg-danger-500 border-2 border-white dark:border-surface-900 text-white flex items-center justify-center shadow-sm hover:bg-danger-600"
+                              className="w-4 h-4 rounded-full bg-danger-500 border border-white dark:border-surface-900 text-white flex items-center justify-center shadow-xs hover:bg-danger-600"
                             >
-                              <X size={9} strokeWidth={3} />
+                              <X size={8} strokeWidth={3} />
                             </button>
                           )}
                         </div>
                       )}
-                      <div className="w-8 h-8 rounded-lg bg-primary-50 dark:bg-primary-950/20 text-primary-600 flex items-center justify-center relative z-[1] pointer-events-none">
-                        <Icon size={15} />
+                      <div className="w-7 h-7 rounded-md bg-primary-50 dark:bg-primary-950/20 text-primary-600 flex items-center justify-center relative z-[1] pointer-events-none">
+                        <Icon size={14} />
                       </div>
                       <div className="leading-tight flex-1 min-w-0 relative z-[1] pointer-events-none">
-                        <p className="text-xs font-bold text-surface-800 dark:text-surface-100 truncate max-w-[7rem]">{g.name}</p>
-                        <p className="text-[11px] font-black text-primary-600">{(g.load ?? 0).toFixed?.(2) ?? g.load ?? '0.00'} kW</p>
-                        <p className="text-[9px] text-surface-400 font-semibold truncate max-w-[7.5rem]">
+                        <p className="text-[11px] font-bold text-surface-800 dark:text-surface-100 truncate max-w-[6.5rem]">{g.name}</p>
+                        <p className="text-[10.5px] font-black text-primary-600">{(g.load ?? 0).toFixed?.(2) ?? g.load ?? '0.00'} kW</p>
+                        <p className="text-[8.5px] text-surface-400 font-semibold truncate max-w-[7rem]">
                           {groupCountSummary}
                         </p>
                       </div>
-                      <ChevronRight size={12} className="text-surface-300 group-hover:text-primary-500 relative z-[1] pointer-events-none" />
+                      <ChevronRight size={11} className="text-surface-300 group-hover:text-primary-500 relative z-[1] pointer-events-none" />
                     </div>
                   )
                 })}
                 <Link
                   to={groupsPath}
-                  className="flex items-center gap-1.5 rounded-2xl px-3.5 py-2.5 border border-dashed border-surface-300 text-surface-400 hover:text-primary-600"
+                  className="flex items-center gap-1 rounded-xl px-3 py-1.5 border border-dashed border-surface-300 text-surface-400 hover:text-primary-600 text-xs"
                 >
-                  <Plus size={14} />
-                  <span className="text-xs font-bold">Manage Groups</span>
+                  <Plus size={13} />
+                  <span className="font-bold">Manage Groups</span>
                 </Link>
               </>
             )}

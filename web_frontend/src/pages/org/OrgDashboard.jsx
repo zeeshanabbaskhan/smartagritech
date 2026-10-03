@@ -802,8 +802,8 @@ export default function OrgDashboard() {
         <div className="space-y-6">
           {/* 1. Energy Flow Overview */}
           {powerFlow && (
-            <div className="card p-5">
-              <h3 className="text-2xl font-extrabold tracking-tight text-center mb-3 bg-gradient-to-r from-primary-500 via-purple-500 to-success-500 bg-clip-text text-transparent">
+            <div className="card p-3.5 sm:p-4">
+              <h3 className="text-xl font-black tracking-tight text-center mb-2 bg-gradient-to-r from-primary-500 via-purple-500 to-success-500 bg-clip-text text-transparent">
                 Energy Flow Overview
               </h3>
               <PowerFlowMindMap
@@ -827,7 +827,7 @@ export default function OrgDashboard() {
                 groupsPath="/org/device-groups"
                 devicesPath="/org/devices"
               />
-              <div className="flex items-center justify-center gap-5 mt-2 pt-3 border-t border-surface-100 dark:border-surface-800 flex-wrap">
+              <div className="flex items-center justify-center gap-4 mt-1.5 pt-2 border-t border-surface-100 dark:border-surface-800 flex-wrap">
                 <span className="flex items-center gap-1.5 text-[10px] font-bold text-surface-400"><span className="w-3 h-0.5 bg-primary-400 inline-block" /> Sources</span>
                 <span className="flex items-center gap-1.5 text-[10px] font-bold text-surface-400"><span className="w-3 h-0.5 bg-success-600 inline-block" /> Load</span>
                 <span className="flex items-center gap-1.5 text-[10px] font-bold text-surface-400"><span className="w-3 h-0.5 inline-block" style={{ backgroundColor: '#8B5CF6' }} /> Groups</span>
