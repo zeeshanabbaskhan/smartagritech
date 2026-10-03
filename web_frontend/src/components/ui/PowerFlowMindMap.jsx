@@ -722,23 +722,24 @@ export default function PowerFlowMindMap({
                       </div>
                     </div>
 
-                    {/* Right: empty spacer balancing the left column */}
-                    <div className="justify-self-end" aria-hidden="true" />
+                    {/* Right: Add Source button in site header */}
+                    <div className="justify-self-end">
+                      {editable && (
+                        <button
+                          type="button"
+                          onClick={() => openCreateSource(site.id)}
+                          className="flex items-center gap-1 rounded-xl px-2 py-0.5 border border-dashed border-surface-300 dark:border-surface-700 text-surface-400 hover:text-primary-600 hover:border-primary-400 text-[10px] font-bold transition-colors bg-white/40 dark:bg-surface-850/40"
+                        >
+                          <Plus size={10} />
+                          <span>Add Source</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
 
-                  {/* MIDDLE — this site's sources */}
-                  <div className="flex justify-center gap-2 flex-wrap max-w-[32rem]">
+                  {/* MIDDLE — this site's sources in a single compact row */}
+                  <div className="flex justify-center gap-2 flex-wrap max-w-[45rem]">
                     {siteSources.map((s, idx) => renderSourceCard(s, idx))}
-                    {editable && (
-                      <button
-                        type="button"
-                        onClick={() => openCreateSource(site.id)}
-                        className="flex items-center gap-1 rounded-xl px-2.5 py-1.5 border border-dashed border-surface-300 text-surface-400 hover:text-primary-600 hover:border-primary-400 text-[11px]"
-                      >
-                        <Plus size={12} />
-                        <span className="font-bold">Add Source</span>
-                      </button>
-                    )}
                   </div>
                 </div>
               )
@@ -748,35 +749,35 @@ export default function PowerFlowMindMap({
               <button
                 type="button"
                 onClick={addSite}
-                className="self-center flex items-center gap-1 rounded-xl px-2.5 py-2 border border-dashed border-surface-300 text-surface-400 hover:text-primary-600 hover:border-primary-400 text-xs"
+                className="self-start flex items-center gap-1 rounded-xl px-2.5 py-1.5 border border-dashed border-surface-300 text-surface-400 hover:text-primary-600 hover:border-primary-400 text-xs font-bold mt-1"
               >
-                <Plus size={13} />
-                <span className="font-bold">Add Site</span>
+                <Plus size={12} />
+                <span>Add Site</span>
               </button>
             )}
           </div>
 
           {/* LAYER 2 — cross-site source-type totals, in the source-card style */}
-          <div className="flex justify-center gap-2.5 sm:gap-3 flex-wrap mt-4 sm:mt-5">
+          <div className="flex justify-center gap-2 sm:gap-2.5 flex-wrap mt-2 sm:mt-2.5">
             {typeTotals.map((t) => (
               <div
                 key={t.type}
                 ref={registerRef(typeRefs, t.type)}
-                className="relative group flex items-center gap-2 rounded-xl px-3.5 py-2 text-white shadow-md"
-                style={{ background: `linear-gradient(145deg, ${t.from}, ${t.to})`, boxShadow: `0 4px 12px -3px ${t.to}66` }}
+                className="relative group flex items-center gap-2 rounded-xl px-3 py-1.5 text-white shadow-md"
+                style={{ background: `linear-gradient(145deg, ${t.from}, ${t.to})`, boxShadow: `0 3px 10px -3px ${t.to}66` }}
               >
-                <t.Icon size={16} strokeWidth={2.25} />
+                <t.Icon size={15} strokeWidth={2.25} />
                 <div className="leading-tight">
-                  <p className="text-[10px] font-bold opacity-90">{t.label}</p>
+                  <p className="text-[9.5px] font-bold opacity-90">{t.label}</p>
                   <p className="text-xs font-black leading-tight">{Number(t.kw).toFixed(1)} kW</p>
-                  <p className="text-[8.5px] opacity-70 font-semibold mt-0.5">All sites combined</p>
+                  <p className="text-[8px] opacity-70 font-semibold mt-0.5">All sites combined</p>
                 </div>
               </div>
             ))}
           </div>
 
           {/* LAYER 3 — total organization load */}
-          <div className="flex justify-center mt-4 sm:mt-5">
+          <div className="flex justify-center mt-2 sm:mt-2.5">
             <div
               ref={orgRef}
               className="flex items-center gap-2.5 rounded-xl px-4.5 py-2.5 text-white shadow-lg"
