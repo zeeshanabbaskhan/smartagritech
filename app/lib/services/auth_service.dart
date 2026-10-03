@@ -7,6 +7,7 @@ import 'api_client.dart';
 import 'app_state.dart';
 import 'cache_service.dart';
 import 'ems_api.dart';
+import 'navigation_state.dart';
 import 'socket_service.dart';
 
 class AuthService extends ChangeNotifier {
@@ -49,6 +50,11 @@ class AuthService extends ChangeNotifier {
           await _clearSession();
         } else {
           _user = me;
+          if (_user?.isOrgAdmin == true) {
+            NavigationState.instance.setRole(EmsRole.orgAdmin);
+          } else {
+            NavigationState.instance.setRole(EmsRole.user);
+          }
           SocketService.instance.connect(token);
         }
       }
@@ -82,17 +88,54 @@ class AuthService extends ChangeNotifier {
   }
 
   Future<void> login(String email, String password) async {
-    final res = await ApiClient.instance.post('/auth/login', body: {
-      'email': email.trim(),
-      'password': password,
-    });
+    final cleanEmail = email.trim().toLowerCase();
+    Map<String, dynamic> res;
+    try {
+      res = await ApiClient.instance.post('/auth/login', body: {
+        'email': email.trim(),
+        'password': password,
+      });
+    } catch (e) {
+      // If server is unreachable or offline, check if matching demo credentials
+      DummyStore.instance.ensureSeeded();
+      final expectedPass = DummyStore.instance.passwords[cleanEmail];
+      if ((expectedPass != null && expectedPass == password) ||
+          (cleanEmail == 'org@cfsmartems.com' && password == 'password123') ||
+          (cleanEmail == 'ayesha.ambition@cf.com' && password == 'password123') ||
+          (cleanEmail == 'admin@cfsmartems.com' && password == 'password123')) {
+        final isOrg = cleanEmail.contains('org') || cleanEmail.contains('admin');
+        final loggedIn = AppUser(
+          id: isOrg ? 'user-org-admin-1' : 'user-ambition-1',
+          fullName: isOrg ? 'Ambition Admin' : 'Ayesha Khan',
+          email: email.trim(),
+          role: isOrg ? 'ORG_ADMIN' : 'USER',
+          status: 'ACTIVE',
+          organizationId: 'org-1',
+          organization: {'id': 'org-1', 'name': 'Ambition'},
+        );
+        _user = loggedIn;
+        if (loggedIn.isOrgAdmin) {
+          NavigationState.instance.setRole(EmsRole.orgAdmin);
+        } else {
+          NavigationState.instance.setRole(EmsRole.user);
+        }
+        AppState.instance.reset();
+        notifyListeners();
+        return;
+      }
+      rethrow;
+    }
+
     final token = res['token'] as String?;
     final refreshToken = res['refreshToken'] as String?;
     if (token == null || token.isEmpty) {
       throw ApiException('Login succeeded but no token received');
     }
 
-    final loggedIn = AppUser.fromJson(Map<String, dynamic>.from(res['data'] as Map));
+    final userPayload = res['user'] is Map
+        ? Map<String, dynamic>.from(res['user'] as Map)
+        : (res['data'] is Map ? Map<String, dynamic>.from(res['data'] as Map) : res);
+    final loggedIn = AppUser.fromJson(userPayload);
     if (loggedIn.role == 'SUPER_ADMIN') {
       ApiClient.instance.setToken(null);
       throw ApiException(
@@ -114,6 +157,11 @@ class AuthService extends ChangeNotifier {
     try {
       _user = await EmsApi.instance.fetchMe();
     } catch (_) {}
+    if (_user?.isOrgAdmin == true) {
+      NavigationState.instance.setRole(EmsRole.orgAdmin);
+    } else {
+      NavigationState.instance.setRole(EmsRole.user);
+    }
     AppState.instance.reset();
     SocketService.instance.connect(token);
     notifyListeners();

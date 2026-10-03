@@ -375,7 +375,27 @@ const sumVariable = async (prisma, { deviceId, slaveId, variableName, startDate,
         AND v."variableName" IN (${Prisma.join(rawNames)})
         AND v.value > -10000000 AND v.value < 10000000
     `
-    if (narrow[0]?.total != null) return parseFloat(Number(narrow[0].total).toFixed(4))
+    if (narrow[0]?.total != null && Number(narrow[0].total) > 0) return parseFloat(Number(narrow[0].total).toFixed(4))
+  } catch (_) {}
+
+  // Fallback to sensor_readings JSON
+  try {
+    const endClauseSr = endDate ? Prisma.sql`AND sr."timestamp" < ${endDate}` : Prisma.empty
+    const devClauseSr = deviceId ? Prisma.sql`AND sr."deviceId" = ${deviceId}` : Prisma.empty
+    const slvClauseSr = slaveId ? Prisma.sql`AND sr."deviceConfigSlaveId" = ${slaveId}` : Prisma.empty
+    const srRows = await db.$queryRaw`
+      SELECT COALESCE(SUM((elem->>'value')::double precision), 0)::double precision AS total
+      FROM "sensor_readings" sr,
+           jsonb_array_elements(sr.readings::jsonb) AS elem
+      WHERE sr."timestamp" >= ${startDate}
+        ${devClauseSr}
+        ${slvClauseSr}
+        ${endClauseSr}
+        AND elem->>'variableName' IN (${Prisma.join(rawNames)})
+        AND (elem->>'value')::double precision > -10000000
+        AND (elem->>'value')::double precision < 10000000
+    `
+    if (srRows[0]?.total != null) return parseFloat(Number(srRows[0].total).toFixed(4))
   } catch (_) {}
 
   return 0
@@ -423,6 +443,50 @@ const deltaVariable = async (prisma, { deviceId, slaveId, variableName, startDat
     if (firstRow?.[0] && lastRow?.[0]) {
       const first = Number(firstRow[0].val)
       const last = Number(lastRow[0].val)
+      if (Number.isFinite(first) && Number.isFinite(last) && last >= first && (last - first) > 0) {
+        return parseFloat((last - first).toFixed(4))
+      }
+    }
+  } catch (_) {}
+
+  // Fallback to sensor_readings JSON
+  try {
+    const endClauseSr = endDate ? Prisma.sql`AND sr."timestamp" < ${endDate}` : Prisma.empty
+    const devClauseSr = deviceId ? Prisma.sql`AND sr."deviceId" = ${deviceId}` : Prisma.empty
+    const slvClauseSr = slaveId ? Prisma.sql`AND sr."deviceConfigSlaveId" = ${slaveId}` : Prisma.empty
+    const [firstSr, lastSr] = await Promise.all([
+      db.$queryRaw`
+        SELECT (elem->>'value')::double precision AS val
+        FROM "sensor_readings" sr,
+             jsonb_array_elements(sr.readings::jsonb) AS elem
+        WHERE sr."timestamp" >= ${startDate}
+          ${devClauseSr}
+          ${slvClauseSr}
+          ${endClauseSr}
+          AND elem->>'variableName' IN (${Prisma.join(rawNames)})
+          AND (elem->>'value')::double precision > -10000000
+          AND (elem->>'value')::double precision < 10000000
+        ORDER BY sr."timestamp" ASC
+        LIMIT 1
+      `,
+      db.$queryRaw`
+        SELECT (elem->>'value')::double precision AS val
+        FROM "sensor_readings" sr,
+             jsonb_array_elements(sr.readings::jsonb) AS elem
+        WHERE sr."timestamp" >= ${startDate}
+          ${devClauseSr}
+          ${slvClauseSr}
+          ${endClauseSr}
+          AND elem->>'variableName' IN (${Prisma.join(rawNames)})
+          AND (elem->>'value')::double precision > -10000000
+          AND (elem->>'value')::double precision < 10000000
+        ORDER BY sr."timestamp" DESC
+        LIMIT 1
+      `,
+    ])
+    if (firstSr?.[0] && lastSr?.[0]) {
+      const first = Number(firstSr[0].val)
+      const last = Number(lastSr[0].val)
       if (Number.isFinite(first) && Number.isFinite(last) && last >= first) {
         return parseFloat((last - first).toFixed(4))
       }

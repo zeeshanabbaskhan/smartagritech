@@ -125,15 +125,52 @@ const removeTask = (taskId) => {
   if (job) { job.stop(); jobs.delete(taskId) }
 }
 
+/**
+ * Daily purge of raw sensor readings older than TELEMETRY_RETENTION_DAYS (default 14 days).
+ * Runs every day at 03:00 AM UTC to permanently prevent 291 GB disk bloat.
+ */
+const initRetentionCron = () => {
+  const RETENTION_DAYS = parseInt(process.env.TELEMETRY_RETENTION_DAYS || '14', 10)
+  if (RETENTION_DAYS <= 0) return
+
+  cron.schedule('0 3 * * *', async () => {
+    try {
+      const cutoff = new Date(Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000)
+      console.log(`[retention] Purging sensor data older than ${cutoff.toISOString()} (${RETENTION_DAYS} days)`)
+
+      const deletedSr = await prisma.sensorReading.deleteMany({
+        where: { timestamp: { lt: cutoff } },
+      })
+
+      let deletedSrv = 0
+      try {
+        if (prisma.sensorReadingValue) {
+          const res = await prisma.sensorReadingValue.deleteMany({
+            where: { timestamp: { lt: cutoff } },
+          })
+          deletedSrv = res.count
+        }
+      } catch (_) {}
+
+      console.log(`[retention] Purge complete: ${deletedSr.count} sensor_readings, ${deletedSrv} sensor_reading_values removed.`)
+    } catch (err) {
+      console.error('[retention] Purge error:', err.message)
+    }
+  }, { scheduled: true, timezone: 'UTC' })
+
+  console.log(`schedulerService: telemetry retention scheduled (keeps last ${RETENTION_DAYS} days)`)
+}
+
 /** Load all ACTIVE tasks from the database and register them at startup. */
 const initScheduler = async () => {
   try {
     const tasks = await prisma.scheduledTask.findMany({ where: { status: 'ACTIVE' } })
     for (const task of tasks) addTask(task)
     console.log(`schedulerService: registered ${tasks.length} active cron tasks`)
+    initRetentionCron()
   } catch (err) {
     console.error('schedulerService.initScheduler error:', err.message)
   }
 }
 
-module.exports = { initScheduler, addTask, removeTask }
+module.exports = { initScheduler, addTask, removeTask, initRetentionCron }

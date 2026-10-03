@@ -21,7 +21,7 @@ class AppState extends ChangeNotifier {
 
   String? get selectedDeviceName {
     if (selectedDeviceId == null) return null;
-    final match = devices.where((d) => d['id'] == selectedDeviceId);
+    final match = devices.where((d) => d['id']?.toString() == selectedDeviceId);
     if (match.isEmpty) return null;
     return match.first['name'] as String?;
   }
@@ -29,7 +29,7 @@ class AppState extends ChangeNotifier {
   Future<void> loadDevices() async {
     devices = await EmsApi.instance.getDevices();
     if (devices.isNotEmpty && selectedDeviceId == null) {
-      selectedDeviceId = devices.first['id'] as String?;
+      selectedDeviceId = devices.first['id']?.toString();
       await loadSlavesForSelected();
     }
     notifyListeners();
@@ -49,7 +49,7 @@ class AppState extends ChangeNotifier {
     }
     configSlaves = await EmsApi.instance.getDeviceConfig(selectedDeviceId!);
     if (configSlaves.isNotEmpty && selectedSlaveId == null) {
-      selectedSlaveId = configSlaves.first['id'] as String?;
+      selectedSlaveId = configSlaves.first['id']?.toString();
     }
   }
 

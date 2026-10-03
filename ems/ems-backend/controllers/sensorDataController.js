@@ -197,37 +197,41 @@ const getHistory = async (req, res, next) => {
     const take      = Math.min(maxTake, requested)
     const skipN     = Math.max(0, parseInt(skip, 10) || 0)
 
-    // 1) Query scaled engineering values from sensor_reading_values first
-    const rawNames = getRawCandidateNames(variableName)
-    const valueWhere = {
-      deviceId,
-      variableName: { in: rawNames },
-    }
-    if (slaveId) valueWhere.deviceConfigSlaveId = slaveId
-    if (startDate || endDate) {
-      valueWhere.timestamp = {}
-      if (startDate) valueWhere.timestamp.gte = parseDateBound(startDate, 'start')
-      if (endDate)   valueWhere.timestamp.lte = parseDateBound(endDate, 'end')
-    }
+    // 1) Try sensor_reading_values if legacy data exists (guarded with try/catch)
+    try {
+      if (prisma.sensorReadingValue) {
+        const rawNames = getRawCandidateNames(variableName)
+        const valueWhere = {
+          deviceId,
+          variableName: { in: rawNames },
+        }
+        if (slaveId) valueWhere.deviceConfigSlaveId = slaveId
+        if (startDate || endDate) {
+          valueWhere.timestamp = {}
+          if (startDate) valueWhere.timestamp.gte = parseDateBound(startDate, 'start')
+          if (endDate)   valueWhere.timestamp.lte = parseDateBound(endDate, 'end')
+        }
 
-    const valueRows = await prisma.sensorReadingValue.findMany({
-      where:   valueWhere,
-      orderBy: { timestamp: 'desc' },
-      skip:    skipN,
-      take,
-      select:  { variableName: true, value: true, timestamp: true },
-    })
+        const valueRows = await prisma.sensorReadingValue.findMany({
+          where:   valueWhere,
+          orderBy: { timestamp: 'desc' },
+          skip:    skipN,
+          take,
+          select:  { variableName: true, value: true, timestamp: true },
+        })
 
-    if (valueRows.length > 0) {
-      const data = valueRows.map((row) => ({
-        variableName: row.variableName,
-        value:        row.value,
-        receivedTime: row.timestamp,
-      }))
-      return res.json({ success: true, count: data.length, fetched: valueRows.length, data })
-    }
+        if (valueRows.length > 0) {
+          const data = valueRows.map((row) => ({
+            variableName: row.variableName,
+            value:        row.value,
+            receivedTime: row.timestamp,
+          }))
+          return res.json({ success: true, count: data.length, fetched: valueRows.length, data })
+        }
+      }
+    } catch (_) {}
 
-    // 2) Fallback to unscaled sensorReading JSON readings if sensor_reading_values is empty
+    // 2) Primary path: Query compact sensorReading JSON readings directly
     const where = { deviceId }
     if (slaveId) where.deviceConfigSlaveId = slaveId
     if (startDate || endDate) {
@@ -246,9 +250,26 @@ const getHistory = async (req, res, next) => {
 
     const data = []
     for (const row of rows) {
-      const arr   = Array.isArray(row.readings) ? row.readings : []
-      const entry = arr.find((r) => variableNameMatches(r.variableName, variableName))
-      if (entry) data.push({ variableName: entry.variableName, value: entry.value, unit: entry.unit, receivedTime: row.timestamp })
+      let val = null
+      let unit = undefined
+      if (Array.isArray(row.readings)) {
+        const entry = row.readings.find((r) => variableNameMatches(r.variableName ?? r.name, variableName))
+        if (entry) {
+          val = entry.value
+          unit = entry.unit
+        }
+      } else if (row.readings && typeof row.readings === 'object') {
+        for (const [k, v] of Object.entries(row.readings)) {
+          if (variableNameMatches(k, variableName)) {
+            val = typeof v === 'object' && v !== null ? v.value : v
+            unit = v?.unit
+            break
+          }
+        }
+      }
+      if (val != null) {
+        data.push({ variableName, value: parseFloat(val) || 0, unit, receivedTime: row.timestamp })
+      }
     }
 
     res.json({ success: true, count: data.length, fetched: rows.length, data })

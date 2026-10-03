@@ -17,25 +17,28 @@ class AppUser {
   final String status;
   final Map<String, dynamic>? organization;
 
-  bool get isOrgAdmin => role == 'ORG_ADMIN';
-  bool get isUser => role == 'USER';
+  bool get isOrgAdmin => role == 'ORG_ADMIN' || role == 'org';
+  bool get isUser => role == 'USER' || role == 'user';
   bool get canManageOrg => isOrgAdmin;
-  bool get isActive => status == 'ACTIVE';
+  bool get isActive => status.toUpperCase() == 'ACTIVE';
 
   String get initials {
     final parts = fullName.trim().split(RegExp(r'\s+'));
-    if (parts.isEmpty) return '?';
+    if (parts.isEmpty || parts.first.isEmpty) return '?';
     if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
     return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
   }
 
   String get roleLabel {
-    switch (role) {
+    final r = role.toUpperCase();
+    switch (r) {
+      case 'ORG':
       case 'ORG_ADMIN':
         return 'Org Admin';
       case 'USER':
       case 'CUSTOMER':
         return 'User';
+      case 'ADMIN':
       case 'SUPER_ADMIN':
         return 'Super Admin';
       default:
@@ -43,13 +46,21 @@ class AppUser {
     }
   }
 
+  static String normalizeRole(String? raw) {
+    if (raw == null) return 'USER';
+    final upper = raw.toUpperCase();
+    if (upper == 'ORG' || upper == 'ORG_ADMIN') return 'ORG_ADMIN';
+    if (upper == 'ADMIN' || upper == 'SUPER_ADMIN') return 'SUPER_ADMIN';
+    return 'USER';
+  }
+
   factory AppUser.fromJson(Map<String, dynamic> json) => AppUser(
-        id: json['id'] as String,
-        fullName: json['fullName'] as String? ?? '',
-        email: json['email'] as String? ?? '',
-        role: json['role'] as String? ?? 'USER',
-        organizationId: json['organizationId'] as String?,
-        status: json['status'] as String? ?? 'ACTIVE',
+        id: (json['id'] ?? '').toString(),
+        fullName: (json['fullName'] ?? json['name'] ?? '').toString(),
+        email: (json['email'] ?? '').toString(),
+        role: normalizeRole(json['role']?.toString()),
+        organizationId: (json['organizationId'] ?? json['orgId'] ?? json['org_id'])?.toString(),
+        status: (json['status'] ?? 'ACTIVE').toString(),
         organization: json['organization'] as Map<String, dynamic>?,
       );
 }

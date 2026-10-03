@@ -1,0 +1,50 @@
+name: Build Flutter APK
+
+on:
+  push:
+    paths:
+      - 'app/**'
+      - '.github/workflows/build-flutter-apk.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: flutter-apk-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Android APK (Cloud CI)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Install Flutter Dependencies
+        run: |
+          cd app
+          flutter pub get
+
+      - name: Build Android Release APK
+        run: |
+          cd app
+          flutter build apk --release
+
+      - name: Upload APK to Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: elsa-energy-ems-apk
+          path: app/build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 14

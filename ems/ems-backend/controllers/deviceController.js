@@ -413,8 +413,9 @@ const purgeDeviceSync = async (id) => {
       await tx.scheduledTask.deleteMany({ where: { deviceId: id } })
     }
 
-    await tx.deviceTimestamp.deleteMany({ where: { deviceId: id } })
-    await tx.sensorReadingValue.deleteMany({ where: { deviceId: id } })
+    try {
+      if (tx.sensorReadingValue) await tx.sensorReadingValue.deleteMany({ where: { deviceId: id } })
+    } catch (_) {}
     await tx.sensorReading.deleteMany({ where: { deviceId: id } })
     await tx.aIForecastReading.deleteMany({ where: { deviceId: id } })
     await tx.deviceUser.deleteMany({ where: { deviceId: id } })

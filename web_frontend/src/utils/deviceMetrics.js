@@ -83,6 +83,25 @@ function parseMetricRaw(raw) {
 /** All device variables (live + configured), sorted by name. */
 export function listDeviceMetricEntries(device, { limit = 24, includeEmpty = true } = {}) {
   if (isSwitchOff(device)) return []
+  const slaves = device?.slaves || device?.configSlaves
+  if (Array.isArray(slaves) && slaves.length > 1) {
+    const entryMap = new Map()
+    for (const s of slaves) {
+      if (isSwitchOff(s) || isOffline(s)) continue
+      const sEntries = listDeviceMetricEntries(s, { limit: 0, includeEmpty })
+      for (const entry of sEntries) {
+        if (!entryMap.has(entry.name)) {
+          entryMap.set(entry.name, entry)
+        }
+      }
+    }
+    if (entryMap.size > 0) {
+      const entries = [...entryMap.values()]
+      entries.sort((a, b) => a.name.localeCompare(b.name))
+      return limit > 0 ? entries.slice(0, limit) : entries
+    }
+  }
+
   const metrics = device?.latestMetrics
   if (!metrics || typeof metrics !== 'object') return []
   const entries = []
@@ -103,11 +122,12 @@ export function listDeviceMetricEntries(device, { limit = 24, includeEmpty = tru
   return limit > 0 ? entries.slice(0, limit) : entries
 }
 
-/** Return a numeric metric value from a device, or NaN if unavailable. */
-export function readDeviceMetric(device, type) {
-  if (isSwitchOff(device)) return NaN
-  const metrics = device?.latestMetrics
+/** Internal metric reader for a single entity (single device or single slave). */
+export function readSingleEntityMetric(entity, type) {
+  if (isSwitchOff(entity)) return NaN
+  const metrics = entity?.latestMetrics
   if (!metrics || typeof metrics !== 'object') return NaN
+  const normType = String(type || '').toLowerCase().replace(/[\s_\-]/g, '')
 
   const finish = (name, raw) => {
     const n = parseMetricRaw(raw)
@@ -169,6 +189,44 @@ export function readDeviceMetric(device, type) {
   }
 
   return NaN
+}
+
+/** Return a numeric metric value from a device, or NaN if unavailable. */
+export function readDeviceMetric(device, type) {
+  if (isSwitchOff(device)) return NaN
+  const slaves = device?.slaves || device?.configSlaves
+  if (Array.isArray(slaves) && slaves.length > 1) {
+    const normType = String(type || '').toLowerCase().replace(/[\s_\-]/g, '')
+    const isAdditive = /^(power|activepower|totalpower|totalactivepower|powerconsumption|current|currenta|currentb|currentc|phasecurrenta|phasecurrentb|phasecurrentc|units|energy|energyconsumption|activeenergy|kwh|consumption|ia|ib|ic|current1|current2|current3)$/i.test(normType)
+
+    if (isAdditive) {
+      let sum = 0
+      let hasVal = false
+      for (const s of slaves) {
+        if (isSwitchOff(s) || isOffline(s)) continue
+        const sv = readSingleEntityMetric(s, type)
+        if (Number.isFinite(sv)) {
+          sum += sv
+          hasVal = true
+        }
+      }
+      return hasVal ? +sum.toFixed(2) : NaN
+    } else {
+      let sum = 0
+      let count = 0
+      for (const s of slaves) {
+        if (isSwitchOff(s) || isOffline(s)) continue
+        const sv = readSingleEntityMetric(s, type)
+        if (Number.isFinite(sv)) {
+          sum += sv
+          count++
+        }
+      }
+      return count > 0 ? +(sum / count).toFixed(2) : NaN
+    }
+  }
+
+  return readSingleEntityMetric(device, type)
 }
 
 /** Formatted display string for a metric ('—' when unavailable). */

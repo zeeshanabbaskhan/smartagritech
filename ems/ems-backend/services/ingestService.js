@@ -22,11 +22,18 @@ const lastEmitByDevice = new Map()
 const skipPgCurrentValue = () =>
   redis.isEnabled() && process.env.SKIP_PG_CURRENT_VALUE !== 'false'
 
-const INGEST_PERSIST_INTERVAL_MS = parseInt(process.env.INGEST_PERSIST_INTERVAL_MS || '600000', 10)
+// Default 10 minutes (600,000 ms) persistence interval to prevent 291 GB disk bloat
+const DEFAULT_PERSIST_INTERVAL_MS = 600000
+const parsePersistInterval = () => {
+  const envVal = process.env.INGEST_PERSIST_INTERVAL_MS
+  if (envVal === undefined || envVal === null || envVal === '') return DEFAULT_PERSIST_INTERVAL_MS
+  const parsed = parseInt(envVal, 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_PERSIST_INTERVAL_MS
+}
+const INGEST_PERSIST_INTERVAL_MS = parsePersistInterval()
 const lastPersistMap = new Map()
 
 const shouldPersist = (deviceId, slaveId, nowMs) => {
-  if (INGEST_PERSIST_INTERVAL_MS <= 0) return true
   const key = `${deviceId}:${slaveId || 'none'}`
   const last = lastPersistMap.get(key) || 0
   if (nowMs - last >= INGEST_PERSIST_INTERVAL_MS) {
@@ -83,25 +90,8 @@ const buildVarUpdates = (configVars, readings, slaveId) => {
   return varUpdates
 }
 
-const insertReadingValues = async (tx, sensorReadingId, payload, now) => {
-  const rows = []
-  for (const r of payload.readings) {
-    if (r.variableName == null) continue
-    const num = parseFloat(r.value)
-    if (Number.isNaN(num)) continue
-    rows.push({
-      id:                  crypto.randomUUID(),
-      sensorReadingId,
-      deviceId:            payload.deviceId,
-      deviceConfigSlaveId: payload.slaveId || null,
-      organizationId:      payload.organizationId,
-      variableName:        r.variableName,
-      value:               num,
-      timestamp:           now,
-    })
-  }
-  if (rows.length) await tx.sensorReadingValue.createMany({ data: rows })
-}
+// Deprecated: No longer insert 20 unrolled rows into sensor_reading_values to eliminate 291 GB disk bloat
+const insertReadingValues = async () => {}
 
 const loadConfigVars = (deviceId) =>
   prisma.deviceConfigVariable.findMany({
@@ -114,7 +104,7 @@ const persistIngest = async ({ deviceId, slaveId, readings, organizationId }) =>
   const ts  = new Date(now)
 
   const configVars = await loadConfigVars(deviceId)
-  // Raw stays in SensorReading.readings; computed drives currentValue / values / redis / socket
+  // Computed values drive currentValue / readings / redis / socket
   const computed = applyIngestFormulas(configVars, readings, slaveId)
   const varUpdates = buildVarUpdates(configVars, computed, slaveId)
 
@@ -126,7 +116,7 @@ const persistIngest = async ({ deviceId, slaveId, readings, organizationId }) =>
   if (doPersist) {
     const sensorReading = await prisma.$transaction(async (tx) => {
       const r = await tx.sensorReading.create({
-        data: { deviceId, deviceConfigSlaveId: slaveId || null, organizationId, readings, timestamp: ts },
+        data: { deviceId, deviceConfigSlaveId: slaveId || null, organizationId, readings: computed, timestamp: ts },
       })
       const existing = await tx.device.findUnique({
         where: { id: deviceId },
@@ -146,7 +136,6 @@ const persistIngest = async ({ deviceId, slaveId, readings, organizationId }) =>
         create: { deviceId, organizationId, lastActiveAt: ts },
       })
       await bulkUpdateVariables(tx, deviceId, varUpdates, ts)
-      await insertReadingValues(tx, r.id, { deviceId, slaveId, readings: computed, organizationId }, ts)
       return { reading: r, goOnline, gatewayId: existing?.gatewayId || null }
     })
     reading = sensorReading.reading
@@ -222,38 +211,19 @@ const processIngestBatch = async (payloads) => {
   const payloadsToPersist = payloads.filter((p) => shouldPersist(p.deviceId, p.slaveId, nowMs))
 
   if (payloadsToPersist.length) {
-    const readingRows = payloadsToPersist.map((p) => ({
-      id:                  crypto.randomUUID(),
-      deviceId:            p.deviceId,
-      deviceConfigSlaveId: p.slaveId || null,
-      organizationId:      p.organizationId,
-      readings:            p.readings, // raw
-      timestamp:           now,
-    }))
+    const readingRows = payloadsToPersist.map((p) => {
+      const computed = applyIngestFormulas(varsByDevice[p.deviceId] ?? [], p.readings, p.slaveId)
+      return {
+        id:                  crypto.randomUUID(),
+        deviceId:            p.deviceId,
+        deviceConfigSlaveId: p.slaveId || null,
+        organizationId:      p.organizationId,
+        readings:            computed,
+        timestamp:           now,
+      }
+    })
 
     await prisma.sensorReading.createMany({ data: readingRows })
-
-    const valueRows = []
-    for (let i = 0; i < readingRows.length; i++) {
-      const row = readingRows[i]
-      const p = payloadsToPersist[i]
-      const computed = applyIngestFormulas(varsByDevice[p.deviceId] ?? [], p.readings, p.slaveId)
-      for (const r of computed) {
-        const num = parseFloat(r.value)
-        if (r.variableName == null || Number.isNaN(num)) continue
-        valueRows.push({
-          id:                  crypto.randomUUID(),
-          sensorReadingId:     row.id,
-          deviceId:            row.deviceId,
-          deviceConfigSlaveId: row.deviceConfigSlaveId,
-          organizationId:      row.organizationId,
-          variableName:        r.variableName,
-          value:               num,
-          timestamp:           now,
-        })
-      }
-    }
-    if (valueRows.length) await prisma.sensorReadingValue.createMany({ data: valueRows })
   }
 
   if (!skipPgCurrentValue()) {

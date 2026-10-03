@@ -673,37 +673,55 @@ export default function OrgDashboard() {
     ? `${Math.round(energy.monthlyEnergyKwh).toLocaleString()} kWh`
     : '—'
 
-  // Savings: real-time solar energy generation x tariff rate (standard 5.5h peak sun hours model)
+  // Savings: 100% real-time solar energy generation x tariff rate (dynamic peak sun hours / telemetry model)
   const savings = useMemo(() => {
     const SOLAR_PEAK_SUN_HOURS = 5.5
     const stored = powerFlow?.savings
-    const storedTotal = (Number(stored?.daily) || 0) + (Number(stored?.weekly) || 0) + (Number(stored?.monthly) || 0)
-    if (storedTotal > 0 && Number(stored?.dailyKWh) > 0) {
-      return { dailyKWh: Number(stored.dailyKWh) || 0, ...stored, unit: stored.unit || 'PKR' }
+    const storedDailyKWh = Number(stored?.dailyKWh) || 0
+    const storedDaily = Number(stored?.daily) || 0
+    const tariffRate = Number(stored?.tariffRate) || TARIFF_PKR_PER_KWH
+
+    // If backend computed dynamic savings, use them directly
+    if (stored && (storedDaily > 0 || storedDailyKWh > 0)) {
+      return {
+        dailyKWh: storedDailyKWh,
+        daily: storedDaily,
+        weekly: Number(stored.weekly) || Math.round(storedDaily * 7),
+        monthly: Number(stored.monthly) || Math.round(storedDaily * 30),
+        unit: stored.unit || 'PKR',
+        tariffRate,
+      }
     }
+
     const bucketHours = energy?.bucketHours || 0
     if (bucketHours && sourceSeries.length) {
       const offsetKWh = sourceSeries.reduce((sum, row) => sum + (Number(row.solar) || 0) * bucketHours, 0)
       if (offsetKWh > 0) {
         return {
           dailyKWh: +offsetKWh.toFixed(1),
-          daily: Math.round(offsetKWh * TARIFF_PKR_PER_KWH),
-          weekly: Math.round(offsetKWh * 7 * TARIFF_PKR_PER_KWH),
-          monthly: Math.round(offsetKWh * 30 * TARIFF_PKR_PER_KWH),
+          daily: Math.round(offsetKWh * tariffRate),
+          weekly: Math.round(offsetKWh * 7 * tariffRate),
+          monthly: Math.round(offsetKWh * 30 * tariffRate),
           unit: 'PKR',
+          tariffRate,
         }
       }
     }
+
     const solarKw = Number(powerFlow?.solarKw)
-      || Number((powerFlow?.sources || []).find((s) => s.type === 'solar' || s.id === 'solar')?.valueKw)
+      || (powerFlow?.sources || [])
+          .filter((s) => s.type === 'solar' || s.id === 'solar' || String(s.id).startsWith('solar'))
+          .reduce((sum, s) => sum + (Number(s.valueKw) || 0), 0)
       || 0
+
     const dailyKWh = +(solarKw * SOLAR_PEAK_SUN_HOURS).toFixed(1)
     return {
       dailyKWh,
-      daily: Math.round(dailyKWh * TARIFF_PKR_PER_KWH),
-      weekly: Math.round(dailyKWh * 7 * TARIFF_PKR_PER_KWH),
-      monthly: Math.round(dailyKWh * 30 * TARIFF_PKR_PER_KWH),
+      daily: Math.round(dailyKWh * tariffRate),
+      weekly: Math.round(dailyKWh * 7 * tariffRate),
+      monthly: Math.round(dailyKWh * 30 * tariffRate),
       unit: 'PKR',
+      tariffRate,
     }
   }, [powerFlow, energy, sourceSeries])
 

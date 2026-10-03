@@ -27,7 +27,10 @@ class EmsApi {
 
   Future<AppUser> fetchMe() async {
     final res = await _api.get('/auth/me');
-    return AppUser.fromJson(Map<String, dynamic>.from(res['data'] as Map));
+    final userMap = res['data'] is Map
+        ? Map<String, dynamic>.from(res['data'] as Map)
+        : (res['user'] is Map ? Map<String, dynamic>.from(res['user'] as Map) : res);
+    return AppUser.fromJson(userMap);
   }
 
   // ─── Devices ───────────────────────────────────────────────────────────────
@@ -100,6 +103,12 @@ class EmsApi {
 
   Future<void> deleteDevice(String id) async {
     await _api.delete('/devices/$id');
+  }
+
+  Future<Map<String, dynamic>> switchDevice(String id, String action) async {
+    return Map<String, dynamic>.from(
+      (_obj(await _api.patch('/devices/$id/switch', body: {'action': action})) ?? {}),
+    );
   }
 
   Future<List<Map<String, dynamic>>> getDeviceConfig(String deviceId) async {
@@ -615,4 +624,52 @@ class EmsApi {
   // ─── Device Timestamps ────────────────────────────────────────────────────────
   Future<List<Map<String, dynamic>>> getDeviceTimestamps() async =>
       _list(await _api.get('/device-timestamps', query: {'limit': '200'}));
+
+  // ─── Custom Dashboards ────────────────────────────────────────────────────────
+  Future<List<Map<String, dynamic>>> getCustomDashboards({String? organizationId, int limit = 100}) async {
+    final q = <String, String>{'limit': '$limit'};
+    if (organizationId != null && organizationId.isNotEmpty) {
+      q['organizationId'] = organizationId;
+    }
+    return _list(await _api.get('/custom-dashboards', query: q));
+  }
+
+  Future<Map<String, dynamic>> getCustomDashboard(String id) async =>
+      Map<String, dynamic>.from(_obj(await _api.get('/custom-dashboards/$id')) ?? {});
+
+  Future<Map<String, dynamic>> createCustomDashboard(Map<String, dynamic> body) async =>
+      Map<String, dynamic>.from(_obj(await _api.post('/custom-dashboards', body: body)) ?? {});
+
+  Future<Map<String, dynamic>> updateCustomDashboard(String id, Map<String, dynamic> body) async =>
+      Map<String, dynamic>.from(_obj(await _api.put('/custom-dashboards/$id', body: body)) ?? {});
+
+  Future<void> deleteCustomDashboard(String id) async =>
+      _api.delete('/custom-dashboards/$id');
+
+  // ─── Access Groups & Device Groups ────────────────────────────────────────────
+  Future<List<Map<String, dynamic>>> getAccessGroups({int limit = 100}) async =>
+      _list(await _api.get('/access-groups', query: {'limit': '$limit'}));
+
+  Future<List<Map<String, dynamic>>> getDeviceGroups({int limit = 100}) async =>
+      _list(await _api.get('/device-groups', query: {'limit': '$limit'}));
+
+  Future<Map<String, dynamic>> createDeviceGroup(Map<String, dynamic> body) async =>
+      Map<String, dynamic>.from(_obj(await _api.post('/device-groups', body: body)) ?? {});
+
+  Future<Map<String, dynamic>> updateDeviceGroup(String id, Map<String, dynamic> body) async =>
+      Map<String, dynamic>.from(_obj(await _api.put('/device-groups/$id', body: body)) ?? {});
+
+  Future<void> deleteDeviceGroup(String id) async =>
+      _api.delete('/device-groups/$id');
+
+  // ─── Power Flow ───────────────────────────────────────────────────────────────
+  Future<Map<String, dynamic>> getPowerFlow() async =>
+      Map<String, dynamic>.from(_obj(await _api.get('/custom-dashboards/power-flow')) ?? {});
+
+  Future<Map<String, dynamic>> updatePowerFlow(Map<String, dynamic> body) async =>
+      Map<String, dynamic>.from(_obj(await _api.put('/custom-dashboards/power-flow', body: body)) ?? {});
+
+  // ─── Template Triggers ────────────────────────────────────────────────────────
+  Future<List<Map<String, dynamic>>> getTemplateTriggers({int limit = 100}) async =>
+      _list(await _api.get('/template-triggers', query: {'limit': '$limit'}));
 }

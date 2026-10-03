@@ -64,6 +64,9 @@ flutter:
   uses-material-design: true
 
   assets:
+    - assets/elsa_logo.jpeg
+    - assets/admin_avatar.png
+    - assets/embedded_bg.png
     - assets/logo.png
     - assets/logo-removebg-preview.png
 

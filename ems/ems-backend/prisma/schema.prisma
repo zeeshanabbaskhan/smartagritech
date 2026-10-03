@@ -408,12 +408,13 @@ model SensorReading {
   device      Device             @relation(fields: [deviceId], references: [id], onDelete: Cascade)
   configSlave DeviceConfigSlave? @relation(fields: [deviceConfigSlaveId], references: [id], onDelete: SetNull)
 
-  @@index([deviceId, deviceConfigSlaveId, timestamp])
-  @@index([deviceId, timestamp])
-  @@index([organizationId, timestamp])
+  @@index([deviceId, deviceConfigSlaveId, timestamp(sort: Desc)])
+  @@index([deviceId, timestamp(sort: Desc)])
+  @@index([organizationId, timestamp(sort: Desc)])
   @@map("sensor_readings")
 }
 
+/// @deprecated Legacy unrolled sensor reading values. Deprecated to prevent 291 GB disk bloat.
 model SensorReadingValue {
   id                  String   @id @default(uuid())
   sensorReadingId     String
