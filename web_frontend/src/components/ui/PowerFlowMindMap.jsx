@@ -722,24 +722,23 @@ export default function PowerFlowMindMap({
                       </div>
                     </div>
 
-                    {/* Right: Add Source button in site header */}
-                    <div className="justify-self-end">
-                      {editable && (
-                        <button
-                          type="button"
-                          onClick={() => openCreateSource(site.id)}
-                          className="flex items-center gap-1 rounded-xl px-2 py-0.5 border border-dashed border-surface-300 dark:border-surface-700 text-surface-400 hover:text-primary-600 hover:border-primary-400 text-[10px] font-bold transition-colors bg-white/40 dark:bg-surface-850/40"
-                        >
-                          <Plus size={10} />
-                          <span>Add Source</span>
-                        </button>
-                      )}
-                    </div>
+                    {/* Right: empty spacer balancing the left column */}
+                    <div className="justify-self-end" aria-hidden="true" />
                   </div>
 
-                  {/* MIDDLE — this site's sources in a single compact row */}
-                  <div className="flex justify-center gap-2 flex-wrap max-w-[45rem]">
+                  {/* MIDDLE — this site's sources with inline dashed Add Source */}
+                  <div className="flex justify-center items-center gap-2 flex-wrap">
                     {siteSources.map((s, idx) => renderSourceCard(s, idx))}
+                    {editable && (
+                      <button
+                        type="button"
+                        onClick={() => openCreateSource(site.id)}
+                        className="flex items-center gap-1.5 rounded-xl px-3 py-2 border border-dashed border-surface-300 dark:border-surface-700 text-surface-400 hover:text-primary-500 hover:border-primary-400 text-xs font-bold transition-colors"
+                      >
+                        <Plus size={13} />
+                        <span>Add Source</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               )
@@ -749,9 +748,9 @@ export default function PowerFlowMindMap({
               <button
                 type="button"
                 onClick={addSite}
-                className="self-start flex items-center gap-1 rounded-xl px-2.5 py-1.5 border border-dashed border-surface-300 text-surface-400 hover:text-primary-600 hover:border-primary-400 text-xs font-bold mt-1"
+                className="self-center flex items-center gap-1.5 rounded-xl px-3.5 py-2.5 border border-dashed border-surface-300 dark:border-surface-700 text-surface-400 hover:text-primary-500 hover:border-primary-400 text-xs font-bold transition-colors"
               >
-                <Plus size={12} />
+                <Plus size={13} />
                 <span>Add Site</span>
               </button>
             )}
