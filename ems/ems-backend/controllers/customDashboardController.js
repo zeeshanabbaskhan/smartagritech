@@ -223,16 +223,25 @@ const sumLoadsForDeviceIds = async (deviceIds) => {
 }
 
 /**
- * Dynamic calculation of cumulative energy (kWh) consumed today for a grid slave.
+ * Dynamic calculation of cumulative energy (kWh) for a slave on a specific calendar date.
  * Checks cumulative energy counters first, then average active power integration.
+ * For today: checks from 00:00 to now, TTL = 20s.
+ * For past dates: checks from 00:00:00 to 23:59:59.999 (full 24h window), TTL = 86400s (24h).
  */
-const computeSlaveTodayKwh = async (deviceId, slaveId, liveKw) => {
+const computeSlaveDateKwh = async (deviceId, slaveId, targetDate = new Date(), liveKw = 0) => {
   if (!slaveId) return 0
   const c = redis.getClient()
-  const todayStart = new Date()
-  todayStart.setHours(0, 0, 0, 0)
-  const todayKey = `${todayStart.getFullYear()}-${todayStart.getMonth() + 1}-${todayStart.getDate()}`
-  const cacheKey = `grid_kwh:${slaveId}:${todayKey}`
+
+  const d = new Date(targetDate)
+  const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0)
+  const dayEnd = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999)
+
+  const now = new Date()
+  const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0)
+  const isToday = dayStart.getTime() === todayMidnight.getTime()
+
+  const dateKey = `${dayStart.getFullYear()}-${dayStart.getMonth() + 1}-${dayStart.getDate()}`
+  const cacheKey = `grid_kwh:${slaveId}:${dateKey}`
 
   if (c) {
     try {
@@ -241,8 +250,8 @@ const computeSlaveTodayKwh = async (deviceId, slaveId, liveKw) => {
     } catch (_) {}
   }
 
-  const now = new Date()
-  const elapsedHours = Math.max(0.05, (now - todayStart) / (1000 * 3600))
+  const endBoundary = isToday ? now : dayEnd
+  const elapsedHours = isToday ? Math.max(0.05, (now - dayStart) / (1000 * 3600)) : 24
   let resultKwh = 0
 
   // 1. Check cumulative meter delta (Units, PowerConsumption, Energy, ActiveEnergy, kWh, TotalEnergy)
@@ -252,8 +261,8 @@ const computeSlaveTodayKwh = async (deviceId, slaveId, liveKw) => {
     for (const vName of cumVars) {
       const rows = await prisma.$queryRaw`
         SELECT 
-          (SELECT v.value::double precision FROM sensor_reading_values v WHERE v."deviceConfigSlaveId" = ${slaveId} ${devClause} AND v."variableName" = ${vName} AND v.timestamp >= ${todayStart} ORDER BY v.timestamp DESC LIMIT 1) as last_val,
-          (SELECT v.value::double precision FROM sensor_reading_values v WHERE v."deviceConfigSlaveId" = ${slaveId} ${devClause} AND v."variableName" = ${vName} AND v.timestamp >= ${todayStart} ORDER BY v.timestamp ASC LIMIT 1) as first_val
+          (SELECT v.value::double precision FROM sensor_reading_values v WHERE v."deviceConfigSlaveId" = ${slaveId} ${devClause} AND v."variableName" = ${vName} AND v.timestamp >= ${dayStart} AND v.timestamp <= ${endBoundary} ORDER BY v.timestamp DESC LIMIT 1) as last_val,
+          (SELECT v.value::double precision FROM sensor_reading_values v WHERE v."deviceConfigSlaveId" = ${slaveId} ${devClause} AND v."variableName" = ${vName} AND v.timestamp >= ${dayStart} AND v.timestamp <= ${endBoundary} ORDER BY v.timestamp ASC LIMIT 1) as first_val
       `
       if (rows?.[0]?.last_val != null && rows?.[0]?.first_val != null) {
         const diff = Number(rows[0].last_val) - Number(rows[0].first_val)
@@ -278,7 +287,8 @@ const computeSlaveTodayKwh = async (deviceId, slaveId, liveKw) => {
                  jsonb_array_elements(sr.readings::jsonb) AS elem
             WHERE sr."deviceConfigSlaveId" = ${slaveId} ${devClauseSr}
               AND elem->>'variableName' = ${vName}
-              AND sr.timestamp >= ${todayStart}
+              AND sr.timestamp >= ${dayStart}
+              AND sr.timestamp <= ${endBoundary}
             ORDER BY sr.timestamp DESC LIMIT 1
           `,
           prisma.$queryRaw`
@@ -287,7 +297,8 @@ const computeSlaveTodayKwh = async (deviceId, slaveId, liveKw) => {
                  jsonb_array_elements(sr.readings::jsonb) AS elem
             WHERE sr."deviceConfigSlaveId" = ${slaveId} ${devClauseSr}
               AND elem->>'variableName' = ${vName}
-              AND sr.timestamp >= ${todayStart}
+              AND sr.timestamp >= ${dayStart}
+              AND sr.timestamp <= ${endBoundary}
             ORDER BY sr.timestamp ASC LIMIT 1
           `,
         ])
@@ -314,29 +325,38 @@ const computeSlaveTodayKwh = async (deviceId, slaveId, liveKw) => {
         WHERE v."deviceConfigSlaveId" = ${slaveId}
           ${devClause}
           AND v."variableName" IN ('Total Power', 'Active Power', 'ActivePower', 'Total Active Power', 'Power')
-          AND v.timestamp >= ${todayStart}
+          AND v.timestamp >= ${dayStart}
+          AND v.timestamp <= ${endBoundary}
       `
       if (pRows?.[0]?.count > 0 && pRows[0]?.avg_val != null) {
         const avgKw = normalizeToKw(pRows[0].avg_val)
         if (avgKw > 0) {
-          resultKwh = +(avgKw * elapsedHours).toFixed(2)
+          resultKwh = +(avgKw * (isToday ? elapsedHours : 24)).toFixed(2)
         }
       }
     } catch (_) {}
   }
 
-  // 3. Fallback: live active power * elapsed hours
-  if (resultKwh === 0 && Number(liveKw) > 0) {
+  // 3. Fallback for today only: live active power * elapsed hours
+  if (resultKwh === 0 && isToday && Number(liveKw) > 0) {
     resultKwh = +(Number(liveKw) * elapsedHours).toFixed(2)
   }
 
   if (c && resultKwh > 0) {
     try {
-      await c.setEx(cacheKey, 20, String(resultKwh))
+      const ttl = isToday ? 20 : 86400
+      await c.setEx(cacheKey, ttl, String(resultKwh))
     } catch (_) {}
   }
 
   return resultKwh
+}
+
+/**
+ * Backward-compatible wrapper for today's kWh
+ */
+const computeSlaveTodayKwh = async (deviceId, slaveId, liveKw) => {
+  return computeSlaveDateKwh(deviceId, slaveId, new Date(), liveKw)
 }
 
 /**
@@ -786,13 +806,59 @@ async function buildPowerFlowData(req, orgId, config) {
   }
 
   const effectiveDailyKWh = round2(totalSolarTodayKwh > 0 ? totalSolarTodayKwh : (totalSolarKw * SOLAR_PEAK_SUN_HOURS))
+
+  // Collect unique solar slaves for historical weekly & monthly aggregation
+  const allSolarSlaveIds = Array.from(new Set(solarSources.flatMap((s) => s.slaveIds || []).filter(Boolean)))
+  const solarSlaves = allSolarSlaveIds.length > 0
+    ? await prisma.deviceConfigSlave.findMany({
+        where: { id: { in: allSolarSlaveIds } },
+        select: { id: true, deviceId: true },
+      })
+    : []
+
+  // Compute actual solar generation for the last 7 calendar days
+  const now = new Date()
+  let totalWeeklyKWh = 0
+  for (let d = 0; d < 7; d++) {
+    if (d === 0) {
+      totalWeeklyKWh += effectiveDailyKWh
+    } else {
+      const targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - d)
+      let pastDayKwh = 0
+      for (const slv of solarSlaves) {
+        const kwh = await computeSlaveDateKwh(slv.deviceId, slv.id, targetDate, 0)
+        pastDayKwh += kwh
+      }
+      totalWeeklyKWh += pastDayKwh
+    }
+  }
+  totalWeeklyKWh = round2(totalWeeklyKWh > 0 ? totalWeeklyKWh : (effectiveDailyKWh * 7))
+
+  // Compute actual solar generation from the 1st of the current month through today
+  let totalMonthlyKWh = 0
+  const currentDayOfMonth = now.getDate()
+  for (let dayNum = 1; dayNum <= currentDayOfMonth; dayNum++) {
+    if (dayNum === currentDayOfMonth) {
+      totalMonthlyKWh += effectiveDailyKWh
+    } else {
+      const targetDate = new Date(now.getFullYear(), now.getMonth(), dayNum)
+      let pastDayKwh = 0
+      for (const slv of solarSlaves) {
+        const kwh = await computeSlaveDateKwh(slv.deviceId, slv.id, targetDate, 0)
+        pastDayKwh += kwh
+      }
+      totalMonthlyKWh += pastDayKwh
+    }
+  }
+  totalMonthlyKWh = round2(totalMonthlyKWh > 0 ? totalMonthlyKWh : (effectiveDailyKWh * currentDayOfMonth))
+
   const effectiveSavings = {
     daily: Math.round(effectiveDailyKWh * TARIFF_PKR),
-    weekly: Math.round(effectiveDailyKWh * 7 * TARIFF_PKR),
-    monthly: Math.round(effectiveDailyKWh * 30 * TARIFF_PKR),
+    weekly: Math.round(totalWeeklyKWh * TARIFF_PKR),
+    monthly: Math.round(totalMonthlyKWh * TARIFF_PKR),
     dailyKWh: effectiveDailyKWh,
-    weeklyKWh: round2(effectiveDailyKWh * 7),
-    monthlyKWh: round2(effectiveDailyKWh * 30),
+    weeklyKWh: totalWeeklyKWh,
+    monthlyKWh: totalMonthlyKWh,
     unit: 'PKR',
     tariffRate: TARIFF_PKR,
     solarKw: totalSolarKw,

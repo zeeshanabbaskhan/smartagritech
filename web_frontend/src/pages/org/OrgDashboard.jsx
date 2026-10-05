@@ -686,8 +686,10 @@ export default function OrgDashboard() {
       return {
         dailyKWh: storedDailyKWh,
         daily: storedDaily,
-        weekly: Number(stored.weekly) || Math.round(storedDaily * 7),
-        monthly: Number(stored.monthly) || Math.round(storedDaily * 30),
+        weekly: Number(stored.weekly) != null ? Number(stored.weekly) : Math.round(storedDaily * 7),
+        weeklyKWh: Number(stored.weeklyKWh) || +(storedDailyKWh * 7).toFixed(1),
+        monthly: Number(stored.monthly) != null ? Number(stored.monthly) : Math.round(storedDaily * 30),
+        monthlyKWh: Number(stored.monthlyKWh) || +(storedDailyKWh * 30).toFixed(1),
         unit: stored.unit || 'PKR',
         tariffRate,
       }

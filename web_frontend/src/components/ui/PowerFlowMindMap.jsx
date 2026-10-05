@@ -578,13 +578,13 @@ export default function PowerFlowMindMap({
                             Weekly Savings
                           </span>
                           <p className="text-xl font-black text-surface-900 dark:text-white mt-1 leading-tight">{formatPKR(savings.weekly)}</p>
-                          <p className="text-[10px] text-surface-400 font-semibold mt-0.5">{(Number(savings.dailyKWh || 0) * 7).toFixed(1)} kWh offset / week</p>
+                          <p className="text-[10px] text-surface-400 font-semibold mt-0.5">{(Number(savings.weeklyKWh != null ? savings.weeklyKWh : (savings.dailyKWh || 0) * 7)).toFixed(1)} kWh offset / week</p>
                         </div>
                         <button
                           type="button"
                           onClick={() => downloadCSV(`${orgName || 'org'}_weekly_savings.csv`, [
                             ['Period', 'Offset kWh', 'Savings PKR', 'Tariff PKR/kWh'],
-                            ['Weekly', (Number(savings.dailyKWh || 0) * 7).toFixed(1), savings.weekly, savings.tariffRate || TARIFF_PKR_PER_KWH],
+                            ['Weekly', (Number(savings.weeklyKWh != null ? savings.weeklyKWh : (savings.dailyKWh || 0) * 7)).toFixed(1), savings.weekly, savings.tariffRate || TARIFF_PKR_PER_KWH],
                           ])}
                           className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-black uppercase rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-300 hover:bg-indigo-100 flex-shrink-0"
                         >
@@ -601,13 +601,13 @@ export default function PowerFlowMindMap({
                             Monthly Savings
                           </span>
                           <p className="text-xl font-black text-surface-900 dark:text-white mt-1 leading-tight">{formatPKR(savings.monthly)}</p>
-                          <p className="text-[10px] text-surface-400 font-semibold mt-0.5">{(Number(savings.dailyKWh || 0) * 30).toFixed(1)} kWh offset / month</p>
+                          <p className="text-[10px] text-surface-400 font-semibold mt-0.5">{(Number(savings.monthlyKWh != null ? savings.monthlyKWh : (savings.dailyKWh || 0) * 30)).toFixed(1)} kWh offset / month</p>
                         </div>
                         <button
                           type="button"
                           onClick={() => downloadCSV(`${orgName || 'org'}_monthly_savings.csv`, [
                             ['Period', 'Offset kWh', 'Savings PKR', 'Tariff PKR/kWh'],
-                            ['Monthly', (Number(savings.dailyKWh || 0) * 30).toFixed(1), savings.monthly, savings.tariffRate || TARIFF_PKR_PER_KWH],
+                            ['Monthly', (Number(savings.monthlyKWh != null ? savings.monthlyKWh : (savings.dailyKWh || 0) * 30)).toFixed(1), savings.monthly, savings.tariffRate || TARIFF_PKR_PER_KWH],
                           ])}
                           className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-black uppercase rounded-lg bg-purple-50 text-purple-600 dark:bg-purple-950/60 dark:text-purple-300 hover:bg-purple-100 flex-shrink-0"
                         >
