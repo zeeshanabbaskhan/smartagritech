@@ -254,7 +254,7 @@ export default function AdminDashboard() {
         value={scopedSlaves.online}
         icon={CheckCircle}
         color="success"
-        sub={`${onlineCount} / ${(scope.devices || stats?.devices || []).length} devices online`}
+        sub={`${onlineCount} devices online`}
       />
       <StatCard
         label="Total Gateways"
