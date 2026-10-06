@@ -258,6 +258,11 @@ const PRIMARY_KPI_PREFERENCE = [
   'Phase Current C',
   'Current',
   'TotalCurrent',
+  'Power Factor',
+  'PowerFactor',
+  'PF',
+  'AveragePowerFactor',
+  'TotalPowerFactor',
   'Voltage A',
   'Voltage B',
   'Voltage C',
@@ -265,8 +270,6 @@ const PRIMARY_KPI_PREFERENCE = [
   'VoltageB',
   'VoltageC',
   'Voltage',
-  'Power Factor',
-  'PowerFactor',
   'Frequency',
 ]
 
@@ -279,7 +282,7 @@ export function formatCardLabel(name) {
   if (norm === 'voltagea' || norm === 'phasevoltagea' || norm === 'va') return 'Voltage A'
   if (norm === 'voltageb' || norm === 'phasevoltageb' || norm === 'vb') return 'Voltage B'
   if (norm === 'voltagec' || norm === 'phasevoltagec' || norm === 'vc') return 'Voltage C'
-  if (norm === 'powerfactor' || norm === 'pf') return 'Power Factor'
+  if (norm === 'powerfactor' || norm === 'pf' || norm === 'averagepowerfactor' || norm === 'totalpowerfactor' || norm === 'powerfactortotal') return 'Power Factor'
   return name
 }
 
@@ -386,8 +389,25 @@ export function computeDynamicKpis(devices = []) {
     usedKeys.add(curCCandidate)
   }
 
-  // If fewer than 4 chosen, fill remaining from available sorted by PRIMARY_KPI_PREFERENCE then count
-  if (chosenNames.length < 4 && nameCounts.size > usedKeys.size) {
+  // Slot 5: Power Factor
+  const pfCandidate = findMatchingKey([
+    'Power Factor',
+    'PowerFactor',
+    'PF',
+    'pf',
+    'AveragePowerFactor',
+    'TotalPowerFactor',
+    'Power Factor Total',
+    'PowerFactorTotal',
+    'Avg PF',
+  ])
+  if (pfCandidate && !usedKeys.has(pfCandidate)) {
+    chosenNames.push(pfCandidate)
+    usedKeys.add(pfCandidate)
+  }
+
+  // If fewer than 5 chosen, fill remaining from available sorted by PRIMARY_KPI_PREFERENCE then count
+  if (chosenNames.length < 5 && nameCounts.size > usedKeys.size) {
     const remaining = [...nameCounts.keys()]
       .filter((k) => !usedKeys.has(k))
       .sort((a, b) => {
@@ -403,7 +423,7 @@ export function computeDynamicKpis(devices = []) {
         return a.localeCompare(b)
       })
     for (const r of remaining) {
-      if (chosenNames.length >= 4) break
+      if (chosenNames.length >= 5) break
       chosenNames.push(r)
       usedKeys.add(r)
     }
@@ -443,6 +463,7 @@ export function computeDynamicKpis(devices = []) {
       { key: 'currentA', label: 'Current A', metric: 'currentA', unit: 'A', value: sum('currentA'), agg: 'Sum', gaugeMax: 80 },
       { key: 'currentB', label: 'Current B', metric: 'currentB', unit: 'A', value: sum('currentB'), agg: 'Sum', gaugeMax: 80 },
       { key: 'currentC', label: 'Current C', metric: 'currentC', unit: 'A', value: sum('currentC'), agg: 'Sum', gaugeMax: 80 },
+      { key: 'pf', label: 'Power Factor', metric: 'pf', unit: '', value: mean('pf'), agg: 'Mean', gaugeMax: 1.0 },
     ],
     onlineCount: online.length,
     dynamic: false,

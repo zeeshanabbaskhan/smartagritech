@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
-import { Zap, Activity, Gauge, TrendingUp, Radio, Search, ChevronRight, Cpu } from 'lucide-react'
+import { Zap, Activity, Gauge, TrendingUp, Sliders, Radio, Search, ChevronRight, Cpu } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
 import { mapDevice, mapOrganization } from '../../utils/mappers'
 import {
@@ -28,8 +28,8 @@ function useDebouncedCallback(fn, delayMs) {
   }, [delayMs])
 }
 const KPI_REFRESH_DEBOUNCE_MS = 400
-const KPI_ICONS = [Zap, Activity, Gauge, TrendingUp]
-const kpiColors = () => [resolveBrandPrimary(), '#3B82F6', '#22C55E', '#8B5CF6']
+const KPI_ICONS = [Zap, Activity, Gauge, TrendingUp, Sliders]
+const kpiColors = () => [resolveBrandPrimary(), '#3B82F6', '#22C55E', '#8B5CF6', '#EC4899']
 
 function highlightMatch(text, search) {
   if (!search || !text) return text
@@ -399,7 +399,7 @@ export default function DashboardTelemetry({
             </div>
           )}
 
-          <div className={`grid grid-cols-2 gap-4 ${KPI_CONFIG.length >= 4 ? 'lg:grid-cols-4' : KPI_CONFIG.length === 3 ? 'lg:grid-cols-3' : 'lg:grid-cols-2'}`}>
+          <div className={`grid grid-cols-2 gap-3.5 sm:grid-cols-2 md:grid-cols-3 ${KPI_CONFIG.length >= 5 ? 'lg:grid-cols-5' : KPI_CONFIG.length === 4 ? 'lg:grid-cols-4' : KPI_CONFIG.length === 3 ? 'lg:grid-cols-3' : 'lg:grid-cols-2'}`}>
             {KPI_CONFIG.length === 0 ? (
               <div className="col-span-2 lg:col-span-4 card p-4 text-xs text-surface-500">
                 No live variables yet — start the MQTT bridge so device readings appear here.
