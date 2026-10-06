@@ -285,6 +285,7 @@ export default function DashboardTelemetry({
 
       return {
         ...c,
+        unit: isPf ? '' : c.unit,
         value: finalValue,
         Icon: KPI_ICONS[i % KPI_ICONS.length],
         color: colors[i % colors.length],

@@ -437,11 +437,12 @@ export function computeDynamicKpis(devices = []) {
       const sum = vals.reduce((s, v) => s + v, 0)
       const mean = vals.length ? sum / vals.length : NaN
       const useMean = /voltage|pf|powerfactor|frequency|temp|moist|battery/i.test(name)
+      const isPfMetric = /pf|powerfactor/i.test(name)
       return {
         key: name,
         label: formatCardLabel(name),
         metric: name,
-        unit: unitForVariable(name),
+        unit: isPfMetric ? '' : unitForVariable(name),
         value: useMean ? mean : sum,
         agg: useMean ? 'Mean' : 'Sum',
         gaugeMax: useMean ? (mean > 0 ? mean * 1.4 : 1) : (sum > 0 ? sum * 1.2 : 100),
