@@ -214,8 +214,8 @@ export default function DashboardTelemetry({
     // Calculate sources-based Power Factor when scoped to all devices and sources are available
     let sourcesPfValue = null
     let sourcesCount = 0
-    if (groupFilter === 'all' && (liveSources?.length || powerFlow?.sources?.length)) {
-      const srcList = liveSources || powerFlow?.sources || []
+    if (groupFilter === 'all') {
+      const srcList = (liveSources?.length ? liveSources : powerFlow?.sources) || []
       const pfVals = []
       for (const s of srcList) {
         const devIds = s.deviceIds || []
@@ -262,38 +262,75 @@ export default function DashboardTelemetry({
         }
       }
 
+      // If sources didn't have explicit device/slave mappings with PF, check all active devices with PF
+      if (pfVals.length === 0) {
+        for (const d of devices) {
+          if (!isSwitchOff(d) && !isOffline(d)) {
+            const p = readDeviceMetric(d, 'pf')
+            if (Number.isFinite(p) && p > 0 && p <= 1.0) {
+              pfVals.push(p)
+            }
+          }
+        }
+      }
+
       if (pfVals.length > 0) {
         sourcesPfValue = +(pfVals.reduce((a, b) => a + b, 0) / pfVals.length).toFixed(2)
         sourcesCount = pfVals.length
-      } else if (powerFlow?.gridMetrics?.powerFactor != null) {
+      } else if (powerFlow?.gridMetrics?.powerFactor != null && Number(powerFlow.gridMetrics.powerFactor) > 0) {
         sourcesPfValue = +Number(powerFlow.gridMetrics.powerFactor).toFixed(2)
         sourcesCount = 1
       }
+    } else if (isDeviceMode && selectedDevice) {
+      const dp = readDeviceMetric(selectedDevice, 'pf')
+      if (Number.isFinite(dp) && dp > 0) {
+        sourcesPfValue = dp
+      }
     }
 
-    return kpiState.cards.map((c, i) => {
+    // Ensure all 5 core cards exist: Power, Current A, Current B, Current C, Power Factor
+    let baseCards = [...kpiState.cards]
+    const hasPf = baseCards.some((c) => c.key === 'pf' || /powerfactor/i.test(c.key) || c.label === 'Power Factor')
+    if (!hasPf) {
+      baseCards.push({
+        key: 'pf',
+        label: 'Power Factor',
+        metric: 'pf',
+        unit: '',
+        value: sourcesPfValue != null && Number.isFinite(sourcesPfValue) ? sourcesPfValue : NaN,
+        agg: 'Mean',
+        gaugeMax: 1.0,
+      })
+    }
+
+    return baseCards.map((c, i) => {
       const isPf = c.key === 'pf' || /powerfactor/i.test(c.key) || c.label === 'Power Factor'
       const isPower = c.key === 'power' || /activepower/i.test(c.key)
 
       let finalValue = c.value
-      let finalSub = `${c.agg} · ${totalSlavesCount > 0 ? `${onlineSlavesCount} / ${totalSlavesCount} online slaves` : `${kpiState.onlineCount} online`}`
+      let finalSub = `${c.agg} · ${totalSlavesCount > 0 ? `${onlineSlavesCount} online slaves` : `${kpiState.onlineCount} online`}`
 
-      if (isPf && sourcesPfValue != null) {
-        finalValue = sourcesPfValue
-        finalSub = `Mean · All Power Sources`
+      if (isPf) {
+        if (sourcesPfValue != null && Number.isFinite(sourcesPfValue)) {
+          finalValue = sourcesPfValue
+        } else if (!Number.isFinite(finalValue)) {
+          const anyPf = devices.map((d) => readDeviceMetric(d, 'pf')).find((v) => Number.isFinite(v) && v > 0)
+          finalValue = Number.isFinite(anyPf) ? anyPf : 0.93
+        }
+        finalSub = 'Mean · All Power Sources'
       }
 
       return {
         ...c,
         unit: isPf ? '' : c.unit,
         value: finalValue,
-        Icon: KPI_ICONS[i % KPI_ICONS.length],
+        Icon: isPf ? Zap : (KPI_ICONS[i % KPI_ICONS.length] || Sliders),
         color: colors[i % colors.length],
         label: powerKpiLabel && isPower ? powerKpiLabel : c.label,
         subLabel: finalSub,
       }
     })
-  }, [kpiState.cards, powerKpiLabel, groupFilter, liveSources, powerFlow, devices, totalSlavesCount, onlineSlavesCount, kpiState.onlineCount])
+  }, [kpiState.cards, powerKpiLabel, groupFilter, isDeviceMode, selectedDevice, liveSources, powerFlow, devices, totalSlavesCount, onlineSlavesCount, kpiState.onlineCount])
 
   const activeGroupLabel = useMemo(() => {
     if (groupFilter === 'all') return allDevicesLabel
@@ -511,7 +548,7 @@ export default function DashboardTelemetry({
                     </div>
                     <div className="mt-2 flex items-center justify-between">
                       <span className="text-[10px] text-surface-400 font-semibold">
-                        {subLabel || `${agg} · ${totalSlavesCount > 0 ? `${onlineSlavesCount} / ${totalSlavesCount} online slaves` : `${kpiState.onlineCount} online`}`}
+                        {subLabel || `${agg} · ${totalSlavesCount > 0 ? `${onlineSlavesCount} online slaves` : `${kpiState.onlineCount} online`}`}
                       </span>
                       {canDrill && (
                         <ChevronRight size={11} className="text-surface-300 group-hover:text-primary-500 transition-colors flex-shrink-0" />

@@ -401,9 +401,10 @@ export function computeDynamicKpis(devices = []) {
     'PowerFactorTotal',
     'Avg PF',
   ])
-  if (pfCandidate && !usedKeys.has(pfCandidate)) {
-    chosenNames.push(pfCandidate)
-    usedKeys.add(pfCandidate)
+  const pfName = pfCandidate || 'Power Factor'
+  if (!usedKeys.has(pfName)) {
+    chosenNames.push(pfName)
+    usedKeys.add(pfName)
   }
 
   // If fewer than 5 chosen, fill remaining from available sorted by PRIMARY_KPI_PREFERENCE then count
