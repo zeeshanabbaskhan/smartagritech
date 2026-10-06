@@ -225,13 +225,202 @@ export function formatCardLabel(name) {
   return name
 }
 
+/** Supply-side meters (never consumer loads) matched by name. */
+const SOURCE_NAME_RE = /wapda|grid|solar|generator|gen\b|^g[0-9]|invt/i
+
+/**
+ * True when a node actually reports live telemetry. Slaves configured on a
+ * gateway but never reporting (spare breakers, decommissioned feeders) carry no
+ * live metrics; they contribute nothing to the phase-current sums, so counting
+ * them would overstate the "N load slaves" subtitle.
+ */
+function hasLiveMetrics(node) {
+  const metrics = node?.latestMetrics
+  if (!metrics || typeof metrics !== 'object') return false
+  for (const [name, raw] of Object.entries(metrics)) {
+    if (!name || name.startsWith('_')) continue
+    if (Number.isFinite(parseMetricRaw(raw))) return true
+  }
+  return false
+}
+
+/**
+ * Fingerprint of a slave's three-phase current + power readings, or null when
+ * every one of them is absent or zero.
+ *
+ * The API falls back to the device-level Redis hash for slaves that have no hash
+ * of their own, so a non-reporting slave is served a verbatim copy of whichever
+ * sibling wrote the device key last. Two real feeders on one gateway cannot
+ * report identical three-phase currents to the milliamp, so a repeated non-zero
+ * fingerprint identifies such a phantom and it must not be counted or summed.
+ */
+function phaseFingerprint(node) {
+  const vals = ['Current A', 'Current B', 'Current C', 'Total Power']
+    .map((t) => readDeviceMetric(node, t))
+  if (!vals.some((v) => Number.isFinite(v) && v !== 0)) return null
+  return vals.map((v) => (Number.isFinite(v) ? v.toFixed(3) : 'x')).join('/')
+}
+
+/** True for the per-phase current variables that must be summed across load slaves. */
+export function isPhaseCurrentVariable(name) {
+  const n = String(name || '').toLowerCase().replace(/[\s_\-]/g, '')
+  return n === 'currenta' || n === 'currentb' || n === 'currentc'
+    || n === 'phasecurrenta' || n === 'phasecurrentb' || n === 'phasecurrentc'
+    || n === 'ia' || n === 'ib' || n === 'ic'
+}
+
+/** True when node matches configured source slave IDs or supply-meter regex. */
+export function isSourceNode(node, sourceSlaveIds = null) {
+  if (!node) return false
+  if (sourceSlaveIds) {
+    const idStr = String(node.id ?? '')
+    if (sourceSlaveIds instanceof Set) {
+      if (sourceSlaveIds.has(idStr)) return true
+    } else if (Array.isArray(sourceSlaveIds)) {
+      if (sourceSlaveIds.includes(idStr)) return true
+    }
+  }
+  return SOURCE_NAME_RE.test(String(node.name || ''))
+}
+
+/**
+ * Every individual online consumer-load slave across the given devices.
+ * Slaves linked to a Sources group (WAPDA / Solar / Generator) — either by id
+ * via `sourceSlaveIds` or by name — are excluded so phase currents sum the
+ * downstream loads only. Slaves that report no live telemetry are skipped as
+ * well, so the count always matches the set of readings actually summed.
+ * A device with no separate slaves counts as one load.
+ */
+export function collectLoadSlaves(devices = [], { sourceSlaveIds = null } = {}) {
+  const loads = []
+  for (const d of devices) {
+    if (!isTelemetryActive(d)) continue
+    const slaves = d.slaves || d.configSlaves || []
+    if (slaves.length) {
+      // Fingerprints are per device: the phantom always mirrors a sibling slave.
+      const seen = new Set()
+      for (const s of slaves) {
+        if (!isTelemetryActive(s)) continue
+        if (isSourceNode(s, sourceSlaveIds)) continue
+        if (!hasLiveMetrics(s)) continue
+        const fp = phaseFingerprint(s)
+        if (fp) {
+          if (seen.has(fp)) continue
+          seen.add(fp)
+        }
+        loads.push(s)
+      }
+    } else if (!isSourceNode(d, sourceSlaveIds) && hasLiveMetrics(d)) {
+      loads.push(d)
+    }
+  }
+  return loads
+}
+
+/**
+ * Every individual online source slave across the given devices.
+ * Slaves linked to a Sources group (WAPDA / Solar / Generator) — either by id
+ * via `sourceSlaveIds` or by name.
+ */
+export function collectSourceSlaves(devices = [], { sourceSlaveIds = null } = {}) {
+  const sources = []
+  for (const d of devices) {
+    if (!isTelemetryActive(d)) continue
+    const slaves = d.slaves || d.configSlaves || []
+    if (slaves.length) {
+      const seen = new Set()
+      for (const s of slaves) {
+        if (!isTelemetryActive(s)) continue
+        if (!isSourceNode(s, sourceSlaveIds)) continue
+        if (!hasLiveMetrics(s)) continue
+        const fp = phaseFingerprint(s)
+        if (fp) {
+          if (seen.has(fp)) continue
+          seen.add(fp)
+        }
+        sources.push(s)
+      }
+    } else if (isSourceNode(d, sourceSlaveIds) && hasLiveMetrics(d)) {
+      sources.push(d)
+    }
+  }
+  return sources
+}
+
+/** Active source slaves on a specific device */
+export function getDeviceSourceSlaves(device, { sourceSlaveIds = null } = {}) {
+  if (!device || !isTelemetryActive(device)) return []
+  const slaves = device.slaves || device.configSlaves || []
+  if (!slaves.length) {
+    return isSourceNode(device, sourceSlaveIds) && hasLiveMetrics(device) ? [device] : []
+  }
+  const seen = new Set()
+  const result = []
+  for (const s of slaves) {
+    if (!isTelemetryActive(s)) continue
+    if (!isSourceNode(s, sourceSlaveIds)) continue
+    if (!hasLiveMetrics(s)) continue
+    const fp = phaseFingerprint(s)
+    if (fp) {
+      if (seen.has(fp)) continue
+      seen.add(fp)
+    }
+    result.push(s)
+  }
+  return result
+}
+
+/** Active load slaves on a specific device */
+export function getDeviceLoadSlaves(device, { sourceSlaveIds = null } = {}) {
+  if (!device || !isTelemetryActive(device)) return []
+  const slaves = device.slaves || device.configSlaves || []
+  if (!slaves.length) {
+    return !isSourceNode(device, sourceSlaveIds) && hasLiveMetrics(device) ? [device] : []
+  }
+  const seen = new Set()
+  const result = []
+  for (const s of slaves) {
+    if (!isTelemetryActive(s)) continue
+    if (isSourceNode(s, sourceSlaveIds)) continue
+    if (!hasLiveMetrics(s)) continue
+    const fp = phaseFingerprint(s)
+    if (fp) {
+      if (seen.has(fp)) continue
+      seen.add(fp)
+    }
+    result.push(s)
+  }
+  return result
+}
+
+/** Sum metric across only the source slaves of a device */
+export function getDeviceSourceMetric(device, metric = 'power', { sourceSlaveIds = null } = {}) {
+  const sources = getDeviceSourceSlaves(device, { sourceSlaveIds })
+  if (!sources.length) return 0
+  const vals = sources.map((s) => readDeviceMetric(s, metric)).filter(Number.isFinite)
+  return +vals.reduce((sum, v) => sum + v, 0).toFixed(2)
+}
+
+/** Sum metric across only the load slaves of a device */
+export function getDeviceLoadMetric(device, metric, { sourceSlaveIds = null } = {}) {
+  const loads = getDeviceLoadSlaves(device, { sourceSlaveIds })
+  if (!loads.length) return 0
+  const vals = loads.map((s) => readDeviceMetric(s, metric)).filter(Number.isFinite)
+  return +vals.reduce((sum, v) => sum + v, 0).toFixed(2)
+}
+
 /**
  * Fleet KPIs from real shared variable names across online devices.
  * Uses deterministic electrical ordering (Power -> Current A -> Current B -> Current C)
  * to avoid cards jumping or swapping when new metrics report.
+ *
+ * Phase-current cards sum every individual online load slave (see
+ * collectLoadSlaves); all other cards aggregate per device.
  */
-export function computeDynamicKpis(devices = []) {
+export function computeDynamicKpis(devices = [], { sourceSlaveIds = null } = {}) {
   const online = devices.filter((d) => isTelemetryActive(d))
+  const loadSlaves = collectLoadSlaves(online, { sourceSlaveIds })
+  const sourceSlaves = collectSourceSlaves(online, { sourceSlaveIds })
   const nameCounts = new Map()
   for (const d of online) {
     for (const { name, value } of listDeviceMetricEntries(d, { limit: 0 })) {
@@ -353,6 +542,43 @@ export function computeDynamicKpis(devices = []) {
 
   if (chosenNames.length) {
     const cards = chosenNames.map((name) => {
+      // Power card: sum only the supply source slaves (WAPDA + Solar + Generator)
+      if (name === powerCandidate || /total power|totalpower|activepower|totalactivepower/i.test(name)) {
+        if (sourceSlaves.length > 0) {
+          const pVals = sourceSlaves
+            .map((s) => readDeviceMetric(s, 'power'))
+            .filter(Number.isFinite)
+          const pSum = pVals.reduce((s, v) => s + v, 0)
+          return {
+            key: name,
+            label: formatCardLabel(name),
+            metric: name,
+            unit: unitForVariable(name) || 'kW',
+            value: +pSum.toFixed(2),
+            agg: 'Sum',
+            sub: 'Sum · All Power Sources',
+            gaugeMax: pSum > 0 ? pSum * 1.2 : 100,
+          }
+        }
+      }
+
+      // Phase currents: true sum across every individual online load slave.
+      if (isPhaseCurrentVariable(name)) {
+        const curVals = loadSlaves
+          .map((s) => readDeviceMetric(s, name))
+          .filter(Number.isFinite)
+        const curSum = curVals.reduce((s, v) => s + v, 0)
+        return {
+          key: name,
+          label: formatCardLabel(name),
+          metric: name,
+          unit: unitForVariable(name),
+          value: curSum,
+          agg: 'Sum',
+          sub: `Sum · ${loadSlaves.length} load slaves`,
+          gaugeMax: curSum > 0 ? curSum * 1.2 : 100,
+        }
+      }
       const vals = online
         .map((d) => readDeviceMetric(d, name))
         .filter(Number.isFinite)
@@ -369,24 +595,49 @@ export function computeDynamicKpis(devices = []) {
         gaugeMax: useMean ? (mean > 0 ? mean * 1.4 : 1) : (sum > 0 ? sum * 1.2 : 100),
       }
     })
-    return { cards, onlineCount: online.length, dynamic: true }
+    return { cards, onlineCount: online.length, loadSlavesCount: loadSlaves.length, sourceSlavesCount: sourceSlaves.length, dynamic: true }
   }
 
   // Compat: no live metrics yet — classic EMS-shaped KPIs
   const nums = (type) => online.map((d) => readDeviceMetric(d, type)).filter(Number.isFinite)
   const sum = (type) => nums(type).reduce((s, v) => s + v, 0)
-  const mean = (type) => {
-    const arr = nums(type)
-    return arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : NaN
+  const slaveNums = (type) => loadSlaves.map((s) => readDeviceMetric(s, type)).filter(Number.isFinite)
+  const currentCard = (key, label, type) => {
+    const vals = slaveNums(type)
+    return {
+      key,
+      label,
+      metric: type,
+      unit: 'A',
+      value: vals.reduce((s, v) => s + v, 0),
+      agg: 'Sum',
+      sub: `Sum · ${loadSlaves.length} load slaves`,
+      gaugeMax: 80,
+    }
   }
+  const sourcePowerSum = sourceSlaves.length > 0
+    ? sourceSlaves.reduce((s, sl) => s + (readDeviceMetric(sl, 'power') || 0), 0)
+    : sum('power')
+
   return {
     cards: [
-      { key: 'power', label: 'Total Power', metric: 'power', unit: 'kW', value: sum('power'), agg: 'Sum', gaugeMax: 135 },
-      { key: 'currentA', label: 'Current A', metric: 'currentA', unit: 'A', value: sum('currentA'), agg: 'Sum', gaugeMax: 80 },
-      { key: 'currentB', label: 'Current B', metric: 'currentB', unit: 'A', value: sum('currentB'), agg: 'Sum', gaugeMax: 80 },
-      { key: 'currentC', label: 'Current C', metric: 'currentC', unit: 'A', value: sum('currentC'), agg: 'Sum', gaugeMax: 80 },
+      {
+        key: 'power',
+        label: 'Total Power',
+        metric: 'power',
+        unit: 'kW',
+        value: +sourcePowerSum.toFixed(2),
+        agg: 'Sum',
+        sub: 'Sum · All Power Sources',
+        gaugeMax: 135
+      },
+      currentCard('currentA', 'Current A', 'currentA'),
+      currentCard('currentB', 'Current B', 'currentB'),
+      currentCard('currentC', 'Current C', 'currentC'),
     ],
     onlineCount: online.length,
+    loadSlavesCount: loadSlaves.length,
+    sourceSlavesCount: sourceSlaves.length,
     dynamic: false,
   }
 }

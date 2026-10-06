@@ -8,6 +8,11 @@ import {
   isOffline,
   isSwitchOff,
   unitForVariable,
+  isPhaseCurrentVariable,
+  getDeviceSourceSlaves,
+  getDeviceLoadSlaves,
+  getDeviceSourceMetric,
+  getDeviceLoadMetric,
 } from '../../utils/deviceMetrics'
 import DeviceSlaveMetricsPanel from '../shared/DeviceSlaveMetricsPanel'
 import { formatTileValue } from '../shared/dashboardFormatters'
@@ -62,6 +67,9 @@ export default function DashboardTelemetry({
   between = null,
   onScopeChange,
   telemetrySubtitle,
+  totalPowerOverride = null,
+  totalPowerSubLabel = null,
+  sourceSlaveIds = null,
 }) {
   const { showToast } = useToast()
   const [devices, setDevices] = useState([])
@@ -193,7 +201,14 @@ export default function DashboardTelemetry({
     })
   }, [groupFilter, isOrgMode, isDeviceMode, selectedOrg, selectedDevice, activeDevices])
 
-  const kpiState = useMemo(() => computeDynamicKpis(activeDevices), [activeDevices])
+  // Join the ids so a freshly-built (but equal) array from the parent does not
+  // re-run the KPI aggregation on every render.
+  const sourceSlaveIdsKey = Array.isArray(sourceSlaveIds) ? sourceSlaveIds.join(',') : ''
+  const kpiState = useMemo(
+    () => computeDynamicKpis(activeDevices, { sourceSlaveIds }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activeDevices, sourceSlaveIdsKey]
+  )
 
   const { onlineSlavesCount, totalSlavesCount } = useMemo(() => {
     let online = 0
@@ -208,15 +223,23 @@ export default function DashboardTelemetry({
 
   const KPI_CONFIG = useMemo(() => {
     const colors = kpiColors()
-    return kpiState.cards.map((c, i) => ({
-      ...c,
-      Icon: KPI_ICONS[i % KPI_ICONS.length],
-      color: colors[i % colors.length],
-      label: powerKpiLabel && (c.key === 'power' || /activepower/i.test(c.key))
-        ? powerKpiLabel
-        : c.label,
-    }))
-  }, [kpiState.cards, powerKpiLabel])
+    return kpiState.cards.map((c, i) => {
+      const isPower = c.key === 'power' || /total power|totalpower|activepower/i.test(c.label || c.key)
+      const useOverride = isPower
+        && groupFilter === 'all'
+        && totalPowerOverride != null
+        && Number.isFinite(totalPowerOverride)
+      return {
+        ...c,
+        Icon: KPI_ICONS[i % KPI_ICONS.length],
+        color: colors[i % colors.length],
+        label: powerKpiLabel && (c.key === 'power' || /activepower/i.test(c.key))
+          ? powerKpiLabel
+          : c.label,
+        ...(useOverride ? { value: totalPowerOverride, sub: totalPowerSubLabel } : {}),
+      }
+    })
+  }, [kpiState.cards, powerKpiLabel, groupFilter, totalPowerOverride, totalPowerSubLabel])
 
   const activeGroupLabel = useMemo(() => {
     if (groupFilter === 'all') return allDevicesLabel
@@ -306,6 +329,33 @@ export default function DashboardTelemetry({
   }
 
   const drillCfg = drillMetric ? KPI_CONFIG.find((k) => k.key === drillMetric) : null
+
+  const drillScope = useMemo(() => {
+    if (!drillCfg) return null
+    const isPower = drillCfg.key === 'power' || /total power|totalpower|activepower|totalactivepower/i.test(drillCfg.metric || drillCfg.label || '')
+    const isCurrent = isPhaseCurrentVariable(drillCfg.metric || drillCfg.key)
+
+    if (isPower) {
+      const sourceDevs = activeDevices.filter((d) => getDeviceSourceSlaves(d, { sourceSlaveIds }).length > 0)
+      return {
+        devices: sourceDevs,
+        getValue: (device) => getDeviceSourceMetric(device, drillCfg.metric || 'power', { sourceSlaveIds }),
+      }
+    }
+
+    if (isCurrent) {
+      const loadDevs = activeDevices.filter((d) => getDeviceLoadSlaves(d, { sourceSlaveIds }).length > 0)
+      return {
+        devices: loadDevs,
+        getValue: (device) => getDeviceLoadMetric(device, drillCfg.metric, { sourceSlaveIds }),
+      }
+    }
+
+    return {
+      devices: activeDevices,
+      getValue: (device) => readDeviceMetric(device, drillCfg.metric),
+    }
+  }, [drillCfg, activeDevices, sourceSlaveIds])
   const defaultTelemetryHint = deviceSearch.trim()
     ? `Search results for "${deviceSearch}"`
     : (telemetrySubtitle || `${activeDevices.length} device${activeDevices.length === 1 ? '' : 's'} in scope (online first).`)
@@ -405,7 +455,7 @@ export default function DashboardTelemetry({
                 No live variables yet — start the MQTT bridge so device readings appear here.
               </div>
             ) : (
-              KPI_CONFIG.map(({ key, label, unit, Icon, color, agg, value }) => (
+              KPI_CONFIG.map(({ key, label, unit, Icon, color, agg, value, sub }) => (
                 <button
                   key={key}
                   type="button"
@@ -424,7 +474,7 @@ export default function DashboardTelemetry({
                   </div>
                   <div className="mt-2 flex items-center justify-between">
                     <span className="text-[10px] text-surface-400 font-semibold">
-                      {agg} · {totalSlavesCount > 0 ? `${onlineSlavesCount} / ${totalSlavesCount} online slaves` : `${kpiState.onlineCount} online`}
+                      {sub || `${agg} · ${totalSlavesCount > 0 ? `${onlineSlavesCount} / ${totalSlavesCount} online slaves` : `${kpiState.onlineCount} online`}`}
                     </span>
                     <ChevronRight size={11} className="text-surface-300 group-hover:text-primary-500 transition-colors flex-shrink-0" />
                   </div>
@@ -514,7 +564,7 @@ export default function DashboardTelemetry({
         </div>
       )}
 
-      {showKpis && drillCfg && (
+      {showKpis && drillCfg && drillScope && (
         <DrillDownModal
           open
           onClose={() => setDrillMetric(null)}
@@ -522,8 +572,8 @@ export default function DashboardTelemetry({
           unit={drillCfg.unit || unitForVariable(drillCfg.metric)}
           aggregate={drillCfg.value}
           aggregateLabel={drillCfg.agg}
-          devices={activeDevices}
-          getDeviceValue={(device) => readDeviceMetric(device, drillCfg.metric)}
+          devices={drillScope.devices}
+          getDeviceValue={drillScope.getValue}
           gaugeMax={drillCfg.gaugeMax}
           gaugeColor={drillCfg.color}
         />

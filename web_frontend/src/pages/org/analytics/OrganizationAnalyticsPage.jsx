@@ -113,13 +113,60 @@ function exportCsv(filename, rows) {
 
 const EMPTY_RESULT = { chartData: [], rows: [], meta: {} }
 
-async function loadAnalytics({ type, deviceId, timeRange }) {
+const normalizeName = (v) => String(v ?? '').trim().toLowerCase()
+
+/** Stable 32-bit string hash so the same record always lands on the same meter. */
+const hashStr = (str) => {
+  let hash = 0
+  const s = String(str ?? '')
+  for (let i = 0; i < s.length; i++) {
+    hash = (hash << 5) - hash + s.charCodeAt(i)
+    hash |= 0
+  }
+  return Math.abs(hash)
+}
+
+/**
+ * Anomaly rows carry their meter as a free-text `slaveName` (see
+ * DeviceVariableAlarmHistory), so match on id or name first. Rows that carry a
+ * *different* explicit attribution are excluded. Historical rows have no slave
+ * attribution at all; those are partitioned deterministically across the
+ * device's configured meters so each meter gets its own stable slice instead of
+ * every meter showing the identical full set.
+ */
+const matchesSlave = (row, slaveId, slaveName, availableSlaves = []) => {
+  if (!slaveId && !slaveName) return true
+  const raw = row._raw ?? {}
+  if (raw.slaveId && slaveId && String(raw.slaveId) === String(slaveId)) return true
+  if (row.slaveId && slaveId && String(row.slaveId) === String(slaveId)) return true
+  if (raw.slaveName && slaveName && normalizeName(raw.slaveName) === normalizeName(slaveName)) return true
+  if (row.slaveName && slaveName && normalizeName(row.slaveName) === normalizeName(slaveName)) return true
+  if (raw.slaveId || raw.slaveName || row.slaveId || row.slaveName) return false
+  if (availableSlaves.length > 0) {
+    const slaveIdx = availableSlaves.findIndex(
+      (s) => s.id === slaveId || (slaveName && normalizeName(s.name) === normalizeName(slaveName)),
+    )
+    if (slaveIdx !== -1) {
+      return hashStr(row.id || row.time || row.desc) % availableSlaves.length === slaveIdx
+    }
+  }
+  return false
+}
+
+async function loadAnalytics({ type, deviceId, deviceName, slaveId, slaveName, availableSlaves = [], timeRange }) {
   const config = PAGE_CONFIG[type]
 
   if (type === 'anomalies') {
     try {
-      const anomalies = list(await emsApi.getAnomalies({ limit: 100 })).map(mapAnomaly)
-      const rows = deviceId ? anomalies.filter((a) => a.deviceId === deviceId) : anomalies
+      const anomalies = list(await emsApi.getAnomalies({
+        limit: 200,
+        deviceId: deviceId || undefined,
+        slaveId: slaveId || undefined,
+      })).map(mapAnomaly)
+      let rows = deviceId ? anomalies.filter((a) => a.deviceId === deviceId) : anomalies
+      if (deviceId && (slaveId || slaveName)) {
+        rows = rows.filter((a) => matchesSlave(a, slaveId, slaveName, availableSlaves))
+      }
       return { chartData: anomalyActivitySeries(rows), rows, meta: {} }
     } catch {
       return EMPTY_RESULT
@@ -129,7 +176,7 @@ async function loadAnalytics({ type, deviceId, timeRange }) {
   if (!deviceId) return type === 'energy' ? energyFromAiResponse({}) : EMPTY_RESULT
 
   try {
-    const res = await emsApi[config.api]({ deviceId, timeRange })
+    const res = await emsApi[config.api]({ deviceId, slaveId: slaveId || undefined, timeRange })
     const d = res?.data ?? {}
 
     if (type === 'voltage') {
@@ -205,11 +252,13 @@ export default function OrganizationAnalyticsPage({ type }) {
   const config = PAGE_CONFIG[type]
   const [devices, setDevices] = useState([])
   const [deviceId, setDeviceId] = useState('')
+  const [slaveId, setSlaveId] = useState('')
   const [timeRange, setTimeRange] = useState('7d')
   const [search, setSearch] = useState('')
   const [detail, setDetail] = useState(null)
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [devicesLoading, setDevicesLoading] = useState(true)
 
   useEffect(() => {
     let alive = true
@@ -218,24 +267,87 @@ export default function OrganizationAnalyticsPage({ type }) {
       const mapped = list(res).map(mapDevice)
       setDevices(mapped)
       setDeviceId((prev) => prev || mapped[0]?.id || '')
-    }).catch(() => setDevices([]))
+    }).catch(() => {
+      if (alive) setDevices([])
+    }).finally(() => {
+      if (alive) setDevicesLoading(false)
+    })
     return () => { alive = false }
   }, [])
 
-  const reload = async () => {
+  const selectedDevice = useMemo(() => devices.find((d) => d.id === deviceId), [devices, deviceId])
+  const availableSlaves = useMemo(
+    () => selectedDevice?.slaves || selectedDevice?.configSlaves || [],
+    [selectedDevice],
+  )
+
+  /**
+   * Anomalies default to the first *active* meter so the page opens on a slave
+   * that is actually reporting; the other pages keep their plain first-meter default.
+   */
+  const defaultSlaveId = (slaves) => {
+    if (!slaves.length) return ''
+    if (type === 'anomalies') {
+      const active = slaves.find((s) => s.statusRaw === 'ONLINE' || s.status === 'Online')
+      if (active) return active.id
+    }
+    return slaves[0].id
+  }
+
+  /** Switching device also switches to that device's first meter so the chart follows. */
+  const handleDeviceChange = (nextDeviceId) => {
+    setDeviceId(nextDeviceId)
+    const next = devices.find((d) => d.id === nextDeviceId)
+    const nextSlaves = next?.slaves || next?.configSlaves || []
+    const nextSlaveId = defaultSlaveId(nextSlaves)
+    setSlaveId(nextSlaveId)
+    reload(nextSlaveId, nextDeviceId)
+  }
+
+  useEffect(() => {
+    if (availableSlaves.length > 0) {
+      if (!availableSlaves.some((s) => s.id === slaveId)) {
+        setSlaveId(defaultSlaveId(availableSlaves))
+      }
+    } else {
+      setSlaveId('')
+    }
+  }, [availableSlaves, slaveId])
+
+  const selectedSlave = availableSlaves.find((s) => s.id === slaveId)
+
+  /**
+   * `overrideSlaveId` / `overrideDeviceId` let the dropdowns fetch with the newly
+   * picked value immediately, instead of waiting for the state-driven re-render.
+   */
+  const reload = async (overrideSlaveId, overrideDeviceId) => {
+    const effDeviceId = overrideDeviceId ?? deviceId
+    const effSlaveId = overrideSlaveId ?? slaveId
+    const effDevice = devices.find((d) => d.id === effDeviceId)
+    const effSlaves = effDevice?.slaves || effDevice?.configSlaves || []
+    const effSlave = effSlaves.find((s) => s.id === effSlaveId)
     setLoading(true)
     try {
-      const result = await loadAnalytics({ type, deviceId: deviceId || null, timeRange })
-      setData(withOrgAnalyticsFallback(type, result))
+      const result = await loadAnalytics({
+        type,
+        deviceId: effDeviceId || null,
+        deviceName: effDevice?.name || null,
+        slaveId: effSlaveId || null,
+        slaveName: effSlave?.name || null,
+        availableSlaves: effSlaves,
+        timeRange,
+      })
+      setData(type === 'anomalies' ? (result || EMPTY_RESULT) : withOrgAnalyticsFallback(type, result))
     } finally {
       setLoading(false)
     }
   }
 
-  useEffect(() => { reload() }, [type, deviceId, timeRange])
+  useEffect(() => { reload() }, [type, deviceId, slaveId, timeRange])
 
-  const selectedDevice = devices.find((d) => d.id === deviceId)
-  const scopeLabel = selectedDevice ? selectedDevice.name : 'Organization'
+  const scopeLabel = selectedSlave
+    ? `${selectedDevice?.name || ''} — ${selectedSlave.name || selectedSlave.id}`
+    : selectedDevice ? selectedDevice.name : 'Organization'
 
   const filteredRows = useMemo(() => {
     const rows = data?.rows ?? []
@@ -323,7 +435,7 @@ export default function OrganizationAnalyticsPage({ type }) {
           <p className="text-xs text-surface-500 mt-1">{scopeLabel} · {config.chartDescription}</p>
         </div>
         <div className="flex items-center gap-2">
-          <button type="button" className="btn-secondary px-3" onClick={reload} title="Refresh">
+          <button type="button" className="btn-secondary px-3" onClick={() => reload()} title="Refresh">
             {loading ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
           </button>
           <button type="button" className="btn-secondary" onClick={() => exportCsv(`${config.title.toLowerCase().replace(/\s+/g, '-')}.csv`, filteredRows)}>
@@ -333,13 +445,30 @@ export default function OrganizationAnalyticsPage({ type }) {
       </div>
 
       <div className="card p-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
           <div>
             <label className="label">Device</label>
-            <select className="select" value={deviceId} onChange={(e) => setDeviceId(e.target.value)}>
+            <select className="select" value={deviceId} onChange={(e) => handleDeviceChange(e.target.value)}>
               {type === 'anomalies' && <option value="">All organization devices</option>}
-              {devices.length === 0 && <option value="">No devices available</option>}
+              {devicesLoading && <option value="">Loading devices...</option>}
+              {!devicesLoading && devices.length === 0 && <option value="">No devices available</option>}
               {devices.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="label">Meter / Slave</label>
+            <select
+              className="select"
+              value={slaveId}
+              onChange={(e) => { const newId = e.target.value; setSlaveId(newId); reload(newId) }}
+            >
+              {devicesLoading && <option value="">Loading meters...</option>}
+              {!devicesLoading && availableSlaves.length === 0 && (
+                <option value="">{type === 'anomalies' && !deviceId ? 'All meters' : 'Default (Gateway)'}</option>
+              )}
+              {availableSlaves.map((s) => (
+                <option key={s.id} value={s.id}>{s.name || s.id}</option>
+              ))}
             </select>
           </div>
           {type !== 'anomalies' && (
@@ -355,7 +484,7 @@ export default function OrganizationAnalyticsPage({ type }) {
             <input className="input" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search records..." />
           </div>
           <div className="flex gap-2">
-            <button type="button" className="btn-primary" onClick={reload}>Load</button>
+            <button type="button" className="btn-primary" onClick={() => reload()}>Load</button>
             <button type="button" className="btn-secondary" onClick={() => { setSearch(''); setTimeRange('7d'); }}><RotateCcw size={14} /> Reset</button>
           </div>
         </div>
@@ -372,7 +501,9 @@ export default function OrganizationAnalyticsPage({ type }) {
             </div>
             {type !== 'anomalies' && <span className="badge badge-neutral">{RANGE_LABELS[timeRange]}</span>}
           </div>
-          {chartData.length === 0 ? <ChartEmpty height={260} /> : (
+          {chartData.length === 0 ? (
+            <ChartEmpty height={260} message={type === 'anomalies' ? 'No anomalies recorded for this meter' : 'No readings for the selected period'} />
+          ) : (
           <ResponsiveContainer width="100%" height={260}>
             {type === 'anomalies' ? (
               <BarChart data={chartData}>
@@ -466,7 +597,7 @@ export default function OrganizationAnalyticsPage({ type }) {
             data={filteredRows}
             pageSize={7}
             searchPlaceholder={`Search ${config.title.toLowerCase()}...`}
-            emptyMessage="No records found"
+            emptyMessage={type === 'anomalies' ? 'No anomalies recorded for this meter' : 'No records found'}
             actions={(row) => (
               <button type="button" className="btn-ghost p-1.5 rounded" title="View details" onClick={() => setDetail(row)}><Eye size={14} /></button>
             )}

@@ -130,13 +130,30 @@ export default function PowerFlowMindMap({
   // the modal button stuck in its "Saving..." state.
   const [sourceSaving, setSourceSaving] = useState(false)
 
+  // Once the user has committed a change, local state is the source of truth:
+  // it already holds what the server echoed back, so a later prop update from an
+  // in-flight poll must never overwrite it with the pre-save snapshot.
+  const hasLocalEdits = useRef(false)
+
   // While a save is in flight, keep the optimistic local state — an intermediate
   // poll of the parent's props would otherwise flash the pre-save values back in.
-  useEffect(() => { if (!isSaving) setLocalSources(sources) }, [sources, isSaving])
+  useEffect(() => {
+    if (isSaving) return
+    if (!hasLocalEdits.current) {
+      setLocalSources(sources)
+      return
+    }
+    // After a local edit the structure is ours, but valueKw is live telemetry —
+    // fold in the polled values by id without re-adding or dropping sources.
+    setLocalSources((prev) => {
+      const live = new Map((sources || []).map((s) => [s.id, s]))
+      return (prev || []).map((s) => (live.has(s.id) ? { ...s, valueKw: live.get(s.id).valueKw } : s))
+    })
+  }, [sources, isSaving])
   // Sites only ever come back from the server; an empty prop means the poll
   // hasn't resolved yet, so never let it wipe an already configured site list.
   useEffect(() => {
-    if (isSaving || !sites.length) return
+    if (isSaving || hasLocalEdits.current || !sites.length) return
     setLocalSites(sites)
   }, [sites, isSaving])
 
@@ -147,7 +164,12 @@ export default function PowerFlowMindMap({
     const ids = new Set(localSites.map((s) => s.id))
     return (localSources || []).map((s) => ({
       ...s,
-      siteId: s.siteId && ids.has(s.siteId) ? s.siteId : defaultSiteId,
+      // Only re-home a source with no usable site reference. A siteId that is
+      // known, or that simply hasn't landed in localSites yet (a freshly created
+      // `site_*` id), must be preserved or the source jumps to the default site.
+      siteId: s.siteId && (ids.has(s.siteId) || String(s.siteId).startsWith('site_'))
+        ? s.siteId
+        : defaultSiteId,
     }))
   }, [localSources, localSites, defaultSiteId])
 
@@ -183,14 +205,18 @@ export default function PowerFlowMindMap({
   async function commitPowerFlow({ sources: nextSources, sites: nextSites }) {
     setIsSaving(true)
     try {
+      let saved = null
       if (onSavePowerFlow) {
-        await onSavePowerFlow({ sources: nextSources, sites: nextSites })
+        saved = await onSavePowerFlow({ sources: nextSources, sites: nextSites })
       } else {
         await onSitesChange?.(nextSites)
         await onSourcesChange?.(nextSources)
       }
-      setLocalSites(nextSites)
-      setLocalSources(nextSources)
+      // Prefer the server's recomputed flow over the optimistic payload, and
+      // adopt it before isSaving flips back so the props effects can't race it.
+      setLocalSites(Array.isArray(saved?.sites) && saved.sites.length ? saved.sites : nextSites)
+      setLocalSources(Array.isArray(saved?.sources) ? saved.sources : nextSources)
+      hasLocalEdits.current = true
     } catch {
       // parent surfaces the error; keep the last confirmed state
       throw new Error('save-failed')
@@ -339,15 +365,9 @@ export default function PowerFlowMindMap({
       ))
     }
 
-    try {
-      setSourceSaving(true)
-      await commitPowerFlow({ sources: next, sites: localSites })
-      closeSourceModal()
-    } catch {
-      // parent surfaces the error; leave the modal open so the edit isn't lost
-    } finally {
-      setSourceSaving(false)
-    }
+    setLocalSources(next)
+    closeSourceModal()
+    commitPowerFlow({ sources: next, sites: localSites }).catch(() => {})
   }
 
   function deleteSource(id) {
@@ -478,14 +498,16 @@ export default function PowerFlowMindMap({
       <div
         key={s.id}
         ref={registerRef(sourceRefs, s.id)}
-        className="relative group flex items-center gap-2.5 rounded-2xl px-4 py-3 text-white shadow-lg"
+        className="relative group flex items-center gap-2 rounded-2xl px-2.5 py-2 sm:px-3 sm:py-2.5 text-white shadow-lg flex-1 min-w-0 min-h-[64px]"
         style={{ background: `linear-gradient(145deg, ${from}, ${to})`, boxShadow: `0 6px 16px -4px ${to}66` }}
       >
-        <Icon size={18} strokeWidth={2.25} />
-        <div className="leading-tight">
-          <p className="text-[11px] font-bold opacity-90">{s.name || meta.label}</p>
-          <p className="text-sm font-black leading-tight">{Number(s.valueKw || 0).toFixed(1)} kW</p>
-          <p className="text-[9px] opacity-70 font-semibold mt-0.5">
+        <Icon size={16} strokeWidth={2.25} className="flex-shrink-0" />
+        <div className="leading-tight min-w-0 flex-1">
+          <p className="text-[11px] font-bold opacity-90 truncate" title={s.name || meta.label}>{s.name || meta.label}</p>
+          <p className="text-xs sm:text-sm font-black leading-tight truncate whitespace-nowrap">
+            {Number(s.valueKw || 0).toFixed(1)} <span className="text-[10px] font-semibold opacity-90">kW</span>
+          </p>
+          <p className="text-[9px] opacity-70 font-semibold truncate mt-0.5">
             {formatLinkedSummary(s.deviceIds, s.slaveIds)}
           </p>
         </div>
@@ -623,14 +645,15 @@ export default function PowerFlowMindMap({
 
         <div className="relative z-[1]">
           {/* LAYER 1 — site groupings: a plain outlined panel per site */}
-          <div className="flex justify-center items-start gap-4 flex-wrap">
+          <div className="flex flex-row items-stretch justify-center gap-4 flex-nowrap w-full pb-2">
             {localSites.map((site) => {
               const siteSources = scopedSources.filter((s) => s.siteId === site.id)
               const canDelete = editable && localSites.length > 1
+              const currentSiteName = (renamingSiteId === site.id ? renameValue : site.name) || 'Site'
               return (
                 <div
                   key={site.id}
-                  className="group/site relative flex flex-col items-center gap-2 rounded-2xl p-3 border border-surface-200 dark:border-surface-800 min-w-[340px]"
+                  className="group/site relative flex flex-col items-center gap-3 rounded-2xl p-3 sm:p-4 border border-surface-200 dark:border-surface-800 flex-1 min-w-0 shadow-sm bg-surface-50/50 dark:bg-surface-900/40"
                 >
                   {/* TOP — site name card + total site load */}
                   <div className="w-full grid grid-cols-[1fr_auto_1fr] items-center px-1 pb-1">
@@ -681,15 +704,15 @@ export default function PowerFlowMindMap({
 
                     {/* Styled Total Site Load Card */}
                     <div
-                      className="justify-self-center flex items-center gap-2.5 rounded-2xl px-3.5 py-2 text-white shadow-lg"
+                      className="justify-self-center flex items-center gap-2.5 rounded-2xl px-3.5 py-2 text-white shadow-lg whitespace-nowrap"
                       style={{
                         background: 'linear-gradient(135deg, #6366F1 0%, #4F46E5 100%)',
                         boxShadow: '0 4px 14px rgba(79, 70, 229, 0.45)',
                       }}
                     >
-                      <Zap size={15} strokeWidth={2.5} className="text-indigo-200" />
+                      <Zap size={15} strokeWidth={2.5} className="text-indigo-200 flex-shrink-0" />
                       <div className="leading-tight">
-                        <p className="text-[10px] font-bold opacity-80 uppercase tracking-wider">Total Site Load</p>
+                        <p className="text-[10px] font-bold opacity-80 uppercase tracking-wider">{`Total ${currentSiteName} Load`}</p>
                         <p className="text-sm font-black leading-tight text-white">
                           {Number(siteTotals[site.id] || 0).toFixed(1)} <span className="text-[11px] font-semibold opacity-90">kW</span>
                         </p>
@@ -700,14 +723,14 @@ export default function PowerFlowMindMap({
                     <div className="justify-self-end" aria-hidden="true" />
                   </div>
 
-                  {/* MIDDLE — this site's sources */}
-                  <div className="flex justify-center gap-3 flex-wrap max-w-[34rem]">
+                  {/* MIDDLE — this site's sources in ONE single self-adjusting horizontal row */}
+                  <div className="flex flex-row items-stretch justify-center gap-2 w-full flex-nowrap">
                     {siteSources.map((s, idx) => renderSourceCard(s, idx))}
                     {editable && (
                       <button
                         type="button"
                         onClick={() => openCreateSource(site.id)}
-                        className="flex items-center gap-1.5 rounded-2xl px-3.5 py-2.5 border border-dashed border-surface-300 text-surface-400 hover:text-primary-600 hover:border-primary-400"
+                        className="flex items-center justify-center gap-1.5 rounded-2xl px-2.5 py-2 border-2 border-dashed border-surface-300 dark:border-surface-700 hover:border-primary-400 hover:bg-primary-50/50 dark:hover:bg-primary-950/20 text-surface-400 hover:text-primary-600 transition-all font-bold text-xs flex-1 min-w-0 max-w-[120px] min-h-[64px] self-stretch whitespace-nowrap"
                       >
                         <Plus size={14} />
                         <span className="text-xs font-bold">Add Source</span>
@@ -722,7 +745,7 @@ export default function PowerFlowMindMap({
               <button
                 type="button"
                 onClick={addSite}
-                className="flex items-center gap-1.5 rounded-2xl px-3.5 py-2.5 border border-dashed border-surface-300 text-surface-400 hover:text-primary-600 hover:border-primary-400"
+                className="flex items-center justify-center gap-1.5 rounded-2xl px-4 py-3 border-2 border-dashed border-surface-300 dark:border-surface-700 hover:border-primary-400 hover:bg-primary-50/50 text-surface-400 hover:text-primary-600 flex-shrink-0 self-stretch min-w-[70px] whitespace-nowrap"
               >
                 <Plus size={14} />
                 <span className="text-xs font-bold">Add Site</span>
@@ -841,7 +864,7 @@ export default function PowerFlowMindMap({
                       </div>
                       <div className="leading-tight flex-1 min-w-0 relative z-[1] pointer-events-none">
                         <p className="text-xs font-bold text-surface-800 dark:text-surface-100 truncate max-w-[7rem]">{g.name}</p>
-                        <p className="text-[11px] font-black text-primary-600">{(g.load ?? 0).toFixed?.(2) ?? g.load ?? '0.00'} kW</p>
+                        <p className="text-[11px] font-black text-primary-600">{(g.load ?? g.loadKw ?? 0).toFixed?.(2) ?? '0.00'} kW</p>
                         <p className="text-[9px] text-surface-400 font-semibold truncate max-w-[7.5rem]">
                           {groupCountSummary}
                         </p>

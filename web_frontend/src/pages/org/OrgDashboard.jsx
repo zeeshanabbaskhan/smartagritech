@@ -179,11 +179,26 @@ export default function OrgDashboard() {
       const groupDevices = liveDevices.filter((d) => ids.includes(d.id))
       const active = groupDevices.filter((d) => !isSwitchOff(d))
       let load = g.loadKw != null ? Number(g.loadKw) : (g.load != null ? Number(g.load) : 0)
-      if (!g.loadKw && !sIds.length) {
-        load = active.reduce((s, d) => {
+      if (!load) {
+        // Direct devices
+        let devSum = active.reduce((s, d) => {
           const v = readDeviceMetric(d, 'power')
           return s + (Number.isFinite(v) ? v : 0)
         }, 0)
+        // Slaves
+        if (sIds.length) {
+          for (const d of liveDevices) {
+            if (isSwitchOff(d)) continue
+            const slaves = d.slaves || d.configSlaves || []
+            for (const s of slaves) {
+              if (sIds.includes(s.id)) {
+                const v = readDeviceMetric(s, 'power')
+                if (Number.isFinite(v) && v > 0) devSum += v
+              }
+            }
+          }
+        }
+        if (devSum > 0) load = devSum
       }
       return {
         ...g,
@@ -268,6 +283,28 @@ export default function OrgDashboard() {
     const sum = (liveSources || []).reduce((acc, s) => acc + (Number(s.valueKw) || 0), 0)
     return +sum.toFixed(2)
   }, [liveSources])
+
+  /**
+   * True factory total load = every supply-side meter (WAPDA/grid + Solar +
+   * all Generators). Summing all sources keeps the KPI correct whether the
+   * factory is running on grid or on generator power; sub-meters are excluded
+   * because they measure the same energy again downstream of these meters.
+   */
+  const allSourcesKw = useMemo(() => {
+    const isSupplySource = (s) => {
+      const name = String(s?.name || s?.id || '')
+      const type = String(s?.type || '')
+      return /wapda|grid/i.test(name) || type === 'grid'
+        || /solar/i.test(name) || type === 'solar'
+        || /gen(erator)?|dg\b/i.test(name) || type === 'generator'
+    }
+    const matched = (liveSources || []).filter(isSupplySource)
+    if (matched.length) {
+      const kw = matched.reduce((acc, s) => acc + (Number(s.valueKw) || 0), 0)
+      if (kw) return +kw.toFixed(2)
+    }
+    return totalOrgLoadKw
+  }, [liveSources, totalOrgLoadKw])
 
   const openGroup = useMemo(
     () => groupLoads.find((g) => g.id === openGroupId) || null,
@@ -459,6 +496,22 @@ export default function OrgDashboard() {
     return [...new Set([...sourceSlaves, ...liveSourceSlaves, ...groupSlaves, ...fallbackSlaves].filter(Boolean))].join(',')
   }, [powerFlow?.sources, liveSources, groupLoads, fallbackGroups])
 
+  /**
+   * Slaves that belong to the supply side (WAPDA / Solar / Generator) — every
+   * slave linked to a power source, plus the members of any source-named group.
+   * The phase-current KPIs subtract these so Current A/B/C sum the consumer
+   * loads only instead of double-counting the incoming meters.
+   */
+  const sourceSlaveIds = useMemo(() => {
+    const isSourceName = (name) => /wapda|grid|solar|generator|gen\b|^g[0-9]|invt/i.test(String(name || ''))
+    const fromSources = (liveSources || []).flatMap((s) => s.slaveIds || [])
+    const fromPowerFlow = (powerFlow?.sources || []).flatMap((s) => s.slaveIds || [])
+    const fromGroups = [...(groupLoads || []), ...fallbackGroups]
+      .filter((g) => isSourceName(g.name))
+      .flatMap((g) => g.slaveIds || [])
+    return [...new Set([...fromSources, ...fromPowerFlow, ...fromGroups].filter(Boolean))]
+  }, [liveSources, powerFlow?.sources, groupLoads, fallbackGroups])
+
   useEffect(() => {
     const ids = deviceIdKey ? deviceIdKey.split(',') : []
     const slaveIds = slaveIdKey ? slaveIdKey.split(',') : []
@@ -634,6 +687,9 @@ export default function OrgDashboard() {
       if (Array.isArray(updated.sources) || Array.isArray(updated.sites)) {
         setPowerFlow((prev) => (prev ? { ...prev, ...updated } : updated))
       }
+      // Hand the recomputed flow back so the caller can adopt the server's
+      // canonical sites/sources instead of waiting for the next poll.
+      return updated
     } catch (e) {
       showToast(e.message || 'Failed to update power flow', 'error')
       throw e
@@ -708,6 +764,9 @@ export default function OrgDashboard() {
             powerKpiLabel="Total Power Consumption"
             emptyGroupsHint="No devices found for this organization."
             onScopeChange={setKpiScope}
+            totalPowerOverride={allSourcesKw}
+            totalPowerSubLabel={allSourcesKw != null ? 'Sum · All Power Sources' : undefined}
+            sourceSlaveIds={sourceSlaveIds}
           />
 
           {/* 3. Stat cards */}

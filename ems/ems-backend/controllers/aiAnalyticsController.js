@@ -92,15 +92,19 @@ const buildVoltageAnalysis = async (deviceId, slaveId, timeRange) => {
     }
   }
 
+  const vA = charts.VoltageA?.length ? charts.VoltageA : (charts.PhaseVoltageA || [])
+  const vB = charts.VoltageB?.length ? charts.VoltageB : (charts.PhaseVoltageB || [])
+  const vC = charts.VoltageC?.length ? charts.VoltageC : (charts.PhaseVoltageC || [])
+
   const voltImbalanceChart = (charts.VoltageImbalance?.length ? charts.VoltageImbalance : null)
-    || computeImbalanceChart(charts.VoltageA, charts.VoltageB, charts.VoltageC)
+    || computeImbalanceChart(vA, vB, vC)
 
   return {
     current,
     chartData: {
-      voltageA:         charts.VoltageA ?? [],
-      voltageB:         charts.VoltageB ?? [],
-      voltageC:         charts.VoltageC ?? [],
+      voltageA:         vA,
+      voltageB:         vB,
+      voltageC:         vC,
       voltageImbalance: voltImbalanceChart,
       thdV:             charts.THD_V ?? [],
     },
@@ -175,7 +179,10 @@ const buildPowerFactorAnalysis = async (deviceId, slaveId, timeRange) => {
 
   const [chartData, allVars, alarms, forecast] = await Promise.all([
     bucketVariable(prisma, { ...base, variableName: 'PowerFactor' }),
-    prisma.deviceConfigVariable.findMany({ where: { deviceId, isActive: true }, select: { name: true, currentValue: true } }),
+    prisma.deviceConfigVariable.findMany({
+      where:  { deviceId, isActive: true, ...(slaveId ? { deviceConfigSlaveId: slaveId } : {}) },
+      select: { name: true, currentValue: true },
+    }),
     prisma.deviceVariableAlarmHistory.findMany({
       where:   { deviceId, alarmTime: { gte: startDate } },
       orderBy: { alarmTime: 'desc' },
@@ -233,7 +240,7 @@ const buildEnergyAnalysis = async (deviceId, slaveId, timeRange) => {
     bucketManyCombined(prisma, { ...base, metricNames: ['PowerConsumption', 'ActivePower', 'Energy'] }),
     periodEnergyKwh(prisma, { deviceId, slaveId: slave, startDate, endDate: new Date() }),
     prisma.deviceConfigVariable.findMany({
-      where:  { deviceId, name: { in: ['PowerConsumption', 'ActivePower', 'Energy'] } },
+      where:  { deviceId, name: { in: ['PowerConsumption', 'ActivePower', 'Energy'] }, ...(slave ? { deviceConfigSlaveId: slave } : {}) },
       select: { name: true, currentValue: true },
     }),
     prisma.aIForecastReading.findFirst({ where: { deviceId, variableName: 'PowerConsumption' }, orderBy: { generatedAt: 'desc' } }),

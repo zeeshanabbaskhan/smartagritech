@@ -173,6 +173,12 @@ const slaveBlocks = (payload) => {
 
 const normalizeSlave = (s) => (s ? String(s).toLowerCase().replace(/[\s_-]+/g, '').replace(/floor/g, '') : '')
 
+// Cumulative energy counters legitimately exceed the overflow guard below
+const isUnits = (name) => {
+  const norm = String(name || '').toLowerCase().replace(/[\s_-]+/g, '')
+  return norm.includes('units') || norm.includes('energy') || norm.includes('kwh') || norm.includes('mwh')
+}
+
 const mapReadings = (device, slaveName, registers) => {
   const targetNorm = normalizeSlave(slaveName)
   const slave =
@@ -212,7 +218,7 @@ const mapReadings = (device, slaveName, registers) => {
     if (!Number.isFinite(num)) continue
 
     // Discard extreme corrupted float overflows (e.g. 2.94e+37)
-    if (Math.abs(num) > 1e8) continue
+    if (!isUnits(mapped.variableName) && Math.abs(num) > 1e8) continue
 
     readings.push({
       variableName: mapped.variableName,

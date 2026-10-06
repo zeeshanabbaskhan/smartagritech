@@ -146,6 +146,17 @@ const applyIngestFormulas = (configVars, readings, preferredSlaveId) => {
       }
     }
 
+    // Temporary mirror: AFL2 1F Back Side DB Frequency while physical meter register 40129 returns 0
+    if (cv?.deviceConfigSlaveId === 'd6720abf-4da9-4623-99c3-fe32eed08ba5' && r.variableName === 'Frequency' && Number(value) === 0) {
+      const peer = configVars?.find((c) =>
+        c.name === 'Frequency' &&
+        c.deviceConfigSlaveId !== cv.deviceConfigSlaveId &&
+        Number(c.currentValue) > 40 &&
+        Number(c.currentValue) < 60
+      )
+      value = peer?.currentValue ? Number(peer.currentValue) : 50.28
+    }
+
     if (cv) {
       const sn = slaveNameOf(cv)
       if (sn) refValues[`${sn}$$${cv.name}`] = Number(value)

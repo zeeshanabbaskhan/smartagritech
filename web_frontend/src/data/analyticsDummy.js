@@ -225,25 +225,25 @@ export function withOrgAnalyticsFallback(type, live) {
   const dummy = getOrgAnalyticsDummy(type)
   if (!live) return { ...dummy, _demo: true }
   const hasChart = !isEmptyArray(live.chartData)
-  const hasRows = !isEmptyArray(live.rows)
-  const hasDaily = !isEmptyArray(live.dailyData)
-  if (hasChart && hasRows && (type !== 'energy' || hasDaily)) {
-    return { ...live, _demo: false }
-  }
-  const meta = { ...dummy.meta }
-  if (live.meta) {
-    for (const [k, v] of Object.entries(live.meta)) {
-      if (v != null) meta[k] = v
+  // Real telemetry present: serve it as-is, never overwrite with demo series.
+  if (hasChart) {
+    return {
+      ...live,
+      chartData: live.chartData,
+      rows: live.rows || [],
+      dailyData: live.dailyData || [],
+      meta: { ...(dummy.meta || {}), ...(live.meta || {}) },
+      _demo: false,
     }
   }
   return {
     ...dummy,
     ...live,
-    chartData: hasChart ? live.chartData : dummy.chartData,
-    rows: hasRows ? live.rows : dummy.rows,
-    dailyData: hasDaily ? live.dailyData : (dummy.dailyData ?? []),
-    meta: hasChart || hasRows ? { ...dummy.meta, ...meta } : dummy.meta,
-    _demo: !(hasChart && hasRows),
+    chartData: dummy.chartData,
+    rows: dummy.rows,
+    dailyData: dummy.dailyData ?? [],
+    meta: dummy.meta,
+    _demo: true,
   }
 }
 
