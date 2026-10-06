@@ -11,8 +11,10 @@ class ApiMappers {
     }
   }
 
-  static String deviceStatus(dynamic status) =>
-      status == 'ONLINE' ? 'Online' : 'Offline';
+  static String deviceStatus(dynamic status) {
+    final s = status?.toString().toUpperCase();
+    return (s == 'ONLINE' || s == 'ACTIVE') ? 'Online' : 'Offline';
+  }
 
   static String gatewayStatus(dynamic status, {dynamic lastSeenAt}) {
     final raw = status?.toString().toUpperCase() ?? '';
@@ -81,25 +83,39 @@ class ApiMappers {
     }
   }
 
-  static Map<String, dynamic> device(Map<String, dynamic> d) => {
-        'id': d['id'],
-        'name': d['name'] ?? '—',
-        'gateway': d['gateway']?['name'] ?? '—',
-        'template': d['template']?['name'] ?? '—',
-        'status': deviceStatus(d['status']),
-        'lastSeen': fmtDate(d['lastDataReceivedAt']),
-        'org': d['organization']?['name'] ?? '—',
-        'slave': '—',
-        'serialNo': (d['id'] as String?) == null ? '—' : (d['id'] as String).substring(0, (d['id'] as String).length.clamp(0, 8)).toUpperCase(),
-        'ipAddress': d['gateway']?['model']?.toString() ?? '—',
-        'powerKwh': 0.0,
-        'powerFactor': '—',
-        'anomalies': 0,
-        'switchState': d['switchState'] ?? 'OFF',
-        'templateId': d['templateId'],
-        'gatewayId': d['gatewayId'],
-        'raw': d,
-      };
+  static Map<String, dynamic> device(Map<String, dynamic> d) {
+    final idStr = (d['id'] ?? '').toString();
+    final gw = d['gateway'] is Map ? d['gateway'] as Map : null;
+    final gwName = gw?['name']?.toString() ?? d['gateway_name']?.toString() ?? d['gatewayName']?.toString() ?? '—';
+    final gwModel = gw?['model']?.toString() ?? d['gateway_model']?.toString() ?? '—';
+    final tmpl = d['template'] is Map ? d['template'] as Map : null;
+    final tmplName = tmpl?['name']?.toString() ?? d['template_name']?.toString() ?? d['templateName']?.toString() ?? '—';
+    final org = d['organization'] is Map ? d['organization'] as Map : null;
+    final orgName = org?['name']?.toString() ?? d['org_name']?.toString() ?? d['orgName']?.toString() ?? '—';
+
+    return {
+      ...d,
+      'id': idStr,
+      'name': (d['name'] ?? '—').toString(),
+      'gateway': gwName,
+      'gateway_name': gwName,
+      'template': tmplName,
+      'status': deviceStatus(d['status']),
+      'statusRaw': d['status']?.toString(),
+      'lastSeen': fmtDate(d['lastDataReceivedAt'] ?? d['last_heartbeat'] ?? d['updated_at'] ?? d['created_at']),
+      'org': orgName,
+      'slave': '—',
+      'serialNo': idStr.isEmpty ? '—' : idStr.substring(0, idStr.length.clamp(0, 8)).toUpperCase(),
+      'ipAddress': gwModel,
+      'powerKwh': 0.0,
+      'powerFactor': '—',
+      'anomalies': 0,
+      'switchState': d['switchState'] ?? (d['switch_on'] == true ? 'ON' : 'OFF'),
+      'templateId': d['templateId'] ?? d['template_id'],
+      'gatewayId': d['gatewayId'] ?? d['gateway_id'],
+      'raw': d,
+    };
+  }
 
   /// Merge dashboard summary metrics into a mapped device row.
   static Map<String, dynamic> enrichDevice(

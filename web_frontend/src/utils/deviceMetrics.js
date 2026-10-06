@@ -83,6 +83,25 @@ function parseMetricRaw(raw) {
 /** All device variables (live + configured), sorted by name. */
 export function listDeviceMetricEntries(device, { limit = 24, includeEmpty = true } = {}) {
   if (isSwitchOff(device)) return []
+  const slaves = device?.slaves || device?.configSlaves
+  if (Array.isArray(slaves) && slaves.length > 1) {
+    const entryMap = new Map()
+    for (const s of slaves) {
+      if (isSwitchOff(s) || isOffline(s)) continue
+      const sEntries = listDeviceMetricEntries(s, { limit: 0, includeEmpty })
+      for (const entry of sEntries) {
+        if (!entryMap.has(entry.name)) {
+          entryMap.set(entry.name, entry)
+        }
+      }
+    }
+    if (entryMap.size > 0) {
+      const entries = [...entryMap.values()]
+      entries.sort((a, b) => a.name.localeCompare(b.name))
+      return limit > 0 ? entries.slice(0, limit) : entries
+    }
+  }
+
   const metrics = device?.latestMetrics
   if (!metrics || typeof metrics !== 'object') return []
   const entries = []
@@ -103,11 +122,12 @@ export function listDeviceMetricEntries(device, { limit = 24, includeEmpty = tru
   return limit > 0 ? entries.slice(0, limit) : entries
 }
 
-/** Return a numeric metric value from a device, or NaN if unavailable. */
-export function readDeviceMetric(device, type) {
-  if (isSwitchOff(device)) return NaN
-  const metrics = device?.latestMetrics
+/** Internal metric reader for a single entity (single device or single slave). */
+export function readSingleEntityMetric(entity, type) {
+  if (isSwitchOff(entity)) return NaN
+  const metrics = entity?.latestMetrics
   if (!metrics || typeof metrics !== 'object') return NaN
+  const normType = String(type || '').toLowerCase().replace(/[\s_\-]/g, '')
 
   const finish = (name, raw) => {
     const n = parseMetricRaw(raw)
@@ -120,14 +140,25 @@ export function readDeviceMetric(device, type) {
     return n
   }
 
-  // 1. Direct variable name (exact match)
+  // 1. 3-Phase summation priority for multi-phase hardware meters
+  if (type === 'power' || normType === 'power' || normType === 'activepower' || normType === 'totalpower') {
+    const pA = parseMetricRaw(metrics['PowerA'] ?? metrics['Power A'] ?? metrics['Power_A'] ?? metrics['P1'])
+    const pB = parseMetricRaw(metrics['PowerB'] ?? metrics['Power B'] ?? metrics['Power_B'] ?? metrics['P2'])
+    const pC = parseMetricRaw(metrics['PowerC'] ?? metrics['Power C'] ?? metrics['Power_C'] ?? metrics['P3'])
+    if (Number.isFinite(pA) || Number.isFinite(pB) || Number.isFinite(pC)) {
+      const sum = (Number.isFinite(pA) ? Math.abs(pA) : 0) + (Number.isFinite(pB) ? Math.abs(pB) : 0) + (Number.isFinite(pC) ? Math.abs(pC) : 0)
+      if (sum > 0) return +sum.toFixed(2)
+      if (Number.isFinite(pA) && Number.isFinite(pB) && Number.isFinite(pC)) return 0
+    }
+  }
+
+  // 2. Direct variable name (exact match)
   if (metrics[type] != null && metrics[type] !== '') {
     const n = finish(type, metrics[type])
     if (Number.isFinite(n)) return n
   }
 
-  // 2. Direct normalized match (case-insensitive, ignoring spaces and underscores)
-  const normType = String(type || '').toLowerCase().replace(/[\s_\-]/g, '')
+  // 3. Direct normalized match (case-insensitive, ignoring spaces and underscores)
   for (const [k, v] of Object.entries(metrics)) {
     if (k.toLowerCase().replace(/[\s_\-]/g, '') === normType) {
       const n = finish(k, v)
@@ -135,7 +166,7 @@ export function readDeviceMetric(device, type) {
     }
   }
 
-  // 3. Known aliases lookup
+  // 4. Known aliases lookup
   const keys = ALIASES[type] ?? []
   for (const key of keys) {
     if (metrics[key] != null && metrics[key] !== '') {
@@ -151,17 +182,6 @@ export function readDeviceMetric(device, type) {
     }
   }
 
-  // 4. 3-Phase summation fallback for meters split into phase powers
-  if (type === 'power' || normType === 'power' || normType === 'activepower' || normType === 'totalpower') {
-    const pA = parseMetricRaw(metrics['PowerA'] ?? metrics['Power A'] ?? metrics['Power_A'] ?? metrics['P1'])
-    const pB = parseMetricRaw(metrics['PowerB'] ?? metrics['Power B'] ?? metrics['Power_B'] ?? metrics['P2'])
-    const pC = parseMetricRaw(metrics['PowerC'] ?? metrics['Power C'] ?? metrics['Power_C'] ?? metrics['P3'])
-    if (Number.isFinite(pA) || Number.isFinite(pB) || Number.isFinite(pC)) {
-      const sum = (Number.isFinite(pA) ? Math.abs(pA) : 0) + (Number.isFinite(pB) ? Math.abs(pB) : 0) + (Number.isFinite(pC) ? Math.abs(pC) : 0)
-      if (sum > 0) return +sum.toFixed(2)
-    }
-  }
-
   // 5. First non-zero/valid alias if available
   for (const key of keys) {
     const n = finish(key, metrics[key])
@@ -169,6 +189,44 @@ export function readDeviceMetric(device, type) {
   }
 
   return NaN
+}
+
+/** Return a numeric metric value from a device, or NaN if unavailable. */
+export function readDeviceMetric(device, type) {
+  if (isSwitchOff(device)) return NaN
+  const slaves = device?.slaves || device?.configSlaves
+  if (Array.isArray(slaves) && slaves.length > 1) {
+    const normType = String(type || '').toLowerCase().replace(/[\s_\-]/g, '')
+    const isAdditive = /^(power|activepower|totalpower|totalactivepower|powerconsumption|current|currenta|currentb|currentc|phasecurrenta|phasecurrentb|phasecurrentc|units|energy|energyconsumption|activeenergy|kwh|consumption|ia|ib|ic|current1|current2|current3)$/i.test(normType)
+
+    if (isAdditive) {
+      let sum = 0
+      let hasVal = false
+      for (const s of slaves) {
+        if (isSwitchOff(s) || isOffline(s)) continue
+        const sv = readSingleEntityMetric(s, type)
+        if (Number.isFinite(sv)) {
+          sum += sv
+          hasVal = true
+        }
+      }
+      return hasVal ? +sum.toFixed(2) : NaN
+    } else {
+      let sum = 0
+      let count = 0
+      for (const s of slaves) {
+        if (isSwitchOff(s) || isOffline(s)) continue
+        const sv = readSingleEntityMetric(s, type)
+        if (Number.isFinite(sv)) {
+          sum += sv
+          count++
+        }
+      }
+      return count > 0 ? +(sum / count).toFixed(2) : NaN
+    }
+  }
+
+  return readSingleEntityMetric(device, type)
 }
 
 /** Formatted display string for a metric ('—' when unavailable). */
@@ -200,6 +258,11 @@ const PRIMARY_KPI_PREFERENCE = [
   'Phase Current C',
   'Current',
   'TotalCurrent',
+  'Power Factor',
+  'PowerFactor',
+  'PF',
+  'AveragePowerFactor',
+  'TotalPowerFactor',
   'Voltage A',
   'Voltage B',
   'Voltage C',
@@ -207,8 +270,6 @@ const PRIMARY_KPI_PREFERENCE = [
   'VoltageB',
   'VoltageC',
   'Voltage',
-  'Power Factor',
-  'PowerFactor',
   'Frequency',
 ]
 
@@ -221,7 +282,7 @@ export function formatCardLabel(name) {
   if (norm === 'voltagea' || norm === 'phasevoltagea' || norm === 'va') return 'Voltage A'
   if (norm === 'voltageb' || norm === 'phasevoltageb' || norm === 'vb') return 'Voltage B'
   if (norm === 'voltagec' || norm === 'phasevoltagec' || norm === 'vc') return 'Voltage C'
-  if (norm === 'powerfactor' || norm === 'pf') return 'Power Factor'
+  if (norm === 'powerfactor' || norm === 'pf' || norm === 'averagepowerfactor' || norm === 'totalpowerfactor' || norm === 'powerfactortotal') return 'Power Factor'
   return name
 }
 
@@ -517,8 +578,25 @@ export function computeDynamicKpis(devices = [], { sourceSlaveIds = null } = {})
     usedKeys.add(curCCandidate)
   }
 
-  // If fewer than 4 chosen, fill remaining from available sorted by PRIMARY_KPI_PREFERENCE then count
-  if (chosenNames.length < 4 && nameCounts.size > usedKeys.size) {
+  // Slot 5: Power Factor
+  const pfCandidate = findMatchingKey([
+    'Power Factor',
+    'PowerFactor',
+    'PF',
+    'pf',
+    'AveragePowerFactor',
+    'TotalPowerFactor',
+    'Power Factor Total',
+    'PowerFactorTotal',
+    'Avg PF',
+  ])
+  if (pfCandidate && !usedKeys.has(pfCandidate)) {
+    chosenNames.push(pfCandidate)
+    usedKeys.add(pfCandidate)
+  }
+
+  // If fewer than 5 chosen, fill remaining from available sorted by PRIMARY_KPI_PREFERENCE then count
+  if (chosenNames.length < 5 && nameCounts.size > usedKeys.size) {
     const remaining = [...nameCounts.keys()]
       .filter((k) => !usedKeys.has(k))
       .sort((a, b) => {
@@ -534,7 +612,7 @@ export function computeDynamicKpis(devices = [], { sourceSlaveIds = null } = {})
         return a.localeCompare(b)
       })
     for (const r of remaining) {
-      if (chosenNames.length >= 4) break
+      if (chosenNames.length >= 5) break
       chosenNames.push(r)
       usedKeys.add(r)
     }
@@ -585,11 +663,12 @@ export function computeDynamicKpis(devices = [], { sourceSlaveIds = null } = {})
       const sum = vals.reduce((s, v) => s + v, 0)
       const mean = vals.length ? sum / vals.length : NaN
       const useMean = /voltage|pf|powerfactor|frequency|temp|moist|battery/i.test(name)
+      const isPfMetric = /pf|powerfactor/i.test(name)
       return {
         key: name,
         label: formatCardLabel(name),
         metric: name,
-        unit: unitForVariable(name),
+        unit: isPfMetric ? '' : unitForVariable(name),
         value: useMean ? mean : sum,
         agg: useMean ? 'Mean' : 'Sum',
         gaugeMax: useMean ? (mean > 0 ? mean * 1.4 : 1) : (sum > 0 ? sum * 1.2 : 100),
@@ -615,6 +694,10 @@ export function computeDynamicKpis(devices = [], { sourceSlaveIds = null } = {})
       gaugeMax: 80,
     }
   }
+  const mean = (type) => {
+    const v = nums(type)
+    return v.length ? v.reduce((a, b) => a + b, 0) / v.length : NaN
+  }
   const sourcePowerSum = sourceSlaves.length > 0
     ? sourceSlaves.reduce((s, sl) => s + (readDeviceMetric(sl, 'power') || 0), 0)
     : sum('power')
@@ -634,6 +717,7 @@ export function computeDynamicKpis(devices = [], { sourceSlaveIds = null } = {})
       currentCard('currentA', 'Current A', 'currentA'),
       currentCard('currentB', 'Current B', 'currentB'),
       currentCard('currentC', 'Current C', 'currentC'),
+      { key: 'pf', label: 'Power Factor', metric: 'pf', unit: '', value: mean('pf'), agg: 'Mean', gaugeMax: 1.0 },
     ],
     onlineCount: online.length,
     loadSlavesCount: loadSlaves.length,

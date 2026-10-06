@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
-import { Zap, Activity, Gauge, TrendingUp, Radio, Search, ChevronRight, Cpu } from 'lucide-react'
+import { Zap, Activity, Gauge, TrendingUp, Sliders, Radio, Search, ChevronRight, Cpu } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
 import { mapDevice, mapOrganization } from '../../utils/mappers'
 import {
@@ -33,8 +33,8 @@ function useDebouncedCallback(fn, delayMs) {
   }, [delayMs])
 }
 const KPI_REFRESH_DEBOUNCE_MS = 400
-const KPI_ICONS = [Zap, Activity, Gauge, TrendingUp]
-const kpiColors = () => [resolveBrandPrimary(), '#3B82F6', '#22C55E', '#8B5CF6']
+const KPI_ICONS = [Zap, Activity, Gauge, TrendingUp, Sliders]
+const kpiColors = () => [resolveBrandPrimary(), '#3B82F6', '#22C55E', '#8B5CF6', '#EC4899']
 
 function highlightMatch(text, search) {
   if (!search || !text) return text
@@ -70,6 +70,8 @@ export default function DashboardTelemetry({
   totalPowerOverride = null,
   totalPowerSubLabel = null,
   sourceSlaveIds = null,
+  powerFlow,
+  liveSources,
 }) {
   const { showToast } = useToast()
   const [devices, setDevices] = useState([])
@@ -223,23 +225,96 @@ export default function DashboardTelemetry({
 
   const KPI_CONFIG = useMemo(() => {
     const colors = kpiColors()
+    // Calculate sources-based Power Factor when scoped to all devices and sources are available
+    let sourcesPfValue = null
+    let sourcesCount = 0
+    if (groupFilter === 'all' && (liveSources?.length || powerFlow?.sources?.length)) {
+      const srcList = liveSources || powerFlow?.sources || []
+      const pfVals = []
+      for (const s of srcList) {
+        const devIds = s.deviceIds || []
+        const slvIds = s.slaveIds || []
+        let srcPf = NaN
+
+        // Check linked slaves for PF
+        for (const sId of slvIds) {
+          for (const d of devices) {
+            const slv = (d.configSlaves || d.slaves || []).find((x) => x.id === sId)
+            if (slv && !isSwitchOff(slv) && !isOffline(slv)) {
+              const p = readDeviceMetric(slv, 'pf')
+              if (Number.isFinite(p) && p > 0) {
+                srcPf = p
+                break
+              }
+            }
+          }
+          if (Number.isFinite(srcPf)) break
+        }
+
+        // Check linked devices for PF
+        if (!Number.isFinite(srcPf)) {
+          for (const dId of devIds) {
+            const d = devices.find((x) => x.id === dId)
+            if (d && !isSwitchOff(d) && !isOffline(d)) {
+              const p = readDeviceMetric(d, 'pf')
+              if (Number.isFinite(p) && p > 0) {
+                srcPf = p
+                break
+              }
+            }
+          }
+        }
+
+        // Fallback for grid source to gridMetrics
+        if (!Number.isFinite(srcPf) && (s.type === 'grid' || s.id === 'grid' || String(s.id).startsWith('grid'))) {
+          const gPf = Number(powerFlow?.gridMetrics?.powerFactor)
+          if (Number.isFinite(gPf) && gPf > 0) srcPf = gPf
+        }
+
+        if (Number.isFinite(srcPf) && srcPf > 0 && srcPf <= 1.0) {
+          pfVals.push(srcPf)
+        }
+      }
+
+      if (pfVals.length > 0) {
+        sourcesPfValue = +(pfVals.reduce((a, b) => a + b, 0) / pfVals.length).toFixed(2)
+        sourcesCount = pfVals.length
+      } else if (powerFlow?.gridMetrics?.powerFactor != null) {
+        sourcesPfValue = +Number(powerFlow.gridMetrics.powerFactor).toFixed(2)
+        sourcesCount = 1
+      }
+    }
+
     return kpiState.cards.map((c, i) => {
+      const isPf = c.key === 'pf' || /powerfactor/i.test(c.key) || c.label === 'Power Factor'
       const isPower = c.key === 'power' || /total power|totalpower|activepower/i.test(c.label || c.key)
       const useOverride = isPower
         && groupFilter === 'all'
         && totalPowerOverride != null
         && Number.isFinite(totalPowerOverride)
+
+      let finalValue = useOverride ? totalPowerOverride : c.value
+      let finalSub = c.sub || `${c.agg} · ${totalSlavesCount > 0 ? `${onlineSlavesCount} / ${totalSlavesCount} online slaves` : `${kpiState.onlineCount} online`}`
+
+      if (useOverride && totalPowerSubLabel) {
+        finalSub = totalPowerSubLabel
+      } else if (isPf && sourcesPfValue != null) {
+        finalValue = sourcesPfValue
+        finalSub = `Mean · All Power Sources`
+      }
+
       return {
         ...c,
+        unit: isPf ? '' : c.unit,
+        value: finalValue,
         Icon: KPI_ICONS[i % KPI_ICONS.length],
         color: colors[i % colors.length],
-        label: powerKpiLabel && (c.key === 'power' || /activepower/i.test(c.key))
-          ? powerKpiLabel
-          : c.label,
-        ...(useOverride ? { value: totalPowerOverride, sub: totalPowerSubLabel } : {}),
+        label: powerKpiLabel && isPower ? powerKpiLabel : c.label,
+        sub: finalSub,
+        subLabel: finalSub,
       }
     })
-  }, [kpiState.cards, powerKpiLabel, groupFilter, totalPowerOverride, totalPowerSubLabel])
+  }, [kpiState.cards, powerKpiLabel, groupFilter, totalPowerOverride, totalPowerSubLabel, liveSources, powerFlow, devices, totalSlavesCount, onlineSlavesCount, kpiState.onlineCount])
 
   const activeGroupLabel = useMemo(() => {
     if (groupFilter === 'all') return allDevicesLabel
@@ -449,37 +524,50 @@ export default function DashboardTelemetry({
             </div>
           )}
 
-          <div className={`grid grid-cols-2 gap-4 ${KPI_CONFIG.length >= 4 ? 'lg:grid-cols-4' : KPI_CONFIG.length === 3 ? 'lg:grid-cols-3' : 'lg:grid-cols-2'}`}>
+          <div className={`grid grid-cols-2 gap-3.5 sm:grid-cols-2 md:grid-cols-3 ${KPI_CONFIG.length >= 5 ? 'lg:grid-cols-5' : KPI_CONFIG.length === 4 ? 'lg:grid-cols-4' : KPI_CONFIG.length === 3 ? 'lg:grid-cols-3' : 'lg:grid-cols-2'}`}>
             {KPI_CONFIG.length === 0 ? (
               <div className="col-span-2 lg:col-span-4 card p-4 text-xs text-surface-500">
                 No live variables yet — start the MQTT bridge so device readings appear here.
               </div>
             ) : (
-              KPI_CONFIG.map(({ key, label, unit, Icon, color, agg, value, sub }) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setDrillMetric(key)}
-                  className="card p-4 text-left hover:shadow-elevated hover:border-primary-200 dark:hover:border-primary-800 transition-all duration-200 cursor-pointer group border border-surface-200 dark:border-surface-800 w-full"
-                >
-                  <div className="flex items-start justify-between mb-2">
-                    <span className="text-[10px] font-black text-surface-400 uppercase tracking-wider leading-tight truncate pr-2">{label}</span>
-                    <Icon size={13} style={{ color }} className="flex-shrink-0 mt-0.5" />
+              KPI_CONFIG.map(({ key, label, unit, Icon, color, agg, value, sub, subLabel }) => {
+                const isPf = key === 'pf' || /powerfactor/i.test(key) || label === 'Power Factor'
+                const canDrill = !isPf
+
+                return (
+                  <div
+                    key={key}
+                    role={canDrill ? 'button' : undefined}
+                    tabIndex={canDrill ? 0 : undefined}
+                    onClick={() => canDrill && setDrillMetric(key)}
+                    onKeyDown={(e) => canDrill && (e.key === 'Enter' || e.key === ' ') && setDrillMetric(key)}
+                    className={`card p-4 text-left border border-surface-200 dark:border-surface-800 w-full transition-all duration-200 ${
+                      canDrill
+                        ? 'hover:shadow-elevated hover:border-primary-200 dark:hover:border-primary-800 cursor-pointer group'
+                        : 'cursor-default'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between mb-2">
+                      <span className="text-[10px] font-black text-surface-400 uppercase tracking-wider leading-tight truncate pr-2">{label}</span>
+                      <Icon size={13} style={{ color }} className="flex-shrink-0 mt-0.5" />
+                    </div>
+                    <div className="flex items-baseline gap-1">
+                      <span className="device-metric-value text-2xl font-black leading-none">
+                        {Number.isFinite(value) ? formatTileValue(value, key) : '—'}
+                      </span>
+                      {unit ? <span className="text-xs font-bold text-surface-400">{unit}</span> : null}
+                    </div>
+                    <div className="mt-2 flex items-center justify-between">
+                      <span className="text-[10px] text-surface-400 font-semibold">
+                        {subLabel || sub || `${agg} · ${totalSlavesCount > 0 ? `${onlineSlavesCount} / ${totalSlavesCount} online slaves` : `${kpiState.onlineCount} online`}`}
+                      </span>
+                      {canDrill && (
+                        <ChevronRight size={11} className="text-surface-300 group-hover:text-primary-500 transition-colors flex-shrink-0" />
+                      )}
+                    </div>
                   </div>
-                  <div className="flex items-baseline gap-1">
-                    <span className="device-metric-value text-2xl font-black leading-none">
-                      {Number.isFinite(value) ? formatTileValue(value, key) : '—'}
-                    </span>
-                    {unit ? <span className="text-xs font-bold text-surface-400">{unit}</span> : null}
-                  </div>
-                  <div className="mt-2 flex items-center justify-between">
-                    <span className="text-[10px] text-surface-400 font-semibold">
-                      {sub || `${agg} · ${totalSlavesCount > 0 ? `${onlineSlavesCount} / ${totalSlavesCount} online slaves` : `${kpiState.onlineCount} online`}`}
-                    </span>
-                    <ChevronRight size={11} className="text-surface-300 group-hover:text-primary-500 transition-colors flex-shrink-0" />
-                  </div>
-                </button>
-              ))
+                )
+              })
             )}
           </div>
         </div>
@@ -564,7 +652,7 @@ export default function DashboardTelemetry({
         </div>
       )}
 
-      {showKpis && drillCfg && drillScope && (
+      {showKpis && drillCfg && drillCfg.key !== 'pf' && !/powerfactor/i.test(drillCfg.key) && drillScope && (
         <DrillDownModal
           open
           onClose={() => setDrillMetric(null)}

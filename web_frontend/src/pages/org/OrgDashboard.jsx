@@ -104,6 +104,7 @@ export default function OrgDashboard() {
       sources,
       sites: Array.isArray(payload.sites) ? payload.sites : [],
       savings: payload.savings || null,
+      gridMetrics: payload.gridMetrics || null,
       groups,
       totalLoadKw: Number(payload.totalLoadKw) || 0,
       solarKw: Number(payload.solarKw) || 0,
@@ -178,28 +179,61 @@ export default function OrgDashboard() {
       const sIds = g.slaveIds || []
       const groupDevices = liveDevices.filter((d) => ids.includes(d.id))
       const active = groupDevices.filter((d) => !isSwitchOff(d))
-      let load = g.loadKw != null ? Number(g.loadKw) : (g.load != null ? Number(g.load) : 0)
-      if (!load) {
-        // Direct devices
-        let devSum = active.reduce((s, d) => {
-          const v = readDeviceMetric(d, 'power')
-          return s + (Number.isFinite(v) ? v : 0)
-        }, 0)
-        // Slaves
-        if (sIds.length) {
-          for (const d of liveDevices) {
-            if (isSwitchOff(d)) continue
-            const slaves = d.slaves || d.configSlaves || []
-            for (const s of slaves) {
-              if (sIds.includes(s.id)) {
-                const v = readDeviceMetric(s, 'power')
-                if (Number.isFinite(v) && v > 0) devSum += v
+      let dynamicSum = 0
+      let hasDynamic = false
+
+      if (g.slaves?.length || sIds.length) {
+        const slaveItems = g.slaves?.length ? g.slaves : sIds
+        let sum = 0
+        for (const item of slaveItems) {
+          const sId = typeof item === 'string' ? item : item.id
+          const slaveObj = typeof item === 'object' ? item : (g.slaves || []).find((s) => s.id === sId)
+          let parentDev = liveDevices.find((d) => d.id === slaveObj?.deviceId)
+          if (!parentDev) {
+            for (const d of liveDevices) {
+              const sl = (d.configSlaves || d.slaves || []).find((s) => s.id === sId)
+              if (sl) {
+                parentDev = d
+                break
               }
             }
           }
+          const foundSlave = parentDev ? (parentDev.configSlaves || parentDev.slaves || []).find((s) => s.id === sId) : null
+          if (parentDev) {
+            hasDynamic = true
+            if (!isOffline(parentDev) && !isSwitchOff(parentDev)) {
+              let p = 0
+              if (foundSlave) {
+                const sp = readDeviceMetric(foundSlave, 'power')
+                if (Number.isFinite(sp)) p = sp
+              }
+              if (p === 0 && slaveObj?.currentKw != null && Number.isFinite(Number(slaveObj.currentKw))) {
+                p = Number(slaveObj.currentKw)
+              }
+              if (p === 0 && (parentDev.configSlaves || parentDev.slaves || []).length <= 1) {
+                const dp = readDeviceMetric(parentDev, 'power')
+                if (Number.isFinite(dp)) p = dp
+              }
+              sum += p
+            }
+          } else if (slaveObj?.currentKw != null && Number.isFinite(Number(slaveObj.currentKw))) {
+            sum += Number(slaveObj.currentKw)
+          }
         }
-        if (devSum > 0) load = devSum
+        if (hasDynamic || sum > 0) dynamicSum = sum
+      } else if (groupDevices.length > 0) {
+        hasDynamic = true
+        dynamicSum = active.reduce((s, d) => {
+          if (isOffline(d)) return s
+          const v = readDeviceMetric(d, 'power')
+          return s + (Number.isFinite(v) ? v : 0)
+        }, 0)
       }
+
+      let load = hasDynamic
+        ? dynamicSum
+        : (g.loadKw != null && Number(g.loadKw) > 0 ? Number(g.loadKw) : (dynamicSum > 0 ? dynamicSum : (g.load != null ? Number(g.load) : 0)))
+
       return {
         ...g,
         deviceIds: ids,
@@ -318,34 +352,100 @@ export default function OrgDashboard() {
   const openGroupMemberSlaves = useMemo(() => {
     if (!openGroup) return []
     const items = openGroup.slaves?.length ? openGroup.slaves : openGroup.slaveIds || []
-    return items.map((item) => {
-      const sId = typeof item === 'string' ? item : item.id
-      const slaveObj = typeof item === 'object' ? item : openGroup.slaves?.find((s) => s.id === sId)
-      let foundSlave = slaveObj
-      let parentDev = liveDevices.find((d) => d.id === slaveObj?.deviceId)
-      if (!foundSlave || !parentDev) {
-        for (const d of liveDevices) {
-          const sl = (d.slaves || []).find((s) => s.id === sId)
-          if (sl) {
-            foundSlave = sl
-            parentDev = d
-            break
+    if (items.length > 0) {
+      return items.map((item) => {
+        const sId = typeof item === 'string' ? item : item.id
+        const slaveObj = typeof item === 'object' ? item : openGroup.slaves?.find((s) => s.id === sId)
+        let parentDev = liveDevices.find((d) => d.id === slaveObj?.deviceId)
+        if (!parentDev) {
+          for (const d of liveDevices) {
+            const sl = (d.configSlaves || d.slaves || []).find((s) => s.id === sId)
+            if (sl) {
+              parentDev = d
+              break
+            }
           }
         }
+        const foundSlave = parentDev ? (parentDev.configSlaves || parentDev.slaves || []).find((s) => s.id === sId) : null
+        const name = slaveObj?.name || foundSlave?.name || 'Slave'
+        const devName = parentDev?.name || foundSlave?.deviceName || slaveObj?.deviceName || 'Device'
+        const devId = parentDev?.id || slaveObj?.deviceId || foundSlave?.deviceId || (openGroup?.deviceIds?.length === 1 ? openGroup.deviceIds[0] : null)
+        const isOff = parentDev ? (isOffline(parentDev) || isSwitchOff(parentDev)) : false
+
+        let currentKw = 0
+        if (!isOff) {
+          if (foundSlave) {
+            const p = readDeviceMetric(foundSlave, 'power')
+            if (Number.isFinite(p)) currentKw = p
+          }
+          if (currentKw === 0 && slaveObj?.currentKw != null && Number.isFinite(Number(slaveObj.currentKw))) {
+            currentKw = Number(slaveObj.currentKw)
+          }
+          if (currentKw === 0 && parentDev && (parentDev.configSlaves || parentDev.slaves || []).length <= 1) {
+            const p = readDeviceMetric(parentDev, 'power')
+            if (Number.isFinite(p)) currentKw = p
+          }
+        }
+
+        return {
+          id: sId,
+          name,
+          deviceId: devId,
+          deviceName: devName,
+          isOff,
+          currentKw: +Number(currentKw || 0).toFixed(2),
+        }
+      })
+    }
+
+    // If no explicit slaveIds, resolve slaves from the devices in this group
+    return openGroupDevices.flatMap((d) => {
+      const devSlaves = d.slaves || d.configSlaves || []
+      const isOff = isOffline(d) || isSwitchOff(d)
+      if (devSlaves.length > 0) {
+        return devSlaves.map((s) => {
+          let currentKw = 0
+          if (!isOff) {
+            const p = readDeviceMetric(s, 'power')
+            if (Number.isFinite(p)) currentKw = p
+            else if (s.currentKw != null && Number.isFinite(Number(s.currentKw))) currentKw = Number(s.currentKw)
+            else if (devSlaves.length <= 1) {
+              const dp = readDeviceMetric(d, 'power')
+              if (Number.isFinite(dp)) currentKw = dp
+            }
+          }
+          return {
+            id: s.id,
+            name: s.name || 'Slave',
+            deviceId: d.id,
+            deviceName: d.name,
+            isOff,
+            currentKw: +Number(currentKw || 0).toFixed(2),
+          }
+        })
       }
-      const name = foundSlave?.name || 'Slave'
-      const devName = parentDev?.name || foundSlave?.deviceName || 'Device'
-      const devId = parentDev?.id || slaveObj?.deviceId || foundSlave?.deviceId || (openGroup?.deviceIds?.length === 1 ? openGroup.deviceIds[0] : null)
-      const isOff = parentDev ? isOffline(parentDev) : false
-      return {
-        id: sId,
-        name,
-        deviceId: devId,
-        deviceName: devName,
+      let currentKw = 0
+      if (!isOff) {
+        const p = readDeviceMetric(d, 'power')
+        if (Number.isFinite(p)) currentKw = p
+      }
+      return [{
+        id: d.id,
+        name: d.name,
+        deviceId: d.id,
+        deviceName: d.name,
         isOff,
-      }
+        currentKw: +Number(currentKw || 0).toFixed(2),
+      }]
     })
-  }, [openGroup, liveDevices])
+  }, [openGroup, openGroupDevices, liveDevices])
+
+  const openGroupModalTotalKw = useMemo(() => {
+    if (openGroupMemberSlaves.length > 0) {
+      return +openGroupMemberSlaves.reduce((acc, s) => acc + (s.currentKw || 0), 0).toFixed(2)
+    }
+    return openGroup?.loadKw ?? openGroup?.load ?? 0
+  }, [openGroupMemberSlaves, openGroup])
 
   const handleOpenGroup = (groupId) => {
     setSelectedSlaveDetails(null)
@@ -610,37 +710,57 @@ export default function OrgDashboard() {
     ? `${Math.round(energy.monthlyEnergyKwh).toLocaleString()} kWh`
     : '—'
 
-  // Savings: real-time solar energy generation x tariff rate (standard 5.5h peak sun hours model)
+  // Savings: 100% real-time solar energy generation x tariff rate (dynamic peak sun hours / telemetry model)
   const savings = useMemo(() => {
     const SOLAR_PEAK_SUN_HOURS = 5.5
     const stored = powerFlow?.savings
-    const storedTotal = (Number(stored?.daily) || 0) + (Number(stored?.weekly) || 0) + (Number(stored?.monthly) || 0)
-    if (storedTotal > 0 && Number(stored?.dailyKWh) > 0) {
-      return { dailyKWh: Number(stored.dailyKWh) || 0, ...stored, unit: stored.unit || 'PKR' }
+    const storedDailyKWh = Number(stored?.dailyKWh) || 0
+    const storedDaily = Number(stored?.daily) || 0
+    const tariffRate = Number(stored?.tariffRate) || TARIFF_PKR_PER_KWH
+
+    // If backend computed dynamic savings, use them directly
+    if (stored && (storedDaily > 0 || storedDailyKWh > 0)) {
+      return {
+        dailyKWh: storedDailyKWh,
+        daily: storedDaily,
+        weekly: Number(stored.weekly) != null ? Number(stored.weekly) : Math.round(storedDaily * 7),
+        weeklyKWh: Number(stored.weeklyKWh) || +(storedDailyKWh * 7).toFixed(1),
+        monthly: Number(stored.monthly) != null ? Number(stored.monthly) : Math.round(storedDaily * 30),
+        monthlyKWh: Number(stored.monthlyKWh) || +(storedDailyKWh * 30).toFixed(1),
+        unit: stored.unit || 'PKR',
+        tariffRate,
+      }
     }
+
     const bucketHours = energy?.bucketHours || 0
     if (bucketHours && sourceSeries.length) {
       const offsetKWh = sourceSeries.reduce((sum, row) => sum + (Number(row.solar) || 0) * bucketHours, 0)
       if (offsetKWh > 0) {
         return {
           dailyKWh: +offsetKWh.toFixed(1),
-          daily: Math.round(offsetKWh * TARIFF_PKR_PER_KWH),
-          weekly: Math.round(offsetKWh * 7 * TARIFF_PKR_PER_KWH),
-          monthly: Math.round(offsetKWh * 30 * TARIFF_PKR_PER_KWH),
+          daily: Math.round(offsetKWh * tariffRate),
+          weekly: Math.round(offsetKWh * 7 * tariffRate),
+          monthly: Math.round(offsetKWh * 30 * tariffRate),
           unit: 'PKR',
+          tariffRate,
         }
       }
     }
+
     const solarKw = Number(powerFlow?.solarKw)
-      || Number((powerFlow?.sources || []).find((s) => s.type === 'solar' || s.id === 'solar')?.valueKw)
+      || (powerFlow?.sources || [])
+          .filter((s) => s.type === 'solar' || s.id === 'solar' || String(s.id).startsWith('solar'))
+          .reduce((sum, s) => sum + (Number(s.valueKw) || 0), 0)
       || 0
+
     const dailyKWh = +(solarKw * SOLAR_PEAK_SUN_HOURS).toFixed(1)
     return {
       dailyKWh,
-      daily: Math.round(dailyKWh * TARIFF_PKR_PER_KWH),
-      weekly: Math.round(dailyKWh * 7 * TARIFF_PKR_PER_KWH),
-      monthly: Math.round(dailyKWh * 30 * TARIFF_PKR_PER_KWH),
+      daily: Math.round(dailyKWh * tariffRate),
+      weekly: Math.round(dailyKWh * 7 * tariffRate),
+      monthly: Math.round(dailyKWh * 30 * tariffRate),
       unit: 'PKR',
+      tariffRate,
     }
   }, [powerFlow, energy, sourceSeries])
 
@@ -724,14 +844,15 @@ export default function OrgDashboard() {
         <div className="space-y-6">
           {/* 1. Energy Flow Overview */}
           {powerFlow && (
-            <div className="card p-5">
-              <h3 className="text-2xl font-extrabold tracking-tight text-center mb-3 bg-gradient-to-r from-primary-500 via-purple-500 to-success-500 bg-clip-text text-transparent">
+            <div className="card p-3.5 sm:p-4">
+              <h3 className="text-xl font-black tracking-tight text-center mb-2 bg-gradient-to-r from-primary-500 via-purple-500 to-success-500 bg-clip-text text-transparent">
                 Energy Flow Overview
               </h3>
               <PowerFlowMindMap
                 sources={liveSources}
                 sites={powerFlow?.sites || []}
                 savings={savings}
+                gridMetrics={powerFlow?.gridMetrics}
                 groups={groupLoads}
                 devices={liveDevices}
                 totalLoadKw={totalOrgLoadKw}
@@ -748,7 +869,7 @@ export default function OrgDashboard() {
                 groupsPath="/org/device-groups"
                 devicesPath="/org/devices"
               />
-              <div className="flex items-center justify-center gap-5 mt-2 pt-3 border-t border-surface-100 dark:border-surface-800 flex-wrap">
+              <div className="flex items-center justify-center gap-4 mt-1.5 pt-2 border-t border-surface-100 dark:border-surface-800 flex-wrap">
                 <span className="flex items-center gap-1.5 text-[10px] font-bold text-surface-400"><span className="w-3 h-0.5 bg-primary-400 inline-block" /> Sources</span>
                 <span className="flex items-center gap-1.5 text-[10px] font-bold text-surface-400"><span className="w-3 h-0.5 bg-success-600 inline-block" /> Load</span>
                 <span className="flex items-center gap-1.5 text-[10px] font-bold text-surface-400"><span className="w-3 h-0.5 inline-block" style={{ backgroundColor: '#8B5CF6' }} /> Groups</span>
@@ -763,6 +884,8 @@ export default function OrgDashboard() {
             allDevicesLabel="All Organization Devices"
             powerKpiLabel="Total Power Consumption"
             emptyGroupsHint="No devices found for this organization."
+            powerFlow={powerFlow}
+            liveSources={liveSources}
             onScopeChange={setKpiScope}
             totalPowerOverride={allSourcesKw}
             totalPowerSubLabel={allSourcesKw != null ? 'Sum · All Power Sources' : undefined}
@@ -791,7 +914,7 @@ export default function OrgDashboard() {
             >
               <StatCard
                 label="Online Slaves"
-                value={`${stats?.onlineSlaves ?? 0} / ${stats?.totalSlaves ?? 0}`}
+                value={stats?.onlineSlaves ?? 0}
                 icon={CheckCircle}
                 color="success"
                 sub={stats?.offlineSlaves > 0 ? `${stats.offlineSlaves} offline · Click to inspect` : 'All slaves online'}
@@ -806,9 +929,9 @@ export default function OrgDashboard() {
           <>
           {/* 4. Power Sources — Last 24 Hours (linked sources only) */}
           <div className="card p-5">
-            <h3 className="text-sm font-bold text-surface-900 dark:text-surface-100 leading-none">Power Sources — Last 24 Hours</h3>
+            <h3 className="text-sm font-bold text-surface-900 dark:text-surface-100 leading-none">Power Sources — Last 24 Hours (kW)</h3>
             <p className="text-xs text-surface-400 mt-1 mb-4">
-              Live history for each power source from its linked devices (ActivePower)
+              Live history for each power source from its linked devices (ActivePower in kW)
             </p>
             {!(liveSources || []).some((s) => (s.deviceIds?.length || 0) + (s.slaveIds?.length || 0) > 0) ? (
               <EmptyChart>Link devices or slaves to Grid, Solar, Generator, or a custom source above to see their 24h history here.</EmptyChart>
@@ -828,7 +951,7 @@ export default function OrgDashboard() {
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
                     <XAxis dataKey="time" tick={{ fontSize: 10, fill: '#9AA09A' }} stroke="#D1D5C8" />
-                    <YAxis tick={{ fontSize: 10, fill: '#9AA09A' }} stroke="#D1D5C8" />
+                    <YAxis tick={{ fontSize: 10, fill: '#9AA09A' }} stroke="#D1D5C8" unit=" kW" />
                     <Tooltip content={<CustomTooltip />} />
                     {powerSourceChart.series.map((s) => (
                       <Area
@@ -848,7 +971,7 @@ export default function OrgDashboard() {
                   {powerSourceChart.series.map((s) => (
                     <span key={s.key} className="flex items-center gap-1.5 text-[10px] font-bold text-surface-500">
                       <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: s.color }} />
-                      {s.name}
+                      {s.name} (kW)
                     </span>
                   ))}
                 </div>
@@ -858,7 +981,7 @@ export default function OrgDashboard() {
 
           {/* 5. Asset Group Load — Last 24 Hours */}
           <div className="card p-5">
-            <h3 className="text-sm font-bold text-surface-900 dark:text-surface-100 leading-none">Asset Group Load — Last 24 Hours</h3>
+            <h3 className="text-sm font-bold text-surface-900 dark:text-surface-100 leading-none">Asset Group Load — Last 24 Hours (kW)</h3>
             <p className="text-xs text-surface-400 mt-1 mb-4">
               Sum of each group&apos;s device load (kW) at {orgName} — hover for values, or click a group to open its devices
             </p>
@@ -880,7 +1003,7 @@ export default function OrgDashboard() {
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
                     <XAxis dataKey="time" tick={{ fontSize: 10, fill: '#9AA09A' }} stroke="#D1D5C8" />
-                    <YAxis tick={{ fontSize: 10, fill: '#9AA09A' }} stroke="#D1D5C8" />
+                    <YAxis tick={{ fontSize: 10, fill: '#9AA09A' }} stroke="#D1D5C8" unit=" kW" />
                     <Tooltip content={<CustomTooltip />} />
                     {groupSeriesData.groups.map((g, i) => (
                       <Area
@@ -905,7 +1028,7 @@ export default function OrgDashboard() {
                       className="flex items-center gap-1.5 text-[10px] font-bold text-surface-500 hover:text-surface-800 dark:hover:text-surface-200 px-2 py-1 rounded-lg hover:bg-surface-50 dark:hover:bg-surface-800 transition-colors"
                     >
                       <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: GROUP_LINE_COLORS[i % GROUP_LINE_COLORS.length] }} />
-                      {g.name}
+                      {g.name} (kW)
                     </button>
                   ))}
                 </div>
@@ -916,8 +1039,8 @@ export default function OrgDashboard() {
           {/* 6. Power Consumption — Last 24 Hours */}
           <div className="card p-5 flex flex-col justify-between">
             <div>
-              <h3 className="text-sm font-bold text-surface-900 leading-none">Power Consumption — Last 24 Hours</h3>
-              <p className="text-xs text-surface-400 mt-1 mb-4">Total fleet load (kW) across all devices at {orgName}</p>
+              <h3 className="text-sm font-bold text-surface-900 leading-none">Power Consumption — Last 24 Hours (kWh)</h3>
+              <p className="text-xs text-surface-400 mt-1 mb-4">Total energy consumption (kWh) across all devices at {orgName}</p>
             </div>
             {sourceSeries.length === 0 ? (
               <EmptyChart>No logged readings in the last 24 hours yet.</EmptyChart>
@@ -932,9 +1055,9 @@ export default function OrgDashboard() {
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
                   <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
-                  <YAxis tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
+                  <YAxis tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" unit=" kWh" />
                   <Tooltip content={<CustomTooltip />} />
-                  <Area type="monotone" dataKey="load" stroke="#F5A623" fill="url(#orgPowerGrad)" strokeWidth={2} name="Load" unit="kW" />
+                  <Area type="monotone" dataKey="load" stroke="#F5A623" fill="url(#orgPowerGrad)" strokeWidth={2} name="Consumption" unit="kWh" />
                 </AreaChart>
               </ResponsiveContainer>
             )}
@@ -1124,14 +1247,32 @@ export default function OrgDashboard() {
                 mode="group"
                 group={openGroup}
                 memberSlaves={openGroupMemberSlaves}
-                currentLiveKw={openGroup?.loadKw ?? openGroup?.load ?? 0}
+                memberDevices={openGroupDevices}
+                currentLiveKw={openGroupModalTotalKw}
                 onBack={() => setShowGroupAnalytics(false)}
               />
             ) : showSlaveAnalytics && selectedSlaveDetails ? (
               <LoadAnalyticsPanel
                 mode="slave"
                 slave={selectedSlaveDetails}
-                currentLiveKw={0}
+                currentLiveKw={(() => {
+                  if (selectedSlaveDetails.currentKw != null && Number.isFinite(Number(selectedSlaveDetails.currentKw))) {
+                    return +Number(selectedSlaveDetails.currentKw).toFixed(2)
+                  }
+                  const dev = liveDevices.find((d) => d.id === selectedSlaveDetails.deviceId)
+                  if (!dev || isOffline(dev) || isSwitchOff(dev)) return 0
+                  const sl = (dev.slaves || dev.configSlaves || []).find((s) => s.id === selectedSlaveDetails.slaveId)
+                  if (sl) {
+                    const p = readDeviceMetric(sl, 'power')
+                    if (Number.isFinite(p)) return +p.toFixed(2)
+                    if (sl.currentKw != null && Number.isFinite(Number(sl.currentKw))) return +Number(sl.currentKw).toFixed(2)
+                  }
+                  if ((dev.slaves || dev.configSlaves || []).length <= 1) {
+                    const p = readDeviceMetric(dev, 'power')
+                    if (Number.isFinite(p)) return +p.toFixed(2)
+                  }
+                  return 0
+                })()}
                 onBack={() => setShowSlaveAnalytics(false)}
               />
             ) : selectedSlaveDetails ? (
@@ -1181,7 +1322,7 @@ export default function OrgDashboard() {
                     <div>
                       <span className="text-[10px] font-bold uppercase tracking-wider text-surface-400 block">Total Group Load</span>
                       <p className="text-base font-black text-surface-900 dark:text-surface-100">
-                        {openGroup?.loadKw ?? openGroup?.load ?? 0} <span className="text-xs font-semibold text-surface-400">kW</span>
+                        {openGroupModalTotalKw} <span className="text-xs font-semibold text-surface-400">kW</span>
                       </p>
                     </div>
                   </div>
@@ -1202,7 +1343,7 @@ export default function OrgDashboard() {
                     </p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {openGroupMemberSlaves.map((slaveItem) => {
-                        const { id: sId, name, deviceId: devId, deviceName: devName, isOff } = slaveItem
+                        const { id: sId, name, deviceId: devId, deviceName: devName, isOff, currentKw } = slaveItem
                         return (
                           <div
                             key={sId}
@@ -1213,6 +1354,7 @@ export default function OrgDashboard() {
                                   slaveName: name,
                                   deviceId: devId,
                                   deviceName: devName,
+                                  currentKw,
                                 })
                               }
                             }}
@@ -1230,6 +1372,11 @@ export default function OrgDashboard() {
                               </div>
                             </div>
                             <div className="flex items-center gap-2">
+                              {currentKw != null && Number(currentKw) > 0 && (
+                                <span className="font-mono text-[11px] font-bold text-primary-600 dark:text-primary-400 bg-primary-50 dark:bg-primary-950/50 px-1.5 py-0.5 rounded border border-primary-200/60 dark:border-primary-800/60">
+                                  ⚡ {currentKw} kW
+                                </span>
+                              )}
                               <span className={`badge ${isOff ? 'badge-neutral' : 'badge-success'} text-[9px]`}>
                                 {isOff ? 'Offline' : 'Online'}
                               </span>

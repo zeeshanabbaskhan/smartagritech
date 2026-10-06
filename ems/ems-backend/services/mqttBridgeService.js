@@ -30,6 +30,7 @@ const DEVICE_SELECT = {
     select: {
       id: true,
       name: true,
+      templateSlave: { select: { name: true } },
       configVariables: {
         where: { isActive: true },
         select: {
@@ -179,22 +180,73 @@ const isUnits = (name) => {
   return norm.includes('units') || norm.includes('energy') || norm.includes('kwh') || norm.includes('mwh')
 }
 
+const SLAVE_ALIASES = {
+  // AFL
+  'genafl': ['g3 afl', 'gen afl', 'genafl'],
+  'groundb': ['ground floor b', 'ground b', 'groundb'],
+  'solar': ['solar afl', 'solar amb-1,2,3', 'solar', 'solarafl'],
+  'spraybooth1': ['spray booth 1', 'spraybooth1'],
+  'spraybooth2': ['spray booth 2', 'spraybooth2'],
+  'spraybooth3': ['spray booth 3', 'spraybooth3'],
+  'wafl': ['wapda-afl', 'w afl', 'wafl'],
+  // AFL2
+  '1fback': ['1f back side db', '1f back', '1fback'],
+  '2fcooler': ['air cooler 2nd floor', '2f cooler', '2fcooler'],
+  '2fback': ['2f-db back side', '2f back', '2fback'],
+  'comp': ['comp', 'comp-amb'],
+  'dpump': ['drain pump', 'd pump', 'dpump'],
+  'gfpanel': ['gf-main-db', 'gf panel', 'gfpanel'],
+  'lt': ['lt panel room-afl', 'lt room', 'lt'],
+  'oups': ['ozone ups', 'oups'],
+  // AFL3
+  '132kwcomp': ['comp-132kw', '132 kw comp', '132kwcomp'],
+  '1stfloorpr': ['1f-main db-finishing', '1st floor pr', '1stfloorpr'],
+  '2ndfloor': ['2f-main db-sewing', '2nd floor', '2ndfloor'],
+  '3rdfloor': ['3f-main db-sewing', 'pending', '3rd floor', '3rdfloor'],
+  '55kwcomp': ['55kw comp', '55kwcomp'],
+  'etpdryer': ['etp-afl', 'etp dryer', 'etpdryer'],
+  'spare': ['spare', 'spare-1', 'spare-2'],
+  // Ambition
+  'incoming': ['office-amb', 'incoming'],
+  'rm': ['spare-1', 'rm'],
+  'sb1': ['solar-invt-4', 'sb1'],
+  'sb2': ['solar-invt-5', 'sb2'],
+  'ups': ['wash-random-ups', 'ups'],
+  // Ambition2
+  'afl': ['etp-amb', 'afl'],
+  'chall': ['cutting hall', 'c hall', 'chall'],
+  'lhall': ['laser hall', 'l hall', 'lhall'],
+  'sh3': ['sewing-3f-amb', 'sh3'],
+  // Ambition3
+  'dac': ['3f-air-cooler', 'dac'],
+  'fhall': ['finshing amb', 'f hall', 'fhall'],
+  'shall': ['sampling stitching', 's hall', 'shall'],
+  'wapda': ['wapda-amb', 'wapda'],
+  'whall': ['washing hall', 'w hall', 'whall'],
+  'dryerhall': ['dryer hall', 'dryerhall'],
+}
+
 const mapReadings = (device, slaveName, registers) => {
   const targetNorm = normalizeSlave(slaveName)
+  const aliases = SLAVE_ALIASES[targetNorm] || [targetNorm]
+  const aliasNorms = aliases.map(normalizeSlave)
+
   const slave =
     device.configSlaves.find((s) => s.name.trim().toLowerCase() === slaveName.trim().toLowerCase()) ||
     device.configSlaves.find((s) => normalizeSlave(s.name) === targetNorm) ||
+    device.configSlaves.find((s) => aliasNorms.includes(normalizeSlave(s.name))) ||
+    device.configSlaves.find((s) => s.templateSlave?.name?.trim().toLowerCase() === slaveName.trim().toLowerCase()) ||
+    device.configSlaves.find((s) => normalizeSlave(s.templateSlave?.name) === targetNorm) ||
+    device.configSlaves.find((s) => aliasNorms.includes(normalizeSlave(s.templateSlave?.name))) ||
     device.configSlaves.find((s) => {
       const sn = normalizeSlave(s.name)
-      if (sn === targetNorm) return true
+      const stn = normalizeSlave(s.templateSlave?.name)
+      if (sn === targetNorm || stn === targetNorm) return true
       if (sn.includes('ground') && targetNorm.includes('ground') && sn.slice(-1) === targetNorm.slice(-1)) return true
       if (sn.includes('1st') && targetNorm.includes('1st') && (sn.includes('pr') || sn.includes('rp')) && (targetNorm.includes('pr') || targetNorm.includes('rp'))) return true
       return false
     }) ||
-    (device.configSlaves.length === 1 ? device.configSlaves[0] : null) ||
-    device.configSlaves.find((s) => s.name.trim().toLowerCase() === 'main') ||
-    device.configSlaves.find((s) => s.name.trim().toLowerCase() === 'incoming') ||
-    device.configSlaves[0]
+    (device.configSlaves.length === 1 ? device.configSlaves[0] : null)
 
   if (!slave) return null
 

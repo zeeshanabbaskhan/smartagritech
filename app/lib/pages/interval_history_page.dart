@@ -418,11 +418,10 @@ class _Sheet extends StatelessWidget {
 }
 
 class _TF extends StatelessWidget {
-  const _TF(this.label, this.ctrl, {this.hint, this.isNumeric = false, this.validator});
+  const _TF(this.label, this.ctrl, {this.hint, this.validator});
   final String label;
   final TextEditingController ctrl;
   final String? hint;
-  final bool isNumeric;
   final String? Function(String?)? validator;
 
   @override
@@ -432,7 +431,6 @@ class _TF extends StatelessWidget {
       const SizedBox(height: 6),
       TextFormField(
         controller: ctrl, validator: validator,
-        keyboardType: isNumeric ? TextInputType.number : null,
         style: const TextStyle(fontSize: 14, color: kNavy),
         decoration: InputDecoration(
           hintText: hint, hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 13),

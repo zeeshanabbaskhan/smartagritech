@@ -21,6 +21,7 @@ import '../ai_analytics/anomalies_page.dart';
 import '../dashboard/detail_page.dart';
 import '../org/organization_page.dart';
 import '../device_timestamps_page.dart';
+import '../custom_dashboard/custom_dashboard_page.dart';
 
 class MenuPage extends StatefulWidget {
   const MenuPage({super.key});
@@ -65,6 +66,19 @@ class _MenuPageState extends State<MenuPage> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          _MenuSection(
+            title: 'Custom Dashboards',
+            items: [
+              _MenuItem(
+                icon: Icons.dashboard_customize_outlined,
+                label: 'Custom Dashboards',
+                subtitle: 'Tailored views & widgets',
+                color: kOrange,
+                onTap: () => _push(context, const CustomDashboardPage()),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
           if (showOrg) ...[
             _MenuSection(
               title: 'Organisation',

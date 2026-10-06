@@ -103,6 +103,7 @@ export default function PowerFlowMindMap({
   sources = [],
   sites = [],
   savings,
+  gridMetrics = null,
   orgName,
   groups = [],
   devices = [],
@@ -456,24 +457,24 @@ export default function PowerFlowMindMap({
     ? Number(totalLoadKw)
     : sourcesSum
 
-  const solarKw = scopedSources
-    .filter((s) => s.type === 'solar' || s.id === 'solar')
+  // ─── Option 1: Dynamic Grid Utility & Electricity Cost ───
+  const gridKw = scopedSources
+    .filter((s) => s.type === 'grid' || s.id === 'grid' || String(s.id).startsWith('grid'))
     .reduce((acc, s) => acc + (Number(s.valueKw) || 0), 0)
-  const SOLAR_PEAK_SUN_HOURS = 5.5
-  const fallbackDailyKWh = +(solarKw * SOLAR_PEAK_SUN_HOURS).toFixed(1)
-  const dailyKWh = Number(savings?.dailyKWh) > 0 ? Number(savings.dailyKWh) : fallbackDailyKWh
-  const dailySavings = Number(savings?.daily) > 0 ? Number(savings.daily) : Math.round(dailyKWh * TARIFF_PKR_PER_KWH)
-  const weeklySavings = Number(savings?.weekly) > 0 ? Number(savings.weekly) : Math.round(dailyKWh * 7 * TARIFF_PKR_PER_KWH)
-  const monthlySavings = Number(savings?.monthly) > 0 ? Number(savings.monthly) : Math.round(dailyKWh * 30 * TARIFF_PKR_PER_KWH)
 
-  const savingsView = {
-    daily: dailySavings,
-    weekly: weeklySavings,
-    monthly: monthlySavings,
-    dailyKWh,
-  }
-  const weeklyKWh = +(dailyKWh * 7).toFixed(1)
-  const monthlyKWh = +(dailyKWh * 30).toFixed(1)
+  const TARIFF_PKR_PER_KWH = Number(gridMetrics?.tariffRate) || Number(savings?.tariffRate) || 38.5
+  const todayKwh = Number(gridMetrics?.todayKwh) > 0
+    ? Number(gridMetrics.todayKwh)
+    : +(gridKw * Math.max(0.1, (Date.now() - new Date().setHours(0, 0, 0, 0)) / (1000 * 3600))).toFixed(1)
+  const todayCost = Number(gridMetrics?.todayCost) > 0
+    ? Number(gridMetrics.todayCost)
+    : Math.round(todayKwh * TARIFF_PKR_PER_KWH)
+  const weeklyKwh = Number(gridMetrics?.weeklyKwh) > 0 ? Number(gridMetrics.weeklyKwh) : +(todayKwh * 7).toFixed(1)
+  const weeklyCost = Number(gridMetrics?.weeklyCost) > 0 ? Number(gridMetrics.weeklyCost) : Math.round(weeklyKwh * TARIFF_PKR_PER_KWH)
+  const monthlyKwh = Number(gridMetrics?.monthlyKwh) > 0 ? Number(gridMetrics.monthlyKwh) : +(todayKwh * 30).toFixed(1)
+  const monthlyCost = Number(gridMetrics?.monthlyCost) > 0 ? Number(gridMetrics.monthlyCost) : Math.round(monthlyKwh * TARIFF_PKR_PER_KWH)
+  const powerFactor = Number(gridMetrics?.powerFactor) || 0.975
+  const frequency = Number(gridMetrics?.frequency) || 50.0
 
   const editingBuiltin = sourceModal && sourceModal !== 'create'
     && BUILTIN_TYPES.includes(sourceModal.type || sourceModal.id)
@@ -487,7 +488,7 @@ export default function PowerFlowMindMap({
     return () => clearInterval(timer)
   }, [])
 
-  /** One source card — identical styling to the pre-site layout. */
+  /** One source card — compact and clean styling */
   function renderSourceCard(s, idx) {
     const type = s.type || s.id
     const meta = metaForType(type, s.iconIdx ?? idx)
@@ -536,93 +537,118 @@ export default function PowerFlowMindMap({
   }
 
   return (
-    <div className="w-full select-none space-y-4">
-      <div className="flex justify-between items-start w-full relative pb-2 gap-3">
-        <div className="flex items-center gap-1.5 text-xs font-bold text-surface-400 pt-2">
-          <Clock3 size={14} className="text-primary-400" />
+    <div className="w-full select-none space-y-3">
+      <div className="flex justify-between items-center w-full relative pb-1 gap-2">
+        <div className="flex items-center gap-1.5 text-xs font-bold text-surface-400">
+          <Clock3 size={13} className="text-primary-400" />
           <span>{currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
           <span className="w-1.5 h-1.5 rounded-full bg-success-500 animate-pulse ml-1" />
         </div>
 
-        <div className="relative w-full max-w-[220px] z-[99] ml-auto">
-          <button
-            type="button"
-            onClick={() => setSavingsOpen((o) => !o)}
-            className="w-full flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-2xl text-white transition-all hover:opacity-95 text-left shadow-lg"
-            style={{ background: 'linear-gradient(135deg, #6366F1 0%, #7C3AED 50%, #9333EA 100%)' }}
-            aria-expanded={savingsOpen}
-          >
-            <div className="flex items-center gap-2.5 min-w-0">
-              <PiggyBank size={16} className="flex-shrink-0 opacity-95" />
-              <div className="leading-tight min-w-0">
-                <p className="text-[9px] font-bold opacity-80 uppercase tracking-wider">Today&apos;s Savings</p>
-                <p className="text-sm font-black truncate">{formatPKR(savingsView.daily)}</p>
+        {/* ─── Top Header: Today's Solar Savings Card ─── */}
+        {savings && (
+          <div className="relative w-full max-w-[200px] z-[99] ml-auto">
+            <button
+              type="button"
+              onClick={() => setSavingsOpen((o) => !o)}
+              className="w-full flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl text-white transition-all hover:opacity-95 text-left shadow-md"
+              style={{ background: 'linear-gradient(135deg, #4F46E5 0%, #7C3AED 55%, #9333EA 100%)' }}
+              aria-expanded={savingsOpen}
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="w-7 h-7 rounded-lg bg-white/15 backdrop-blur-sm flex items-center justify-center flex-shrink-0 text-white shadow-inner">
+                  <PiggyBank size={15} />
+                </div>
+                <div className="leading-tight min-w-0">
+                  <p className="text-[8px] font-black opacity-80 uppercase tracking-widest text-purple-100">Today&apos;s Savings</p>
+                  <p className="text-xs font-black truncate">{formatPKR(savings.daily)}</p>
+                </div>
               </div>
-            </div>
-            <ChevronDown size={14} className={`flex-shrink-0 transition-transform ${savingsOpen ? 'rotate-180' : ''}`} />
-          </button>
+              <ChevronDown size={13} className={`flex-shrink-0 text-purple-200 transition-transform ${savingsOpen ? 'rotate-180' : ''}`} />
+            </button>
 
-          {savingsOpen && (
-            <>
-              <button
-                type="button"
-                className="fixed inset-0 z-[998] cursor-default"
-                aria-label="Close savings"
-                onClick={() => setSavingsOpen(false)}
-              />
-              <div className="absolute right-0 top-full mt-2 w-72 bg-white dark:bg-surface-900 border border-surface-200 dark:border-surface-700 shadow-floating rounded-2xl overflow-hidden z-[999]">
-                <div className="px-4 py-2.5 bg-primary-50 dark:bg-primary-950/40 border-b border-primary-100 dark:border-primary-900">
-                  <p className="text-[10px] font-black text-primary-600 uppercase tracking-widest">Savings Reports</p>
-                </div>
-                <div className="flex flex-col divide-y divide-surface-100 dark:divide-surface-800">
-                  <div className="p-3.5">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-[9px] font-black text-surface-400 uppercase tracking-wider">Weekly Savings</p>
-                        <p className="text-lg font-black text-primary-600 leading-tight">{formatPKR(savingsView.weekly)}</p>
-                        <p className="text-[10px] text-surface-400 font-semibold mt-0.5">{weeklyKWh} kWh offset / week</p>
+            {savingsOpen && (
+              <>
+                <button
+                  type="button"
+                  className="fixed inset-0 z-[998] cursor-default"
+                  aria-label="Close savings ledger"
+                  onClick={() => setSavingsOpen(false)}
+                />
+                <div className="absolute right-0 top-full mt-2 w-80 bg-white dark:bg-surface-900 border border-surface-200 dark:border-surface-700 shadow-2xl rounded-2xl overflow-hidden z-[999]">
+                  {/* Header */}
+                  <div className="px-4 py-3 bg-gradient-to-r from-purple-900 via-indigo-900 to-slate-900 text-white flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <PiggyBank size={16} className="text-purple-300" />
+                      <div>
+                        <p className="text-[11px] font-black uppercase tracking-wider">Savings Reports</p>
+                        <p className="text-[9px] opacity-75 font-semibold">Real-Time Solar Yield & Financial Offset</p>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => downloadCSV(`${orgName || 'org'}_weekly_savings.csv`, [
-                          ['Period', 'Offset kWh', 'Savings PKR'],
-                          ['Weekly', weeklyKWh, savingsView.weekly],
-                        ])}
-                        className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-black uppercase rounded-lg bg-primary-50 text-primary-600 hover:bg-primary-100 flex-shrink-0"
-                      >
-                        <Download size={11} /> CSV
-                      </button>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-purple-500/30 text-purple-200 border border-purple-400/30">
+                      LIVE
+                    </span>
+                  </div>
+
+                  {/* Ledger Rows */}
+                  <div className="flex flex-col divide-y divide-surface-100 dark:divide-surface-800">
+                    {/* Weekly Report */}
+                    <div className="p-3.5 hover:bg-surface-50 dark:hover:bg-surface-800/40 transition-colors">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <span className="text-[9px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-wider bg-indigo-50 dark:bg-indigo-950/50 px-1.5 py-0.5 rounded">
+                            Weekly Savings
+                          </span>
+                          <p className="text-xl font-black text-surface-900 dark:text-white mt-1 leading-tight">{formatPKR(savings.weekly)}</p>
+                          <p className="text-[10px] text-surface-400 font-semibold mt-0.5">{(Number(savings.weeklyKWh != null ? savings.weeklyKWh : (savings.dailyKWh || 0) * 7)).toFixed(1)} kWh offset / week</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => downloadCSV(`${orgName || 'org'}_weekly_savings.csv`, [
+                            ['Period', 'Offset kWh', 'Savings PKR', 'Tariff PKR/kWh'],
+                            ['Weekly', (Number(savings.weeklyKWh != null ? savings.weeklyKWh : (savings.dailyKWh || 0) * 7)).toFixed(1), savings.weekly, savings.tariffRate || TARIFF_PKR_PER_KWH],
+                          ])}
+                          className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-black uppercase rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-300 hover:bg-indigo-100 flex-shrink-0"
+                        >
+                          <Download size={11} /> CSV
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Monthly Report */}
+                    <div className="p-3.5 hover:bg-surface-50 dark:hover:bg-surface-800/40 transition-colors">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <span className="text-[9px] font-black text-purple-600 dark:text-purple-400 uppercase tracking-wider bg-purple-50 dark:bg-purple-950/50 px-1.5 py-0.5 rounded">
+                            Monthly Savings
+                          </span>
+                          <p className="text-xl font-black text-surface-900 dark:text-white mt-1 leading-tight">{formatPKR(savings.monthly)}</p>
+                          <p className="text-[10px] text-surface-400 font-semibold mt-0.5">{(Number(savings.monthlyKWh != null ? savings.monthlyKWh : (savings.dailyKWh || 0) * 30)).toFixed(1)} kWh offset / month</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => downloadCSV(`${orgName || 'org'}_monthly_savings.csv`, [
+                            ['Period', 'Offset kWh', 'Savings PKR', 'Tariff PKR/kWh'],
+                            ['Monthly', (Number(savings.monthlyKWh != null ? savings.monthlyKWh : (savings.dailyKWh || 0) * 30)).toFixed(1), savings.monthly, savings.tariffRate || TARIFF_PKR_PER_KWH],
+                          ])}
+                          className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-black uppercase rounded-lg bg-purple-50 text-purple-600 dark:bg-purple-950/60 dark:text-purple-300 hover:bg-purple-100 flex-shrink-0"
+                        >
+                          <Download size={11} /> CSV
+                        </button>
+                      </div>
                     </div>
                   </div>
-                  <div className="p-3.5">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-[9px] font-black text-surface-400 uppercase tracking-wider">Monthly Savings</p>
-                        <p className="text-lg font-black text-primary-700 leading-tight">{formatPKR(savingsView.monthly)}</p>
-                        <p className="text-[10px] text-surface-400 font-semibold mt-0.5">{monthlyKWh} kWh offset / month</p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => downloadCSV(`${orgName || 'org'}_monthly_savings.csv`, [
-                          ['Period', 'Offset kWh', 'Savings PKR'],
-                          ['Monthly', monthlyKWh, savingsView.monthly],
-                        ])}
-                        className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-black uppercase rounded-lg bg-primary-50 text-primary-700 hover:bg-primary-100 flex-shrink-0"
-                      >
-                        <Download size={11} /> CSV
-                      </button>
-                    </div>
+
+                  {/* Footer Tariff Notice */}
+                  <div className="px-4 py-2.5 border-t border-surface-100 dark:border-surface-800 bg-surface-50/80 dark:bg-surface-950/40 flex items-center justify-between text-[10px]">
+                    <span className="text-surface-400 font-medium">~{Number(savings.dailyKWh || 0).toFixed(1)} kWh/day offset at:</span>
+                    <span className="font-bold text-surface-700 dark:text-surface-300">PKR {savings.tariffRate || TARIFF_PKR_PER_KWH} / kWh</span>
                   </div>
                 </div>
-                <div className="px-4 py-2.5 border-t border-surface-100 dark:border-surface-800 bg-surface-50/80 dark:bg-surface-950/40">
-                  <p className="text-[10px] font-semibold text-surface-400">
-                    ~{Number(savingsView.dailyKWh || 0).toFixed(1)} kWh/day offset at PKR {TARIFF_PKR_PER_KWH}/kWh
-                  </p>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       <div ref={flowRef} className="relative">
@@ -656,58 +682,58 @@ export default function PowerFlowMindMap({
                   className="group/site relative flex flex-col items-center gap-3 rounded-2xl p-3 sm:p-4 border border-surface-200 dark:border-surface-800 flex-1 min-w-0 shadow-sm bg-surface-50/50 dark:bg-surface-900/40"
                 >
                   {/* TOP — site name card + total site load */}
-                  <div className="w-full grid grid-cols-[1fr_auto_1fr] items-center px-1 pb-1">
-                  <div className="justify-self-start rounded-2xl px-3.5 py-2 bg-white dark:bg-surface-900 border border-surface-200 dark:border-surface-800 shadow-sm flex items-center gap-2">
-                    {renamingSiteId === site.id ? (
-                      <input
-                        autoFocus
-                        value={renameValue}
-                        onChange={(e) => setRenameValue(e.target.value)}
-                        onBlur={commitRename}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') commitRename()
-                          if (e.key === 'Escape') setRenamingSiteId(null)
-                        }}
-                        className="text-xs font-bold text-center bg-transparent border-b border-primary-400 outline-none w-28 text-surface-700 dark:text-surface-200"
-                      />
-                    ) : (
-                      <>
+                  <div className="w-full grid grid-cols-[1fr_auto_1fr] items-center px-0.5 pb-0.5">
+                    <div className="justify-self-start rounded-xl px-2.5 py-1 bg-white dark:bg-surface-900 border border-surface-200 dark:border-surface-800 shadow-xs flex items-center gap-1.5">
+                      {renamingSiteId === site.id ? (
+                        <input
+                          autoFocus
+                          value={renameValue}
+                          onChange={(e) => setRenameValue(e.target.value)}
+                          onBlur={commitRename}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') commitRename()
+                            if (e.key === 'Escape') setRenamingSiteId(null)
+                          }}
+                          className="text-[11px] font-bold text-center bg-transparent border-b border-primary-400 outline-none w-24 text-surface-700 dark:text-surface-200"
+                        />
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => startRename(site)}
+                            title={editable ? 'Rename site' : undefined}
+                            className="text-[11px] font-bold text-surface-500 dark:text-surface-300 hover:text-primary-600"
+                          >
+                            {site.name}
+                          </button>
+                          <button
+                            type="button"
+                            title="Rename site"
+                            onClick={() => startRename(site)}
+                            className="w-4 h-4 rounded-full bg-surface-100 dark:bg-surface-800 text-primary-600 flex items-center justify-center"
+                          >
+                            <Edit3 size={8} strokeWidth={2.5} />
+                          </button>
+                        </>
+                      )}
+                      {canDelete && (
                         <button
                           type="button"
-                          onClick={() => startRename(site)}
-                          title={editable ? 'Rename site' : undefined}
-                          className="text-xs font-bold text-surface-500 dark:text-surface-300 hover:text-primary-600"
+                          title="Remove site"
+                          onClick={() => deleteSite(site)}
+                          className="w-4 h-4 rounded-full bg-danger-500 border-2 border-white dark:border-surface-900 text-white flex items-center justify-center"
                         >
-                          {site.name}
+                          <X size={8} strokeWidth={3} />
                         </button>
-                        <button
-                          type="button"
-                          title="Rename site"
-                          onClick={() => startRename(site)}
-                          className="w-5 h-5 rounded-full bg-surface-100 dark:bg-surface-800 text-primary-600 flex items-center justify-center"
-                        >
-                          <Edit3 size={9} strokeWidth={2.5} />
-                        </button>
-                      </>
-                    )}
-                    {canDelete && (
-                      <button
-                        type="button"
-                        title="Remove site"
-                        onClick={() => deleteSite(site)}
-                        className="w-5 h-5 rounded-full bg-danger-500 border-2 border-white dark:border-surface-900 text-white flex items-center justify-center"
-                      >
-                        <X size={9} strokeWidth={3} />
-                      </button>
-                    )}
-                  </div>
+                      )}
+                    </div>
 
                     {/* Styled Total Site Load Card */}
                     <div
                       className="justify-self-center flex items-center gap-2.5 rounded-2xl px-3.5 py-2 text-white shadow-lg whitespace-nowrap"
                       style={{
                         background: 'linear-gradient(135deg, #6366F1 0%, #4F46E5 100%)',
-                        boxShadow: '0 4px 14px rgba(79, 70, 229, 0.45)',
+                        boxShadow: '0 3px 10px rgba(79, 70, 229, 0.4)',
                       }}
                     >
                       <Zap size={15} strokeWidth={2.5} className="text-indigo-200 flex-shrink-0" />
@@ -732,8 +758,8 @@ export default function PowerFlowMindMap({
                         onClick={() => openCreateSource(site.id)}
                         className="flex items-center justify-center gap-1.5 rounded-2xl px-2.5 py-2 border-2 border-dashed border-surface-300 dark:border-surface-700 hover:border-primary-400 hover:bg-primary-50/50 dark:hover:bg-primary-950/20 text-surface-400 hover:text-primary-600 transition-all font-bold text-xs flex-1 min-w-0 max-w-[120px] min-h-[64px] self-stretch whitespace-nowrap"
                       >
-                        <Plus size={14} />
-                        <span className="text-xs font-bold">Add Source</span>
+                        <Plus size={13} />
+                        <span>Add Source</span>
                       </button>
                     )}
                   </div>
@@ -747,66 +773,60 @@ export default function PowerFlowMindMap({
                 onClick={addSite}
                 className="flex items-center justify-center gap-1.5 rounded-2xl px-4 py-3 border-2 border-dashed border-surface-300 dark:border-surface-700 hover:border-primary-400 hover:bg-primary-50/50 text-surface-400 hover:text-primary-600 flex-shrink-0 self-stretch min-w-[70px] whitespace-nowrap"
               >
-                <Plus size={14} />
-                <span className="text-xs font-bold">Add Site</span>
+                <Plus size={13} />
+                <span>Add Site</span>
               </button>
             )}
           </div>
 
           {/* LAYER 2 — cross-site source-type totals, in the source-card style */}
-          <div className="flex justify-center gap-3 sm:gap-4 flex-wrap mt-8">
+          <div className="flex justify-center gap-2 sm:gap-2.5 flex-wrap mt-2 sm:mt-2.5">
             {typeTotals.map((t) => (
               <div
                 key={t.type}
                 ref={registerRef(typeRefs, t.type)}
-                className="relative group flex items-center gap-2.5 rounded-2xl px-4 py-3 text-white shadow-lg"
-                style={{ background: `linear-gradient(145deg, ${t.from}, ${t.to})`, boxShadow: `0 6px 16px -4px ${t.to}66` }}
+                className="relative group flex items-center gap-2 rounded-xl px-3 py-1.5 text-white shadow-md"
+                style={{ background: `linear-gradient(145deg, ${t.from}, ${t.to})`, boxShadow: `0 3px 10px -3px ${t.to}66` }}
               >
-                <t.Icon size={18} strokeWidth={2.25} />
+                <t.Icon size={15} strokeWidth={2.25} />
                 <div className="leading-tight">
-                  <p className="text-[11px] font-bold opacity-90">{t.label}</p>
-                  <p className="text-sm font-black leading-tight">{Number(t.kw).toFixed(1)} kW</p>
-                  <p className="text-[9px] opacity-70 font-semibold mt-0.5">All sites combined</p>
+                  <p className="text-[9.5px] font-bold opacity-90">{t.label}</p>
+                  <p className="text-xs font-black leading-tight">{Number(t.kw).toFixed(1)} kW</p>
+                  <p className="text-[8px] opacity-70 font-semibold mt-0.5">All sites combined</p>
                 </div>
               </div>
             ))}
           </div>
 
           {/* LAYER 3 — total organization load */}
-          <div className="flex justify-center mt-8">
+          <div className="flex justify-center mt-2 sm:mt-2.5">
             <div
               ref={orgRef}
-              className="flex items-center gap-3 rounded-2xl px-6 py-4 text-white shadow-xl"
+              className="flex items-center gap-2.5 rounded-xl px-4.5 py-2.5 text-white shadow-lg"
               style={{ background: 'linear-gradient(145deg, #34D399, #0EA5E9)' }}
             >
-              <div className="w-11 h-11 rounded-xl bg-white/20 flex items-center justify-center">
-                <Building2 size={22} />
+              <div className="w-9 h-9 rounded-lg bg-white/20 flex items-center justify-center">
+                <Building2 size={18} />
               </div>
               <div className="leading-tight">
-                <p className="text-[11px] font-bold opacity-90">Total Organization Load</p>
-                <p className="text-xl font-black">{load.toFixed(1)} kW</p>
-                <p className="text-[9px] font-semibold opacity-75 mt-0.5">Total supply from all active energy sources</p>
+                <p className="text-[10px] font-bold opacity-90">Total Organization Load</p>
+                <p className="text-lg font-black leading-tight">{load.toFixed(1)} kW</p>
+                <p className="text-[8.5px] font-semibold opacity-75 mt-0.5">Total supply from all active energy sources</p>
               </div>
             </div>
           </div>
 
-          {savingsView.dailyKWh > 0 && (
-            <p className="text-center text-[10px] font-bold text-surface-400 mt-2">
-              ~{Number(savingsView.dailyKWh).toFixed(1)} kWh/day offset by clean sources · saving {formatPKR(savingsView.daily)} at PKR {TARIFF_PKR_PER_KWH}/unit
-            </p>
-          )}
-
-          <div className="flex justify-center my-1"><div className="w-px h-6 bg-surface-300" /></div>
+          <div className="flex justify-center my-0.5"><div className="w-px h-4 bg-surface-300 dark:bg-surface-700" /></div>
 
           {/* LAYER 4 — groups */}
-          <div className="flex justify-center gap-3 flex-wrap">
+          <div className="flex justify-center gap-2 flex-wrap">
             {groups.length === 0 ? (
               <Link
                 to={groupsPath}
-                className="flex items-center gap-1.5 rounded-2xl px-3.5 py-2.5 border border-dashed border-surface-300 text-surface-400 hover:text-primary-600"
+                className="flex items-center gap-1 rounded-xl px-3 py-1.5 border border-dashed border-surface-300 text-surface-400 hover:text-primary-600 text-xs"
               >
-                <Plus size={14} />
-                <span className="text-xs font-bold">Create a Group</span>
+                <Plus size={13} />
+                <span className="font-bold">Create a Group</span>
               </Link>
             ) : (
               <>
@@ -823,16 +843,16 @@ export default function PowerFlowMindMap({
                   return (
                     <div
                       key={g.id}
-                      className="group relative flex items-center gap-2.5 rounded-2xl px-3.5 py-2.5 bg-white dark:bg-surface-900 border border-surface-200 dark:border-surface-800 shadow-md min-w-[9.5rem] text-left hover:border-primary-300 hover:shadow-lg"
+                      className="group relative flex items-center gap-2 rounded-xl px-3 py-1.5 bg-white dark:bg-surface-900 border border-surface-200 dark:border-surface-800 shadow-xs min-w-[8.5rem] text-left hover:border-primary-300 hover:shadow-md"
                     >
                       <button
                         type="button"
                         onClick={() => onGroupClick?.(g.id)}
-                        className="absolute inset-0 rounded-2xl z-0"
+                        className="absolute inset-0 rounded-xl z-0"
                         aria-label={`Open ${g.name}`}
                       />
                       <span
-                        className={`absolute top-2 right-2 w-2 h-2 rounded-full z-[1] ${g.active ? 'bg-success-500 animate-pulse' : 'bg-surface-300 dark:bg-surface-600'} ${(editable && (onGroupEdit || onGroupDelete)) ? 'group-hover:opacity-0' : ''}`}
+                        className={`absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full z-[1] ${g.active ? 'bg-success-500 animate-pulse' : 'bg-surface-300 dark:bg-surface-600'} ${(editable && (onGroupEdit || onGroupDelete)) ? 'group-hover:opacity-0' : ''}`}
                         title={g.active ? 'Active' : 'Idle'}
                       />
                       {editable && (onGroupEdit || onGroupDelete) && (
@@ -842,9 +862,9 @@ export default function PowerFlowMindMap({
                               type="button"
                               title="Edit group"
                               onClick={(e) => { e.stopPropagation(); onGroupEdit(g.id) }}
-                              className="w-5 h-5 rounded-full bg-primary-500 border-2 border-white dark:border-surface-900 text-white flex items-center justify-center shadow-sm hover:bg-primary-600"
+                              className="w-4 h-4 rounded-full bg-primary-500 border border-white dark:border-surface-900 text-white flex items-center justify-center shadow-xs hover:bg-primary-600"
                             >
-                              <Edit3 size={9} strokeWidth={2.5} />
+                              <Edit3 size={8} strokeWidth={2.5} />
                             </button>
                           )}
                           {onGroupDelete && (
@@ -852,15 +872,15 @@ export default function PowerFlowMindMap({
                               type="button"
                               title="Delete group"
                               onClick={(e) => { e.stopPropagation(); onGroupDelete(g.id) }}
-                              className="w-5 h-5 rounded-full bg-danger-500 border-2 border-white dark:border-surface-900 text-white flex items-center justify-center shadow-sm hover:bg-danger-600"
+                              className="w-4 h-4 rounded-full bg-danger-500 border border-white dark:border-surface-900 text-white flex items-center justify-center shadow-xs hover:bg-danger-600"
                             >
-                              <X size={9} strokeWidth={3} />
+                              <X size={8} strokeWidth={3} />
                             </button>
                           )}
                         </div>
                       )}
-                      <div className="w-8 h-8 rounded-lg bg-primary-50 dark:bg-primary-950/20 text-primary-600 flex items-center justify-center relative z-[1] pointer-events-none">
-                        <Icon size={15} />
+                      <div className="w-7 h-7 rounded-md bg-primary-50 dark:bg-primary-950/20 text-primary-600 flex items-center justify-center relative z-[1] pointer-events-none">
+                        <Icon size={14} />
                       </div>
                       <div className="leading-tight flex-1 min-w-0 relative z-[1] pointer-events-none">
                         <p className="text-xs font-bold text-surface-800 dark:text-surface-100 truncate max-w-[7rem]">{g.name}</p>
@@ -869,16 +889,16 @@ export default function PowerFlowMindMap({
                           {groupCountSummary}
                         </p>
                       </div>
-                      <ChevronRight size={12} className="text-surface-300 group-hover:text-primary-500 relative z-[1] pointer-events-none" />
+                      <ChevronRight size={11} className="text-surface-300 group-hover:text-primary-500 relative z-[1] pointer-events-none" />
                     </div>
                   )
                 })}
                 <Link
                   to={groupsPath}
-                  className="flex items-center gap-1.5 rounded-2xl px-3.5 py-2.5 border border-dashed border-surface-300 text-surface-400 hover:text-primary-600"
+                  className="flex items-center gap-1 rounded-xl px-3 py-1.5 border border-dashed border-surface-300 text-surface-400 hover:text-primary-600 text-xs"
                 >
-                  <Plus size={14} />
-                  <span className="text-xs font-bold">Manage Groups</span>
+                  <Plus size={13} />
+                  <span className="font-bold">Manage Groups</span>
                 </Link>
               </>
             )}

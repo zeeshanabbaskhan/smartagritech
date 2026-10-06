@@ -139,6 +139,7 @@ export const mapDevice = (d) => {
         isParentOnline
       )
       const effectiveLast = last || (isOnline ? d.lastDataReceivedAt : null)
+      const slaveKw = s.currentKw != null && Number.isFinite(Number(s.currentKw)) ? Number(s.currentKw) : null
       return {
         id: s.id,
         name: s.name,
@@ -151,6 +152,7 @@ export const mapDevice = (d) => {
         lastSeen: fmtDate(effectiveLast),
         lastSeenRaw: effectiveLast || null,
         latestMetrics: s.latestMetrics || {},
+        currentKw: slaveKw,
       }
     }),
     _raw: d,

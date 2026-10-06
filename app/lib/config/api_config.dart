@@ -2,10 +2,11 @@
 class ApiConfig {
   static const String _envBase = String.fromEnvironment('API_BASE_URL');
 
-  static const String _productionBase = 'https://iotbackend.zeeshan-abbas.tech/api';
+  // Default to active local EMS backend service running on port 5000
+  static const String _localBase = 'http://localhost:5000/api';
 
   static String get baseUrl {
     if (_envBase.isNotEmpty) return _envBase;
-    return _productionBase;
+    return _localBase;
   }
 }

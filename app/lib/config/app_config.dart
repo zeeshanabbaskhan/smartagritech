@@ -7,7 +7,7 @@ class AppConfig {
   static const bool useDummyData =
       bool.fromEnvironment('USE_DUMMY_DATA', defaultValue: false);
 
-  /// Set to `true` to always use dummy data (no backend required).
+  /// Set to `false` so the app connects to the live backend API.
   static const bool forceDummyData = false;
 
   static bool get isDummyMode => forceDummyData || useDummyData;

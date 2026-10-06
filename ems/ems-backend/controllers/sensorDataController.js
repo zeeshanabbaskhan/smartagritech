@@ -198,37 +198,41 @@ const getHistory = async (req, res, next) => {
     const take      = Math.min(maxTake, requested)
     const skipN     = Math.max(0, parseInt(skip, 10) || 0)
 
-    // 1) Query scaled engineering values from sensor_reading_values first
-    const rawNames = getRawCandidateNames(variableName)
-    const valueWhere = {
-      deviceId,
-      variableName: { in: rawNames },
-    }
-    if (slaveId) valueWhere.deviceConfigSlaveId = slaveId
-    if (startDate || endDate) {
-      valueWhere.timestamp = {}
-      if (startDate) valueWhere.timestamp.gte = parseDateBound(startDate, 'start')
-      if (endDate)   valueWhere.timestamp.lte = parseDateBound(endDate, 'end')
-    }
+    // 1) Try sensor_reading_values if legacy data exists (guarded with try/catch)
+    try {
+      if (prisma.sensorReadingValue) {
+        const rawNames = getRawCandidateNames(variableName)
+        const valueWhere = {
+          deviceId,
+          variableName: { in: rawNames },
+        }
+        if (slaveId) valueWhere.deviceConfigSlaveId = slaveId
+        if (startDate || endDate) {
+          valueWhere.timestamp = {}
+          if (startDate) valueWhere.timestamp.gte = parseDateBound(startDate, 'start')
+          if (endDate)   valueWhere.timestamp.lte = parseDateBound(endDate, 'end')
+        }
 
-    const valueRows = await prisma.sensorReadingValue.findMany({
-      where:   valueWhere,
-      orderBy: { timestamp: 'desc' },
-      skip:    skipN,
-      take,
-      select:  { variableName: true, value: true, timestamp: true },
-    })
+        const valueRows = await prisma.sensorReadingValue.findMany({
+          where:   valueWhere,
+          orderBy: { timestamp: 'desc' },
+          skip:    skipN,
+          take,
+          select:  { variableName: true, value: true, timestamp: true },
+        })
 
-    if (valueRows.length > 0) {
-      const data = valueRows.map((row) => ({
-        variableName: row.variableName,
-        value:        row.value,
-        receivedTime: row.timestamp,
-      }))
-      return res.json({ success: true, count: data.length, fetched: valueRows.length, data })
-    }
+        if (valueRows.length > 0) {
+          const data = valueRows.map((row) => ({
+            variableName: row.variableName,
+            value:        row.value,
+            receivedTime: row.timestamp,
+          }))
+          return res.json({ success: true, count: data.length, fetched: valueRows.length, data })
+        }
+      }
+    } catch (_) {}
 
-    // 2) Fallback to unscaled sensorReading JSON readings if sensor_reading_values is empty
+    // 2) Primary path: Query compact sensorReading JSON readings directly
     const where = { deviceId }
     if (slaveId) where.deviceConfigSlaveId = slaveId
     if (startDate || endDate) {
@@ -247,9 +251,26 @@ const getHistory = async (req, res, next) => {
 
     const data = []
     for (const row of rows) {
-      const arr   = Array.isArray(row.readings) ? row.readings : []
-      const entry = arr.find((r) => variableNameMatches(r.variableName, variableName))
-      if (entry) data.push({ variableName: entry.variableName, value: entry.value, unit: entry.unit, receivedTime: row.timestamp })
+      let val = null
+      let unit = undefined
+      if (Array.isArray(row.readings)) {
+        const entry = row.readings.find((r) => variableNameMatches(r.variableName ?? r.name, variableName))
+        if (entry) {
+          val = entry.value
+          unit = entry.unit
+        }
+      } else if (row.readings && typeof row.readings === 'object') {
+        for (const [k, v] of Object.entries(row.readings)) {
+          if (variableNameMatches(k, variableName)) {
+            val = typeof v === 'object' && v !== null ? v.value : v
+            unit = v?.unit
+            break
+          }
+        }
+      }
+      if (val != null) {
+        data.push({ variableName, value: parseFloat(val) || 0, unit, receivedTime: row.timestamp })
+      }
     }
 
     res.json({ success: true, count: data.length, fetched: rows.length, data })
@@ -260,8 +281,8 @@ const getHistory = async (req, res, next) => {
 const bucketMsForSpan = (spanMs) => {
   if (spanMs <= 2 * 3_600_000) return 60_000            // ≤2h → 1 min
   if (spanMs <= 86_400_000) return 15 * 60_000          // ≤1d → 15 min
-  if (spanMs <= 7 * 86_400_000) return 3_600_000        // ≤7d → 1 hour
-  if (spanMs <= 30 * 86_400_000) return 6 * 3_600_000   // ≤30d → 6 hour
+  if (spanMs <= 14 * 86_400_000) return 3_600_000       // ≤14d → 1 hour
+  if (spanMs <= 31 * 86_400_000) return 6 * 3_600_000   // ≤31d → 6 hour
   return 86_400_000                                      // else → 1 day
 }
 
@@ -269,13 +290,17 @@ const bucketMsForSpan = (spanMs) => {
 // @access SUPER_ADMIN | ORG_ADMIN | USER (own devices)
 const getAggregate = async (req, res, next) => {
   try {
-    const { deviceId, slaveId, variableName, timeRange, startDate, endDate } = req.query
+    const { deviceId, slaveId, slaveIds, variableName, timeRange, startDate, endDate } = req.query
     if (!deviceId || !variableName) {
       return next(new AppError('deviceId and variableName are required', 400))
     }
     if (!timeRange && !startDate && !endDate) {
       return next(new AppError('timeRange or startDate/endDate is required', 400))
     }
+
+    const parsedSlaveIds = slaveIds
+      ? (Array.isArray(slaveIds) ? slaveIds : String(slaveIds).split(',').map((s) => s.trim()).filter(Boolean))
+      : null
 
     const device = await authoriseDevice(deviceId, req.user, slaveId)
     if (isSwitchOff(device)) {
@@ -296,10 +321,16 @@ const getAggregate = async (req, res, next) => {
       bucketMs = BUCKET_MS[timeRange]
     }
 
-    const cacheKey = `agg:${deviceId}:${slaveId || 'all'}:${variableName}:${timeRange || `${startDate}_${endDate}`}`
-    const data = await cached(cacheKey, 30, () => bucketVariable(prisma, {
+    // Historical completed ranges (immutable) cached for 24h; active/live ranges for 15s
+    const isHistorical = rangeEnd && rangeEnd.getTime() < (Date.now() - 3600_000)
+    const ttlSeconds = isHistorical ? 86400 : (timeRange === '1h' ? 10 : 20)
+
+    const sKey = parsedSlaveIds ? `multi:${parsedSlaveIds.sort().join('_')}` : (slaveId || 'all')
+    const cacheKey = `agg:${deviceId}:${sKey}:${variableName}:${timeRange || `${startDate}_${endDate}`}`
+    const data = await cached(cacheKey, ttlSeconds, () => bucketVariable(prisma, {
       deviceId,
       slaveId: slaveId || null,
+      slaveIds: parsedSlaveIds,
       variableName,
       startDate: rangeStart,
       endDate: rangeEnd,

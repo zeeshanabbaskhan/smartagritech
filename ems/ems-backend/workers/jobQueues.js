@@ -167,8 +167,9 @@ const deleteDeviceBatches = async (deviceId) => {
       select:  { id: true },
       take:    BATCH,
     })
-    if (!rows.length) break
-    await prisma.sensorReadingValue.deleteMany({ where: { sensorReadingId: { in: rows.map((r) => r.id) } } })
+    try {
+      if (prisma.sensorReadingValue) await prisma.sensorReadingValue.deleteMany({ where: { sensorReadingId: { in: rows.map((r) => r.id) } } })
+    } catch (_) {}
     await prisma.sensorReading.deleteMany({ where: { id: { in: rows.map((r) => r.id) } } })
   }
 }

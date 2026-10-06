@@ -7,15 +7,18 @@ class DummyStore {
   static final DummyStore instance = DummyStore._();
 
   static const orgId = 'org-1';
-  static const demoOrgAdminEmail = 'orgadmin@ems.com';
-  static const demoOrgAdminPassword = 'Admin@123456';
-  static const demoUserEmail = 'user@ems.com';
-  static const demoUserPassword = 'User@123456';
+  static const demoOrgAdminEmail = 'org@cfsmartems.com';
+  static const demoOrgAdminPassword = 'password123';
+  static const demoUserEmail = 'ayesha.ambition@cf.com';
+  static const demoUserPassword = 'password123';
 
   final Map<String, String> passwords = {
     demoOrgAdminEmail: demoOrgAdminPassword,
     demoUserEmail: demoUserPassword,
-    'superadmin@ems.com': 'Admin@123456',
+    'orgadmin@ems.com': 'Admin@123456',
+    'user@ems.com': 'User@123456',
+    'huzaifa@cf.com': 'password123',
+    'appadmin@yopmail.com': 'password123',
   };
 
   Map<String, dynamic>? currentUser;

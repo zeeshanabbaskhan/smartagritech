@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   ResponsiveContainer,
   AreaChart,
@@ -15,12 +15,15 @@ import {
   TrendingUp,
   Activity,
   ChevronLeft,
-  Clock,
   Layers,
   BarChart3,
   RefreshCw,
 } from 'lucide-react'
 import emsApi from '../../api/emsApi'
+import { powerReadingToKw } from '../../utils/deviceMetrics'
+
+const ORG_TIMEZONE = 'Asia/Karachi'
+const ORG_OFFSET_HOURS = 5 // Pakistan is UTC+5
 
 function pad(n) {
   return String(n).padStart(2, '0')
@@ -33,8 +36,32 @@ function toYmd(d) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }
 
-function startOfDay(d) {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate())
+function getOrgNow() {
+  const now = new Date()
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: ORG_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
+  const ymd = formatter.format(now)
+  const [y, m, d] = ymd.split('-').map(Number)
+  return new Date(y, m - 1, d)
+}
+
+/**
+ * Returns ISO strings for the exact start and end of the Pakistan day range in UTC.
+ * Ensures identical results regardless of browser/laptop timezone.
+ */
+function getDayBoundsUtc(dateFromStr, dateToStr) {
+  if (!dateFromStr || !dateToStr) return { startDate: dateFromStr, endDate: dateToStr }
+  const [y1, m1, d1] = dateFromStr.split('-').map(Number)
+  const [y2, m2, d2] = dateToStr.split('-').map(Number)
+  // PKT is UTC+5 -> 00:00:00 PKT is 19:00:00 UTC of previous day (0 - 5 = -5)
+  const startUtc = new Date(Date.UTC(y1, m1 - 1, d1, 0 - ORG_OFFSET_HOURS, 0, 0, 0))
+  // PKT is UTC+5 -> 23:59:59.999 PKT is 18:59:59.999 UTC of same day (23 - 5 = 18)
+  const endUtc = new Date(Date.UTC(y2, m2 - 1, d2, 23 - ORG_OFFSET_HOURS, 59, 59, 999))
+  return { startDate: startUtc.toISOString(), endDate: endUtc.toISOString() }
 }
 
 function addDays(d, n) {
@@ -54,8 +81,7 @@ const PRESETS = [
 ]
 
 function getPresetRange(presetId) {
-  const now = new Date()
-  const today = startOfDay(now)
+  const today = getOrgNow()
   switch (presetId) {
     case 'today':
       return { from: toYmd(today), to: toYmd(today) }
@@ -66,22 +92,22 @@ function getPresetRange(presetId) {
     case 'thisWeek': {
       const day = today.getDay()
       const diff = today.getDate() - day + (day === 0 ? -6 : 1) // adjust when day is sunday
-      const monday = new Date(today.setDate(diff))
-      return { from: toYmd(monday), to: toYmd(now) }
+      const monday = new Date(today.getFullYear(), today.getMonth(), diff)
+      return { from: toYmd(monday), to: toYmd(today) }
     }
     case 'last7':
-      return { from: toYmd(addDays(today, -6)), to: toYmd(now) }
+      return { from: toYmd(addDays(today, -6)), to: toYmd(today) }
     case 'thisMonth':
-      return { from: toYmd(new Date(today.getFullYear(), today.getMonth(), 1)), to: toYmd(now) }
+      return { from: toYmd(new Date(today.getFullYear(), today.getMonth(), 1)), to: toYmd(today) }
     case 'last30':
-      return { from: toYmd(addDays(today, -29)), to: toYmd(now) }
+      return { from: toYmd(addDays(today, -29)), to: toYmd(today) }
     case 'lastMonth': {
       const first = new Date(today.getFullYear(), today.getMonth() - 1, 1)
       const last = new Date(today.getFullYear(), today.getMonth(), 0)
       return { from: toYmd(first), to: toYmd(last) }
     }
     default:
-      return { from: toYmd(addDays(today, -6)), to: toYmd(now) }
+      return { from: toYmd(addDays(today, -6)), to: toYmd(today) }
   }
 }
 
@@ -90,18 +116,37 @@ function formatChartTime(isoString, isMultiDay) {
   const d = new Date(isoString)
   if (Number.isNaN(d.getTime())) return ''
   if (isMultiDay) {
-    return d.toLocaleString([], {
+    return new Intl.DateTimeFormat('en-GB', {
+      timeZone: ORG_TIMEZONE,
       month: 'short',
       day: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
-    })
+      hour12: true,
+    }).format(d)
   }
-  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: ORG_TIMEZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  }).format(d)
+}
+
+function formatTooltipDate(isoString) {
+  if (!isoString) return ''
+  const d = new Date(isoString)
+  if (Number.isNaN(d.getTime())) return ''
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: ORG_TIMEZONE,
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+  }).format(d)
 }
 
 /**
- * Reusable Load & Historical Analytics View
+ * Reusable, High-Performance Load & Historical Analytics View
  * @param {'group' | 'slave'} mode
  * @param {object} group - group object (when mode === 'group')
  * @param {object} slave - slave details object { slaveId, slaveName, deviceId, deviceName } (when mode === 'slave')
@@ -114,6 +159,7 @@ export default function LoadAnalyticsPanel({
   group = null,
   slave = null,
   memberSlaves = [],
+  memberDevices = [],
   currentLiveKw = 0,
   onBack,
 }) {
@@ -125,10 +171,45 @@ export default function LoadAnalyticsPanel({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
+  // In-memory cache with TTL to ensure real-time consistency across all laptops and sessions
+  const cacheRef = useRef({})
+  const hasLoadedRef = useRef(false)
+
   const isMultiDay = useMemo(() => {
     if (!dateFrom || !dateTo) return false
     return dateFrom !== dateTo
   }, [dateFrom, dateTo])
+
+  // Direct devices in this group that don't already have specific member slaves
+  const effectiveDevices = useMemo(() => {
+    if (mode !== 'group') return []
+    const slaveDevIds = new Set((memberSlaves || []).map((s) => s.deviceId).filter(Boolean))
+    return (memberDevices || []).filter((d) => d.id && !slaveDevIds.has(d.id))
+  }, [mode, memberSlaves, memberDevices])
+
+  // All individual members (slaves + direct devices) for legends & breakdowns
+  const allGroupMembers = useMemo(() => {
+    if (mode !== 'group') return []
+    const list = [...(memberSlaves || [])]
+    effectiveDevices.forEach((d) => {
+      list.push({
+        id: d.id,
+        name: d.name || 'Device',
+        deviceId: d.id,
+        deviceName: d.name || 'Device',
+        isDirectDevice: true,
+      })
+    })
+    return list
+  }, [mode, memberSlaves, effectiveDevices])
+
+  // Stable key representing member slaves / devices
+  const slavesKey = useMemo(() => {
+    if (mode === 'slave') return `${slave?.deviceId}_${slave?.slaveId}`
+    const slaveParts = (memberSlaves || []).map((s) => `${s.deviceId}_${s.id}`).sort()
+    const devParts = effectiveDevices.map((d) => `dev_${d.id}`).sort()
+    return [...slaveParts, ...devParts].join(';')
+  }, [mode, slave?.deviceId, slave?.slaveId, memberSlaves, effectiveDevices])
 
   const handlePresetSelect = (presetId) => {
     setSelectedPreset(presetId)
@@ -143,139 +224,249 @@ export default function LoadAnalyticsPanel({
     if (to !== undefined) setDateTo(to)
   }
 
-  const loadData = useCallback(async () => {
-    if (!dateFrom || !dateTo) return
-    setLoading(true)
-    setError(null)
+  const loadData = useCallback(
+    async (forceRefresh = false) => {
+      if (!dateFrom || !dateTo) return
 
-    const startDate = new Date(`${dateFrom}T00:00:00`).toISOString()
-    const endDate = new Date(`${dateTo}T23:59:59.999`).toISOString()
+      const todayYmd = toYmd(new Date())
+      const isLiveRange = dateTo >= todayYmd
+      // Active/live ranges cached for 10s to keep range-switching instant but prevent stale sessions.
+      // Past historical ranges cached for 5 minutes.
+      const CACHE_TTL_MS = isLiveRange ? 10000 : 300000
 
-    try {
-      if (mode === 'slave') {
-        const devId = slave?.deviceId
-        const sId = slave?.slaveId
-        if (!devId || !sId) {
-          setChartData([])
-          setLoading(false)
-          return
-        }
+      const cacheKey = `${mode}:${slavesKey}:${dateFrom}:${dateTo}`
+      const cached = cacheRef.current[cacheKey]
+      const now = Date.now()
 
-        const res = await emsApi.getSensorAggregate({
-          deviceId: devId,
-          slaveId: sId,
-          variableName: 'ActivePower',
-          startDate,
-          endDate,
-        })
-        const points = Array.isArray(res?.data) ? res.data : []
-        const formatted = points.map((p) => {
-          const val = Math.abs(Number(p.value) || 0)
-          return {
-            timestamp: p.timestamp,
-            time: formatChartTime(p.timestamp, isMultiDay),
-            loadKw: +val.toFixed(2),
+      if (!forceRefresh && cached && (now - cached.timestamp < CACHE_TTL_MS)) {
+        setChartData(cached.chartData)
+        setSlaveStats(cached.slaveStats)
+        setLoading(false)
+        setError(null)
+        return
+      }
+
+      // Only show full loading spinner if we have no chart data currently rendered
+      if (!hasLoadedRef.current || forceRefresh) {
+        setLoading(true)
+      }
+      setError(null)
+
+      // Compute exact UTC start/end timestamps covering the Pakistan calendar day (UTC+5)
+      const { startDate, endDate } = getDayBoundsUtc(dateFrom, dateTo)
+
+      try {
+        if (mode === 'slave') {
+          const devId = slave?.deviceId
+          const sId = slave?.slaveId
+          if (!devId || !sId) {
+            setChartData([])
+            setLoading(false)
+            return
           }
-        })
-        setChartData(formatted)
-      } else {
-        // Group Mode: Fetch series for each member slave and combine
-        const slavesToQuery = memberSlaves.filter((s) => s.id && s.deviceId)
-        if (slavesToQuery.length === 0) {
-          setChartData([])
-          setLoading(false)
-          return
-        }
 
-        const slaveResponses = await Promise.all(
-          slavesToQuery.map(async (s) => {
-            try {
-              const res = await emsApi.getSensorAggregate({
-                deviceId: s.deviceId,
-                slaveId: s.id,
-                variableName: 'ActivePower',
-                startDate,
-                endDate,
-              })
-              const points = Array.isArray(res?.data) ? res.data : []
-              return { slaveId: s.id, slaveName: s.name, points }
-            } catch {
-              return { slaveId: s.id, slaveName: s.name, points: [] }
-            }
-          }),
-        )
-
-        // Merge all points by timestamp bucket
-        const timeMap = new Map()
-        const statsMap = {}
-
-        slavesToQuery.forEach((s) => {
-          statsMap[s.id] = {
-            id: s.id,
-            name: s.name || 'Slave',
-            deviceName: s.deviceName || 'Device',
-            values: [],
-          }
-        })
-
-        slaveResponses.forEach(({ slaveId, points }) => {
-          points.forEach((p) => {
-            const ts = new Date(p.timestamp).getTime()
-            if (Number.isNaN(ts)) return
-            const val = Math.abs(Number(p.value) || 0)
-
-            if (!timeMap.has(ts)) {
-              timeMap.set(ts, {
-                rawTimestamp: ts,
-                isoTimestamp: p.timestamp,
-                time: formatChartTime(p.timestamp, isMultiDay),
-                combinedKw: 0,
-                slaves: {},
-              })
-            }
-            const bucket = timeMap.get(ts)
-            bucket.slaves[slaveId] = +val.toFixed(2)
-            bucket.combinedKw = +(bucket.combinedKw + val).toFixed(2)
-
-            if (statsMap[slaveId]) {
-              statsMap[slaveId].values.push(val)
+          const res = await emsApi.getSensorAggregate({
+            deviceId: devId,
+            slaveId: sId,
+            variableName: 'ActivePower',
+            startDate,
+            endDate,
+          })
+          const points = Array.isArray(res?.data) ? res.data : []
+          const formatted = points.map((p) => {
+            const val = powerReadingToKw('ActivePower', p.value)
+            const safeVal = Number.isFinite(val) ? Math.abs(val) : 0
+            return {
+              timestamp: p.timestamp,
+              time: formatChartTime(p.timestamp, isMultiDay),
+              loadKw: +safeVal.toFixed(2),
             }
           })
-        })
 
-        const sortedChart = Array.from(timeMap.values())
-          .sort((a, b) => a.rawTimestamp - b.rawTimestamp)
-          .map((row) => ({
-            timestamp: row.isoTimestamp,
-            time: row.time,
-            loadKw: row.combinedKw,
-            ...row.slaves,
-          }))
+          cacheRef.current[cacheKey] = {
+            chartData: formatted,
+            slaveStats: {},
+            timestamp: Date.now(),
+          }
+          setChartData(formatted)
+          hasLoadedRef.current = true
+        } else {
+          // Group Mode: Fetch series for member slaves AND direct member devices
+          const slavesToQuery = memberSlaves.filter((s) => s.id && s.deviceId)
+          const devicesToQuery = effectiveDevices.filter((d) => d.id)
 
-        setChartData(sortedChart)
-        setSlaveStats(statsMap)
+          if (slavesToQuery.length === 0 && devicesToQuery.length === 0) {
+            setChartData([])
+            setLoading(false)
+            return
+          }
+
+          // Group member slaves by parent deviceId to batch requests (1 call per device instead of N per slave)
+          const devMap = new Map()
+          slavesToQuery.forEach((s) => {
+            if (!devMap.has(s.deviceId)) devMap.set(s.deviceId, [])
+            devMap.get(s.deviceId).push(s)
+          })
+
+          const tasks = [
+            ...Array.from(devMap.entries()).map(async ([devId, devSlaves]) => {
+              try {
+                const sIds = devSlaves.map((s) => s.id)
+                const res = await emsApi.getSensorAggregate({
+                  deviceId: devId,
+                  slaveIds: sIds.join(','),
+                  variableName: 'ActivePower',
+                  startDate,
+                  endDate,
+                })
+                const points = Array.isArray(res?.data) ? res.data : []
+                return { kind: 'slaves', devId, devSlaves, points }
+              } catch {
+                return { kind: 'slaves', devId, devSlaves, points: [] }
+              }
+            }),
+            ...devicesToQuery.map(async (d) => {
+              try {
+                const res = await emsApi.getSensorAggregate({
+                  deviceId: d.id,
+                  variableName: 'ActivePower',
+                  startDate,
+                  endDate,
+                })
+                const points = Array.isArray(res?.data) ? res.data : []
+                return { kind: 'device', device: d, points }
+              } catch {
+                return { kind: 'device', device: d, points: [] }
+              }
+            }),
+          ]
+
+          const responses = await Promise.all(tasks)
+
+          // Merge all points by timestamp bucket
+          const timeMap = new Map()
+          const statsMap = {}
+
+          allGroupMembers.forEach((m) => {
+            statsMap[m.id] = {
+              id: m.id,
+              name: m.name || 'Member',
+              deviceName: m.deviceName || 'Device',
+              values: [],
+            }
+          })
+
+          responses.forEach((resp) => {
+            if (resp.kind === 'slaves') {
+              const { devSlaves, points } = resp
+              points.forEach((p) => {
+                const ts = new Date(p.timestamp).getTime()
+                if (Number.isNaN(ts)) return
+                const rawKw = powerReadingToKw('ActivePower', p.value)
+                const val = Number.isFinite(rawKw) ? Math.abs(rawKw) : 0
+                const sId = p.slaveId || (devSlaves.length === 1 ? devSlaves[0].id : null)
+                if (!sId) return
+
+                if (!timeMap.has(ts)) {
+                  timeMap.set(ts, {
+                    rawTimestamp: ts,
+                    isoTimestamp: p.timestamp,
+                    time: formatChartTime(p.timestamp, isMultiDay),
+                    combinedKw: 0,
+                    members: {},
+                  })
+                }
+                const bucket = timeMap.get(ts)
+                bucket.members[sId] = +val.toFixed(2)
+                bucket.combinedKw = +(bucket.combinedKw + val).toFixed(2)
+
+                if (statsMap[sId]) {
+                  statsMap[sId].values.push(val)
+                }
+              })
+            } else if (resp.kind === 'device') {
+              const { device, points } = resp
+              points.forEach((p) => {
+                const ts = new Date(p.timestamp).getTime()
+                if (Number.isNaN(ts)) return
+                const rawKw = powerReadingToKw('ActivePower', p.value)
+                const val = Number.isFinite(rawKw) ? Math.abs(rawKw) : 0
+
+                if (!timeMap.has(ts)) {
+                  timeMap.set(ts, {
+                    rawTimestamp: ts,
+                    isoTimestamp: p.timestamp,
+                    time: formatChartTime(p.timestamp, isMultiDay),
+                    combinedKw: 0,
+                    members: {},
+                  })
+                }
+                const bucket = timeMap.get(ts)
+                bucket.members[device.id] = +val.toFixed(2)
+                bucket.combinedKw = +(bucket.combinedKw + val).toFixed(2)
+
+                if (statsMap[device.id]) {
+                  statsMap[device.id].values.push(val)
+                }
+              })
+            }
+          })
+
+          const sortedChart = Array.from(timeMap.values())
+            .sort((a, b) => a.rawTimestamp - b.rawTimestamp)
+            .map((row) => ({
+              timestamp: row.isoTimestamp,
+              time: row.time,
+              loadKw: row.combinedKw,
+              ...row.members,
+            }))
+
+          cacheRef.current[cacheKey] = {
+            chartData: sortedChart,
+            slaveStats: statsMap,
+            timestamp: Date.now(),
+          }
+          setChartData(sortedChart)
+          setSlaveStats(statsMap)
+          hasLoadedRef.current = true
+        }
+      } catch (err) {
+        setError(err?.message || 'Failed to load historical telemetry')
+        if (!hasLoadedRef.current) setChartData([])
+      } finally {
+        setLoading(false)
       }
-    } catch (err) {
-      setError(err?.message || 'Failed to load historical telemetry')
-      setChartData([])
-    } finally {
-      setLoading(false)
-    }
-  }, [mode, slave, memberSlaves, dateFrom, dateTo, isMultiDay])
+    },
+    [mode, slavesKey, slave, memberSlaves, effectiveDevices, allGroupMembers, dateFrom, dateTo, isMultiDay],
+  )
 
   useEffect(() => {
-    loadData()
+    loadData(false)
   }, [loadData])
+
+  // Periodic real-time update when viewing today or current range (every 10s)
+  useEffect(() => {
+    const todayYmd = toYmd(new Date())
+    const isLive = dateTo >= todayYmd
+    if (!isLive) return
+    const timer = setInterval(() => {
+      loadData(true)
+    }, 10000)
+    return () => clearInterval(timer)
+  }, [dateTo, loadData])
 
   // Aggregate summary calculations from real points
   const stats = useMemo(() => {
+    const liveVal = currentLiveKw != null && Number.isFinite(Number(currentLiveKw))
+      ? +Number(currentLiveKw).toFixed(2)
+      : (chartData.length ? +(Number(chartData[chartData.length - 1]?.loadKw) || 0).toFixed(2) : 0)
+
     if (!chartData.length) {
       return {
-        current: currentLiveKw || 0,
-        peak: 0,
-        avg: 0,
-        min: 0,
-        energyKwh: 0,
+        current: liveVal,
+        peak: liveVal,
+        avg: liveVal,
+        min: liveVal,
         count: 0,
       }
     }
@@ -285,18 +476,11 @@ export default function LoadAnalyticsPanel({
     const sum = values.reduce((a, b) => a + b, 0)
     const avg = sum / values.length
 
-    // Approximate energy (kWh) based on time span or bucket average
-    const firstTs = new Date(chartData[0].timestamp).getTime()
-    const lastTs = new Date(chartData[chartData.length - 1].timestamp).getTime()
-    const spanHours = Math.max(1, (lastTs - firstTs) / (1000 * 3600))
-    const energyKwh = +(avg * spanHours).toFixed(2)
-
     return {
-      current: currentLiveKw > 0 ? currentLiveKw : +(values[values.length - 1] || 0).toFixed(2),
+      current: liveVal,
       peak: +peak.toFixed(2),
       avg: +avg.toFixed(2),
       min: +min.toFixed(2),
-      energyKwh,
       count: values.length,
     }
   }, [chartData, currentLiveKw])
@@ -312,12 +496,12 @@ export default function LoadAnalyticsPanel({
         : `${slave?.slaveName || 'Slave'}_Load_Historical_${dateFrom}_to_${dateTo}`
 
     if (mode === 'group') {
-      const slaveHeaders = memberSlaves.map((s) => `"${s.name} (kW)"`).join(',')
-      csvContent = `Timestamp,"Formatted Time",${slaveHeaders ? slaveHeaders + ',' : ''}"Combined Group Load (kW)"\n`
+      const memberHeaders = allGroupMembers.map((m) => `"${m.name} (${m.isDirectDevice ? 'Direct Device' : 'Slave'}) (kW)"`).join(',')
+      csvContent = `Timestamp,"Formatted Time",${memberHeaders ? memberHeaders + ',' : ''}"Combined Group Load (kW)"\n`
 
       chartData.forEach((row) => {
-        const slaveVals = memberSlaves.map((s) => row[s.id] ?? 0).join(',')
-        csvContent += `"${row.timestamp}","${row.time}",${slaveVals ? slaveVals + ',' : ''}${row.loadKw}\n`
+        const memberVals = allGroupMembers.map((m) => row[m.id] ?? 0).join(',')
+        csvContent += `"${row.timestamp}","${row.time}",${memberVals ? memberVals + ',' : ''}${row.loadKw}\n`
       })
     } else {
       csvContent = `Timestamp,"Formatted Time","Slave Name","Parent Device","Load (kW)","Unit"\n`
@@ -372,7 +556,7 @@ export default function LoadAnalyticsPanel({
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={loadData}
+            onClick={() => loadData(true)}
             title="Refresh Historical Data"
             disabled={loading}
             className="btn-ghost p-1.5 text-surface-500 hover:text-surface-800 dark:hover:text-surface-200"
@@ -390,8 +574,8 @@ export default function LoadAnalyticsPanel({
         </div>
       </div>
 
-      {/* Summary KPI Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+      {/* Summary KPI Cards - Est. Energy removed per user request */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
         <div className="p-3 bg-white dark:bg-surface-900 rounded-xl border border-surface-200 dark:border-surface-800">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-bold text-surface-400 uppercase tracking-wider">
@@ -431,16 +615,6 @@ export default function LoadAnalyticsPanel({
           </div>
           <p className="text-lg font-black text-surface-900 dark:text-surface-100 mt-1">
             {stats.min.toFixed(2)} <span className="text-xs font-semibold text-surface-400">kW</span>
-          </p>
-        </div>
-
-        <div className="p-3 bg-white dark:bg-surface-900 rounded-xl border border-surface-200 dark:border-surface-800 col-span-2 sm:col-span-1">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold text-surface-400 uppercase tracking-wider">Est. Energy</span>
-            <Clock size={13} className="text-purple-500" />
-          </div>
-          <p className="text-lg font-black text-surface-900 dark:text-surface-100 mt-1">
-            {stats.energyKwh.toFixed(2)} <span className="text-xs font-semibold text-surface-400">kWh</span>
           </p>
         </div>
       </div>
@@ -509,7 +683,7 @@ export default function LoadAnalyticsPanel({
           </span>
         </div>
 
-        {loading ? (
+        {loading && chartData.length === 0 ? (
           <div className="h-64 flex flex-col items-center justify-center gap-2 text-surface-400">
             <RefreshCw size={24} className="animate-spin text-primary-500" />
             <p className="text-xs">Loading historical telemetry...</p>
@@ -526,7 +700,12 @@ export default function LoadAnalyticsPanel({
             <p className="text-[11px]">No active telemetry found for the selected date window ({dateFrom} to {dateTo}).</p>
           </div>
         ) : (
-          <div className="h-64 w-full">
+          <div className="h-64 w-full relative">
+            {loading && (
+              <div className="absolute top-2 right-2 z-10 flex items-center gap-1 text-[10px] text-primary-500 font-semibold bg-white/80 dark:bg-surface-900/80 px-2 py-0.5 rounded-md backdrop-blur-sm border border-primary-500/20 shadow-sm">
+                <RefreshCw size={10} className="animate-spin" /> Updating...
+              </div>
+            )}
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <defs>
@@ -556,17 +735,17 @@ export default function LoadAnalyticsPanel({
                     const row = payload[0].payload
                     return (
                       <div className="p-2.5 bg-surface-900 text-white rounded-lg shadow-xl border border-surface-700 text-xs space-y-1 max-w-xs">
-                        <p className="text-[10px] text-surface-400 font-mono">{label} ({new Date(row.timestamp).toLocaleDateString()})</p>
+                        <p className="text-[10px] text-surface-400 font-mono">{label} ({formatTooltipDate(row.timestamp)})</p>
                         <p className="text-sm font-bold text-primary-400">
                           {mode === 'group' ? 'Combined Load: ' : 'Load: '}
                           {row.loadKw} kW
                         </p>
-                        {mode === 'group' && memberSlaves.length > 1 && (
+                        {mode === 'group' && allGroupMembers.length > 1 && (
                           <div className="pt-1 border-t border-surface-800 space-y-0.5 text-[10px]">
-                            {memberSlaves.map((s) => (
-                              <div key={s.id} className="flex items-center justify-between gap-3 text-surface-300">
-                                <span className="truncate">{s.name}:</span>
-                                <span className="font-mono font-bold text-white">{row[s.id] ?? 0} kW</span>
+                            {allGroupMembers.map((m) => (
+                              <div key={m.id} className="flex items-center justify-between gap-3 text-surface-300">
+                                <span className="truncate">{m.name}:</span>
+                                <span className="font-mono font-bold text-white">{row[m.id] ?? 0} kW</span>
                               </div>
                             ))}
                           </div>
@@ -589,14 +768,14 @@ export default function LoadAnalyticsPanel({
         )}
       </div>
 
-      {/* Group Mode: Member Slaves Breakdown Table */}
-      {mode === 'group' && memberSlaves.length > 0 && (
+      {/* Group Mode: Member Breakdown Table */}
+      {mode === 'group' && allGroupMembers.length > 0 && (
         <div className="p-4 bg-white dark:bg-surface-900 rounded-xl border border-surface-200 dark:border-surface-800 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Layers size={14} className="text-primary-500" />
               <h5 className="text-xs font-bold text-surface-800 dark:text-surface-200 uppercase tracking-wider">
-                Member Slaves Load Breakdown ({memberSlaves.length})
+                Group Member Breakdown ({allGroupMembers.length})
               </h5>
             </div>
           </div>
@@ -605,8 +784,8 @@ export default function LoadAnalyticsPanel({
             <table className="w-full text-xs">
               <thead className="bg-surface-50 dark:bg-surface-950 text-surface-500">
                 <tr>
-                  <th className="text-left px-3 py-2.5 font-semibold">Slave Name</th>
-                  <th className="text-left px-3 py-2.5 font-semibold">Parent Device</th>
+                  <th className="text-left px-3 py-2.5 font-semibold">Node Name</th>
+                  <th className="text-left px-3 py-2.5 font-semibold">Type / Parent</th>
                   <th className="text-right px-3 py-2.5 font-semibold">Min (kW)</th>
                   <th className="text-right px-3 py-2.5 font-semibold">Avg (kW)</th>
                   <th className="text-right px-3 py-2.5 font-semibold">Peak (kW)</th>
@@ -614,34 +793,34 @@ export default function LoadAnalyticsPanel({
                 </tr>
               </thead>
               <tbody>
-                {memberSlaves.map((s) => {
-                  const sVals = slaveStats[s.id]?.values || []
-                  const sMin = sVals.length ? Math.min(...sVals).toFixed(2) : '—'
-                  const sMax = sVals.length ? Math.max(...sVals).toFixed(2) : '—'
-                  const sAvg = sVals.length
-                    ? (sVals.reduce((a, b) => a + b, 0) / sVals.length).toFixed(2)
+                {allGroupMembers.map((m) => {
+                  const mVals = slaveStats[m.id]?.values || []
+                  const mMin = mVals.length ? Math.min(...mVals).toFixed(2) : '—'
+                  const mMax = mVals.length ? Math.max(...mVals).toFixed(2) : '—'
+                  const mAvg = mVals.length
+                    ? (mVals.reduce((a, b) => a + b, 0) / mVals.length).toFixed(2)
                     : '—'
                   const sharePct =
-                    stats.avg > 0 && sAvg !== '—'
-                      ? Math.min(100, Math.round((Number(sAvg) / stats.avg) * 100))
+                    stats.avg > 0 && mAvg !== '—'
+                      ? Math.min(100, Math.round((Number(mAvg) / stats.avg) * 100))
                       : '—'
 
                   return (
-                    <tr key={s.id} className="border-t border-surface-100 dark:border-surface-800">
+                    <tr key={m.id} className="border-t border-surface-100 dark:border-surface-800">
                       <td className="px-3 py-2 font-bold text-surface-800 dark:text-surface-100">
-                        {s.name}
+                        {m.name}
                       </td>
                       <td className="px-3 py-2 text-surface-400">
-                        {s.deviceName || 'Device'}
+                        {m.isDirectDevice ? 'Direct Device' : (m.deviceName || 'Device')}
                       </td>
                       <td className="px-3 py-2 text-right font-mono text-surface-600 dark:text-surface-300">
-                        {sMin}
+                        {mMin}
                       </td>
                       <td className="px-3 py-2 text-right font-mono font-bold text-surface-800 dark:text-surface-100">
-                        {sAvg}
+                        {mAvg}
                       </td>
                       <td className="px-3 py-2 text-right font-mono text-rose-500 font-bold">
-                        {sMax}
+                        {mMax}
                       </td>
                       <td className="px-3 py-2 text-right">
                         {sharePct !== '—' ? (
@@ -652,7 +831,7 @@ export default function LoadAnalyticsPanel({
                             {sharePct}%
                           </span>
                         ) : (
-                          '—'
+                          <span className="text-surface-400 font-mono">—</span>
                         )}
                       </td>
                     </tr>

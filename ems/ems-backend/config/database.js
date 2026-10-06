@@ -5,9 +5,10 @@ const { Pool } = require('pg')
 
 const poolOpts = (url) => ({
   connectionString: url,
-  max:                     parseInt(process.env.DB_POOL_MAX || '20', 10),
+  max:                     parseInt(process.env.DB_POOL_MAX || '25', 10),
   idleTimeoutMillis:       parseInt(process.env.DB_POOL_IDLE_MS || '30000', 10),
   connectionTimeoutMillis: parseInt(process.env.DB_POOL_TIMEOUT_MS || '10000', 10),
+  statement_timeout:       parseInt(process.env.DB_STATEMENT_TIMEOUT_MS || '20000', 10),
 })
 
 const pool = new Pool(poolOpts(process.env.DATABASE_URL))

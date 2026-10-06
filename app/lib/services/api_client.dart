@@ -62,6 +62,13 @@ class ApiClient {
   static const _timeout = Duration(seconds: 20);
   bool _retryAfterRefresh = false;
 
+  Map<String, dynamic> _toMap(dynamic val) {
+    if (val == null) return {'success': true};
+    if (val is List) return {'data': val};
+    if (val is Map) return Map<String, dynamic>.from(val);
+    return {'data': val};
+  }
+
   Future<Map<String, dynamic>> get(String path, {Map<String, String>? query}) async {
     if (AppConfig.isDummyMode) {
       return DummyApi.instance.handle('GET', path, query: query);
@@ -70,7 +77,7 @@ class ApiClient {
       final res = await http.get(_uri(path, query), headers: _headers()).timeout(_timeout);
       final body = _decode(res);
       await _throwIfError(res, body);
-      return Map<String, dynamic>.from(body as Map);
+      return _toMap(body);
     });
   }
 
@@ -86,8 +93,7 @@ class ApiClient {
       ).timeout(_timeout);
       final decoded = _decode(res);
       await _throwIfError(res, decoded);
-      if (decoded == null) return {'success': true};
-      return Map<String, dynamic>.from(decoded as Map);
+      return _toMap(decoded);
     });
   }
 
@@ -103,8 +109,7 @@ class ApiClient {
       ).timeout(_timeout);
       final decoded = _decode(res);
       await _throwIfError(res, decoded);
-      if (decoded == null) return {'success': true};
-      return Map<String, dynamic>.from(decoded as Map);
+      return _toMap(decoded);
     });
   }
 
@@ -120,8 +125,7 @@ class ApiClient {
       ).timeout(_timeout);
       final decoded = _decode(res);
       await _throwIfError(res, decoded);
-      if (decoded == null) return {'success': true};
-      return Map<String, dynamic>.from(decoded as Map);
+      return _toMap(decoded);
     });
   }
 
@@ -137,8 +141,7 @@ class ApiClient {
       ).timeout(_timeout);
       final decoded = _decode(res);
       await _throwIfError(res, decoded);
-      if (decoded == null) return {'success': true};
-      return Map<String, dynamic>.from(decoded as Map);
+      return _toMap(decoded);
     });
   }
 

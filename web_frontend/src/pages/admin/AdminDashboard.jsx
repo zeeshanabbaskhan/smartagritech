@@ -251,7 +251,7 @@ export default function AdminDashboard() {
       />
       <StatCard
         label="Online Slaves"
-        value={`${scopedSlaves.online} / ${scopedSlaves.total}`}
+        value={scopedSlaves.online}
         icon={CheckCircle}
         color="success"
         sub={`${onlineCount} / ${(scope.devices || stats?.devices || []).length} devices online`}
