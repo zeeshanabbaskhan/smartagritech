@@ -844,6 +844,8 @@ export default function OrgDashboard() {
             allDevicesLabel="All Organization Devices"
             powerKpiLabel="Total Power Consumption"
             emptyGroupsHint="No devices found for this organization."
+            powerFlow={powerFlow}
+            liveSources={liveSources}
             onScopeChange={setKpiScope}
           />
 

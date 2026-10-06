@@ -62,6 +62,8 @@ export default function DashboardTelemetry({
   between = null,
   onScopeChange,
   telemetrySubtitle,
+  powerFlow,
+  liveSources,
 }) {
   const { showToast } = useToast()
   const [devices, setDevices] = useState([])
@@ -208,15 +210,89 @@ export default function DashboardTelemetry({
 
   const KPI_CONFIG = useMemo(() => {
     const colors = kpiColors()
-    return kpiState.cards.map((c, i) => ({
-      ...c,
-      Icon: KPI_ICONS[i % KPI_ICONS.length],
-      color: colors[i % colors.length],
-      label: powerKpiLabel && (c.key === 'power' || /activepower/i.test(c.key))
-        ? powerKpiLabel
-        : c.label,
-    }))
-  }, [kpiState.cards, powerKpiLabel])
+
+    // Calculate sources-based Power Factor when scoped to all devices and sources are available
+    let sourcesPfValue = null
+    let sourcesCount = 0
+    if (groupFilter === 'all' && (liveSources?.length || powerFlow?.sources?.length)) {
+      const srcList = liveSources || powerFlow?.sources || []
+      const pfVals = []
+      for (const s of srcList) {
+        const devIds = s.deviceIds || []
+        const slvIds = s.slaveIds || []
+        let srcPf = NaN
+
+        // Check linked slaves for PF
+        for (const sId of slvIds) {
+          for (const d of devices) {
+            const slv = (d.configSlaves || d.slaves || []).find((x) => x.id === sId)
+            if (slv && !isSwitchOff(slv) && !isOffline(slv)) {
+              const p = readDeviceMetric(slv, 'pf')
+              if (Number.isFinite(p) && p > 0) {
+                srcPf = p
+                break
+              }
+            }
+          }
+          if (Number.isFinite(srcPf)) break
+        }
+
+        // Check linked devices for PF
+        if (!Number.isFinite(srcPf)) {
+          for (const dId of devIds) {
+            const d = devices.find((x) => x.id === dId)
+            if (d && !isSwitchOff(d) && !isOffline(d)) {
+              const p = readDeviceMetric(d, 'pf')
+              if (Number.isFinite(p) && p > 0) {
+                srcPf = p
+                break
+              }
+            }
+          }
+        }
+
+        // Fallback for grid source to gridMetrics
+        if (!Number.isFinite(srcPf) && (s.type === 'grid' || s.id === 'grid' || String(s.id).startsWith('grid'))) {
+          const gPf = Number(powerFlow?.gridMetrics?.powerFactor)
+          if (Number.isFinite(gPf) && gPf > 0) srcPf = gPf
+        }
+
+        if (Number.isFinite(srcPf) && srcPf > 0 && srcPf <= 1.0) {
+          pfVals.push(srcPf)
+        }
+      }
+
+      if (pfVals.length > 0) {
+        sourcesPfValue = +(pfVals.reduce((a, b) => a + b, 0) / pfVals.length).toFixed(2)
+        sourcesCount = pfVals.length
+      } else if (powerFlow?.gridMetrics?.powerFactor != null) {
+        sourcesPfValue = +Number(powerFlow.gridMetrics.powerFactor).toFixed(2)
+        sourcesCount = 1
+      }
+    }
+
+    return kpiState.cards.map((c, i) => {
+      const isPf = c.key === 'pf' || /powerfactor/i.test(c.key) || c.label === 'Power Factor'
+      const isPower = c.key === 'power' || /activepower/i.test(c.key)
+
+      let finalValue = c.value
+      let finalSub = `${c.agg} · ${totalSlavesCount > 0 ? `${onlineSlavesCount} / ${totalSlavesCount} online slaves` : `${kpiState.onlineCount} online`}`
+
+      if (isPf && sourcesPfValue != null) {
+        finalValue = sourcesPfValue
+        finalSub = `Mean · All Power Sources`
+      }
+
+      return {
+        ...c,
+        value: finalValue,
+        Icon: KPI_ICONS[i % KPI_ICONS.length],
+        color: colors[i % colors.length],
+        label: powerKpiLabel && isPower ? powerKpiLabel : c.label,
+        subLabel: finalSub,
+      }
+    })
+  }, [kpiState.cards, powerKpiLabel, groupFilter, liveSources, powerFlow, devices, totalSlavesCount, onlineSlavesCount, kpiState.onlineCount])
 
   const activeGroupLabel = useMemo(() => {
     if (groupFilter === 'all') return allDevicesLabel
@@ -405,7 +481,7 @@ export default function DashboardTelemetry({
                 No live variables yet — start the MQTT bridge so device readings appear here.
               </div>
             ) : (
-              KPI_CONFIG.map(({ key, label, unit, Icon, color, agg, value }) => (
+              KPI_CONFIG.map(({ key, label, unit, Icon, color, agg, value, subLabel }) => (
                 <button
                   key={key}
                   type="button"
@@ -424,7 +500,7 @@ export default function DashboardTelemetry({
                   </div>
                   <div className="mt-2 flex items-center justify-between">
                     <span className="text-[10px] text-surface-400 font-semibold">
-                      {agg} · {totalSlavesCount > 0 ? `${onlineSlavesCount} / ${totalSlavesCount} online slaves` : `${kpiState.onlineCount} online`}
+                      {subLabel || `${agg} · ${totalSlavesCount > 0 ? `${onlineSlavesCount} / ${totalSlavesCount} online slaves` : `${kpiState.onlineCount} online`}`}
                     </span>
                     <ChevronRight size={11} className="text-surface-300 group-hover:text-primary-500 transition-colors flex-shrink-0" />
                   </div>
