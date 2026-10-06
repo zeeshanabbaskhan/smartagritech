@@ -482,31 +482,44 @@ export default function DashboardTelemetry({
                 No live variables yet — start the MQTT bridge so device readings appear here.
               </div>
             ) : (
-              KPI_CONFIG.map(({ key, label, unit, Icon, color, agg, value, subLabel }) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setDrillMetric(key)}
-                  className="card p-4 text-left hover:shadow-elevated hover:border-primary-200 dark:hover:border-primary-800 transition-all duration-200 cursor-pointer group border border-surface-200 dark:border-surface-800 w-full"
-                >
-                  <div className="flex items-start justify-between mb-2">
-                    <span className="text-[10px] font-black text-surface-400 uppercase tracking-wider leading-tight truncate pr-2">{label}</span>
-                    <Icon size={13} style={{ color }} className="flex-shrink-0 mt-0.5" />
+              KPI_CONFIG.map(({ key, label, unit, Icon, color, agg, value, subLabel }) => {
+                const isPf = key === 'pf' || /powerfactor/i.test(key) || label === 'Power Factor'
+                const canDrill = !isPf
+
+                return (
+                  <div
+                    key={key}
+                    role={canDrill ? 'button' : undefined}
+                    tabIndex={canDrill ? 0 : undefined}
+                    onClick={() => canDrill && setDrillMetric(key)}
+                    onKeyDown={(e) => canDrill && (e.key === 'Enter' || e.key === ' ') && setDrillMetric(key)}
+                    className={`card p-4 text-left border border-surface-200 dark:border-surface-800 w-full transition-all duration-200 ${
+                      canDrill
+                        ? 'hover:shadow-elevated hover:border-primary-200 dark:hover:border-primary-800 cursor-pointer group'
+                        : 'cursor-default'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between mb-2">
+                      <span className="text-[10px] font-black text-surface-400 uppercase tracking-wider leading-tight truncate pr-2">{label}</span>
+                      <Icon size={13} style={{ color }} className="flex-shrink-0 mt-0.5" />
+                    </div>
+                    <div className="flex items-baseline gap-1">
+                      <span className="device-metric-value text-2xl font-black leading-none">
+                        {Number.isFinite(value) ? formatTileValue(value, key) : '—'}
+                      </span>
+                      {unit ? <span className="text-xs font-bold text-surface-400">{unit}</span> : null}
+                    </div>
+                    <div className="mt-2 flex items-center justify-between">
+                      <span className="text-[10px] text-surface-400 font-semibold">
+                        {subLabel || `${agg} · ${totalSlavesCount > 0 ? `${onlineSlavesCount} / ${totalSlavesCount} online slaves` : `${kpiState.onlineCount} online`}`}
+                      </span>
+                      {canDrill && (
+                        <ChevronRight size={11} className="text-surface-300 group-hover:text-primary-500 transition-colors flex-shrink-0" />
+                      )}
+                    </div>
                   </div>
-                  <div className="flex items-baseline gap-1">
-                    <span className="device-metric-value text-2xl font-black leading-none">
-                      {Number.isFinite(value) ? formatTileValue(value, key) : '—'}
-                    </span>
-                    {unit ? <span className="text-xs font-bold text-surface-400">{unit}</span> : null}
-                  </div>
-                  <div className="mt-2 flex items-center justify-between">
-                    <span className="text-[10px] text-surface-400 font-semibold">
-                      {subLabel || `${agg} · ${totalSlavesCount > 0 ? `${onlineSlavesCount} / ${totalSlavesCount} online slaves` : `${kpiState.onlineCount} online`}`}
-                    </span>
-                    <ChevronRight size={11} className="text-surface-300 group-hover:text-primary-500 transition-colors flex-shrink-0" />
-                  </div>
-                </button>
-              ))
+                )
+              })
             )}
           </div>
         </div>
@@ -591,7 +604,7 @@ export default function DashboardTelemetry({
         </div>
       )}
 
-      {showKpis && drillCfg && (
+      {showKpis && drillCfg && drillCfg.key !== 'pf' && !/powerfactor/i.test(drillCfg.key) && (
         <DrillDownModal
           open
           onClose={() => setDrillMetric(null)}
