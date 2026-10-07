@@ -334,6 +334,12 @@ export function isPhaseCurrentVariable(name) {
     || n === 'ia' || n === 'ib' || n === 'ic'
 }
 
+/** True for power factor variable names */
+export function isPowerFactorVariable(name) {
+  const n = String(name || '').toLowerCase().replace(/[\s_\-]/g, '')
+  return n === 'pf' || n === 'powerfactor' || n === 'averagepowerfactor' || n === 'totalpowerfactor' || n === 'powerfactortotal' || n === 'avgpf'
+}
+
 /** True when node matches configured source slave IDs or supply-meter regex. */
 export function isSourceNode(node, sourceSlaveIds = null) {
   if (!node) return false
@@ -625,6 +631,8 @@ export function computeDynamicKpis(devices = [], { sourceSlaveIds = null } = {})
 
   if (chosenNames.length) {
     const cards = chosenNames.map((name) => {
+      const isPfMetric = isPowerFactorVariable(name) || /pf|powerfactor/i.test(name)
+
       // Power card: sum only the supply source slaves (WAPDA + Solar + Generator)
       if (name === powerCandidate || /total power|totalpower|activepower|totalactivepower/i.test(name)) {
         if (sourceSlaves.length > 0) {
