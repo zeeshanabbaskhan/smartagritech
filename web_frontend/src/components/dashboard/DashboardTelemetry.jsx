@@ -237,7 +237,6 @@ export default function DashboardTelemetry({
         ...srcList.flatMap((s) => s.slaveIds || []),
       ].map(String))
 
-      const isSourceName = (name) => /wapda|grid|solar|generator|gen\b|^g[0-9]|invt/i.test(String(name || ''))
       const pfVals = []
       const evaluatedSlaves = []
 
@@ -248,7 +247,7 @@ export default function DashboardTelemetry({
         for (const slv of slaves) {
           if (isSwitchOff(slv) || isOffline(slv)) continue
           const idStr = String(slv.id ?? '')
-          const isSource = configuredSourceIds.has(idStr) || isSourceName(slv.name)
+          const isSource = configuredSourceIds.has(idStr)
           if (!isSource) continue
 
           const p = readDeviceMetric(slv, 'pf')
