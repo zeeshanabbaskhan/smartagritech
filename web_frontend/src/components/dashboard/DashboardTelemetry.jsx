@@ -242,7 +242,7 @@ export default function DashboardTelemetry({
             const slv = (d.configSlaves || d.slaves || []).find((x) => x.id === sId)
             if (slv && !isSwitchOff(slv) && !isOffline(slv)) {
               const p = readDeviceMetric(slv, 'pf')
-              if (Number.isFinite(p) && p > 0) {
+              if (Number.isFinite(p) && p > 0 && p <= 1.0) {
                 srcPf = p
                 break
               }
@@ -257,7 +257,7 @@ export default function DashboardTelemetry({
             const d = devices.find((x) => x.id === dId)
             if (d && !isSwitchOff(d) && !isOffline(d)) {
               const p = readDeviceMetric(d, 'pf')
-              if (Number.isFinite(p) && p > 0) {
+              if (Number.isFinite(p) && p > 0 && p <= 1.0) {
                 srcPf = p
                 break
               }
@@ -268,23 +268,11 @@ export default function DashboardTelemetry({
         // Fallback for grid source to gridMetrics
         if (!Number.isFinite(srcPf) && (s.type === 'grid' || s.id === 'grid' || String(s.id).startsWith('grid'))) {
           const gPf = Number(powerFlow?.gridMetrics?.powerFactor)
-          if (Number.isFinite(gPf) && gPf > 0) srcPf = gPf
+          if (Number.isFinite(gPf) && gPf > 0 && gPf <= 1.0) srcPf = gPf
         }
 
         if (Number.isFinite(srcPf) && srcPf > 0 && srcPf <= 1.0) {
           pfVals.push(srcPf)
-        }
-      }
-
-      // If sources didn't have explicit device/slave mappings with PF, check all active devices with PF
-      if (pfVals.length === 0) {
-        for (const d of devices) {
-          if (!isSwitchOff(d) && !isOffline(d)) {
-            const p = readDeviceMetric(d, 'pf')
-            if (Number.isFinite(p) && p > 0 && p <= 1.0) {
-              pfVals.push(p)
-            }
-          }
         }
       }
 
@@ -333,9 +321,10 @@ export default function DashboardTelemetry({
       } else if (isPf) {
         if (sourcesPfValue != null && Number.isFinite(sourcesPfValue)) {
           finalValue = sourcesPfValue
-        } else if (!Number.isFinite(finalValue)) {
-          const anyPf = devices.map((d) => readDeviceMetric(d, 'pf')).find((v) => Number.isFinite(v) && v > 0)
-          finalValue = Number.isFinite(anyPf) ? anyPf : 0.93
+        } else if (Number.isFinite(c.value)) {
+          finalValue = c.value
+        } else {
+          finalValue = NaN
         }
         finalSub = 'Mean · All Power Sources'
       }

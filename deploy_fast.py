@@ -1,6 +1,6 @@
 import os
 import tarfile
-import time
+import base64
 import io
 import paramiko
 
@@ -20,44 +20,50 @@ with tarfile.open(fileobj=buf, mode="w:gz") as tar:
             rel_path = os.path.relpath(full_path, DIST_DIR)
             tar.add(full_path, arcname=rel_path)
 
-data = buf.getvalue()
-print(f"Archive ready: {len(data)} bytes")
+tar_bytes = buf.getvalue()
+b64_data = base64.b64encode(tar_bytes).decode('ascii')
+print(f"Archive ready: {len(tar_bytes)} bytes (Base64: {len(b64_data)} chars)")
 
-for attempt in range(1, 4):
-    try:
-        print(f"Connecting to {HOST}:{PORT} (attempt {attempt}/3)...")
-        ssh = paramiko.SSHClient()
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        ssh.connect(HOST, port=PORT, username=USER, password=PASS, timeout=20)
+print(f"Connecting to {HOST}:{PORT}...")
+ssh = paramiko.SSHClient()
+ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+ssh.connect(HOST, port=PORT, username=USER, password=PASS, timeout=30)
 
-        sftp = ssh.open_sftp()
-        print("Writing tar file directly on server...")
-        with sftp.file("/tmp/dist.tar.gz", "wb") as f:
-            f.write(data)
-        sftp.close()
+print("Streaming archive directly to remote server via SSH stdin...")
+cmd = "rm -rf /tmp/new_html && mkdir -p /tmp/new_html && base64 -d | tar -xz -C /tmp/new_html"
+stdin, stdout, stderr = ssh.exec_command(cmd)
 
-        print("Updating docker container...")
-        commands = [
-            "rm -rf /tmp/new_html && mkdir -p /tmp/new_html",
-            "tar -xzf /tmp/dist.tar.gz -C /tmp/new_html",
-            "docker cp /tmp/new_html/. smartagritech-frontend-1:/usr/share/nginx/html/",
-            "docker exec smartagritech-frontend-1 nginx -s reload",
-            "rm -f /tmp/dist.tar.gz && rm -rf /tmp/new_html"
-        ]
+chunk_size = 65536
+for i in range(0, len(b64_data), chunk_size):
+    stdin.write(b64_data[i:i+chunk_size])
+stdin.flush()
+stdin.channel.shutdown_write()
 
-        for cmd in commands:
-            stdin, stdout, stderr = ssh.exec_command(cmd)
-            exit_code = stdout.channel.recv_exit_status()
-            out = stdout.read().decode().strip()
-            err = stderr.read().decode().strip()
-            if exit_code != 0:
-                print(f"Error executing: {cmd}\nExit: {exit_code}\nStderr: {err}\nStdout: {out}")
-            else:
-                print(f"OK: {cmd}")
+exit_code = stdout.channel.recv_exit_status()
+err = stderr.read().decode().strip()
+if exit_code != 0:
+    print(f"Error extracting archive: {err}")
+    ssh.close()
+    exit(1)
 
-        ssh.close()
-        print("Deployment completed successfully!")
-        break
-    except Exception as e:
-        print(f"Attempt {attempt} failed: {e}")
-        time.sleep(2)
+print("Archive extracted successfully!")
+
+print("Updating docker container and reloading nginx...")
+commands = [
+    "docker cp /tmp/new_html/. smartagritech-frontend-1:/usr/share/nginx/html/",
+    "docker exec smartagritech-frontend-1 nginx -s reload",
+    "rm -rf /tmp/new_html"
+]
+
+for c in commands:
+    stdin, stdout, stderr = ssh.exec_command(c)
+    exit_code = stdout.channel.recv_exit_status()
+    out = stdout.read().decode().strip()
+    err = stderr.read().decode().strip()
+    if exit_code != 0:
+        print(f"Error executing: {c}\nExit: {exit_code}\nStderr: {err}\nStdout: {out}")
+    else:
+        print(f"OK: {c}")
+
+ssh.close()
+print("Deployment completed successfully!")

@@ -222,7 +222,11 @@ export function readDeviceMetric(device, type) {
           count++
         }
       }
-      return count > 0 ? +(sum / count).toFixed(2) : NaN
+      if (count > 0) return +(sum / count).toFixed(2)
+      // If child load slaves do not expose individual PF / quality registers, read root incoming meter value on parent device:
+      const rootVal = readSingleEntityMetric(device, type)
+      if (Number.isFinite(rootVal)) return rootVal
+      return NaN
     }
   }
 
@@ -658,18 +662,44 @@ export function computeDynamicKpis(devices = [], { sourceSlaveIds = null } = {})
           gaugeMax: curSum > 0 ? curSum * 1.2 : 100,
         }
       }
+      // Power Factor card: calculate strictly across the supply source slaves (WAPDA + Solar + Generator)
+      if (isPfMetric) {
+        let pfVals = []
+        if (sourceSlaves.length > 0) {
+          pfVals = sourceSlaves
+            .map((s) => readDeviceMetric(s, 'pf'))
+            .filter((v) => Number.isFinite(v) && v > 0 && v <= 1.0)
+        }
+        if (pfVals.length === 0) {
+          pfVals = online
+            .filter((d) => isSourceNode(d, sourceSlaveIds))
+            .map((d) => readDeviceMetric(d, 'pf'))
+            .filter((v) => Number.isFinite(v) && v > 0 && v <= 1.0)
+        }
+        const pfMean = pfVals.length ? +(pfVals.reduce((s, v) => s + v, 0) / pfVals.length).toFixed(2) : NaN
+        return {
+          key: name,
+          label: formatCardLabel(name),
+          metric: name,
+          unit: '',
+          value: pfMean,
+          agg: 'Mean',
+          sub: 'Mean · All Power Sources',
+          gaugeMax: 1.0,
+        }
+      }
+
       const vals = online
         .map((d) => readDeviceMetric(d, name))
         .filter(Number.isFinite)
       const sum = vals.reduce((s, v) => s + v, 0)
       const mean = vals.length ? sum / vals.length : NaN
-      const useMean = /voltage|pf|powerfactor|frequency|temp|moist|battery/i.test(name)
-      const isPfMetric = /pf|powerfactor/i.test(name)
+      const useMean = /voltage|frequency|temp|moist|battery/i.test(name)
       return {
         key: name,
         label: formatCardLabel(name),
         metric: name,
-        unit: isPfMetric ? '' : unitForVariable(name),
+        unit: unitForVariable(name),
         value: useMean ? mean : sum,
         agg: useMean ? 'Mean' : 'Sum',
         gaugeMax: useMean ? (mean > 0 ? mean * 1.4 : 1) : (sum > 0 ? sum * 1.2 : 100),
