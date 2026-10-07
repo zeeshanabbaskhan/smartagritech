@@ -756,10 +756,10 @@ export default function PowerFlowMindMap({
                       <button
                         type="button"
                         onClick={() => openCreateSource(site.id)}
-                        className="flex items-center justify-center gap-1 rounded-lg px-2 py-1.5 border border-dashed border-surface-300 dark:border-surface-700/80 hover:border-primary-400 hover:bg-primary-50/50 dark:hover:bg-primary-950/20 text-surface-400 hover:text-primary-400 transition-all font-medium text-[11px] self-center flex-shrink-0 whitespace-nowrap"
+                        title="Add Source"
+                        className="w-8 h-8 rounded-full border border-dashed border-surface-400/60 dark:border-surface-600 hover:border-primary-400 hover:bg-primary-50/50 text-surface-400 hover:text-primary-400 flex items-center justify-center transition-all flex-shrink-0 self-center"
                       >
-                        <Plus size={11} />
-                        <span>Add Source</span>
+                        <Plus size={14} />
                       </button>
                     )}
                   </div>
@@ -771,10 +771,10 @@ export default function PowerFlowMindMap({
               <button
                 type="button"
                 onClick={addSite}
-                className="flex items-center justify-center gap-1 rounded-lg px-2.5 py-1.5 border border-dashed border-surface-300 dark:border-surface-700/80 hover:border-primary-400 hover:bg-primary-50/50 dark:hover:bg-primary-950/20 text-surface-400 hover:text-primary-400 transition-all font-medium text-[11px] flex-shrink-0 self-center whitespace-nowrap"
+                title="Add Site"
+                className="w-8 h-8 rounded-full border border-dashed border-surface-400/60 dark:border-surface-600 hover:border-primary-400 hover:bg-primary-50/50 text-surface-400 hover:text-primary-400 flex items-center justify-center transition-all self-center"
               >
-                <Plus size={11} />
-                <span>Add Site</span>
+                <Plus size={14} />
               </button>
             )}
           </div>
@@ -802,16 +802,16 @@ export default function PowerFlowMindMap({
           <div className="flex justify-center mt-2 sm:mt-2.5">
             <div
               ref={orgRef}
-              className="flex items-center gap-2.5 rounded-xl px-4.5 py-2.5 text-white shadow-lg"
+              className="flex items-center gap-3 rounded-2xl px-6 py-3 text-white shadow-lg"
               style={{ background: 'linear-gradient(145deg, #34D399, #0EA5E9)' }}
             >
-              <div className="w-9 h-9 rounded-lg bg-white/20 flex items-center justify-center">
-                <Building2 size={18} />
+              <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center flex-shrink-0">
+                <Building2 size={20} />
               </div>
-              <div className="leading-tight">
-                <p className="text-[10px] font-bold opacity-90">Total Organization Load</p>
-                <p className="text-lg font-black leading-tight">{load.toFixed(1)} kW</p>
-                <p className="text-[8.5px] font-semibold opacity-75 mt-0.5">Total supply from all active energy sources</p>
+              <div className="leading-tight flex flex-col justify-center">
+                <p className="text-xs font-bold text-white/95">Total Organization Load</p>
+                <p className="text-xl font-black text-white leading-tight">{load.toFixed(1)} kW</p>
+                <p className="text-[10px] font-medium text-white/80 mt-0.5">Total supply from all active energy sources</p>
               </div>
             </div>
           </div>
@@ -823,10 +823,10 @@ export default function PowerFlowMindMap({
             {groups.length === 0 ? (
               <Link
                 to={groupsPath}
-                className="flex items-center gap-1 rounded-lg px-2.5 py-1 border border-dashed border-surface-300 dark:border-surface-700/80 hover:border-primary-400 hover:bg-primary-50/50 dark:hover:bg-primary-950/20 text-surface-400 hover:text-primary-400 text-[11px] font-medium transition-all self-center whitespace-nowrap"
+                title="Create a Group"
+                className="w-8 h-8 rounded-full border border-dashed border-surface-300 dark:border-surface-700/80 hover:border-primary-400 hover:bg-primary-50/50 text-surface-400 hover:text-primary-400 flex items-center justify-center transition-all self-center"
               >
-                <Plus size={11} />
-                <span>Create a Group</span>
+                <Plus size={14} />
               </Link>
             ) : (
               <>
@@ -895,10 +895,10 @@ export default function PowerFlowMindMap({
                 })}
                 <Link
                   to={groupsPath}
-                  className="flex items-center gap-1 rounded-lg px-2.5 py-1 border border-dashed border-surface-300 dark:border-surface-700/80 hover:border-primary-400 hover:bg-primary-50/50 dark:hover:bg-primary-950/20 text-surface-400 hover:text-primary-400 text-[11px] font-medium transition-all self-center whitespace-nowrap"
+                  title="Manage Groups"
+                  className="w-8 h-8 rounded-full border border-dashed border-surface-300 dark:border-surface-700/80 hover:border-primary-400 hover:bg-primary-50/50 text-surface-400 hover:text-primary-400 flex items-center justify-center transition-all self-center"
                 >
-                  <Plus size={11} />
-                  <span>Manage Groups</span>
+                  <Plus size={14} />
                 </Link>
               </>
             )}
