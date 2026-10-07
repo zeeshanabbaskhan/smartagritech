@@ -719,10 +719,14 @@ export function computeDynamicKpis(devices = [], { sourceSlaveIds = null } = {})
       // Power Factor card: calculate strictly across the supply source slaves (WAPDA + Solar + Generator)
       if (isPfMetric) {
         let pfVals = []
-        if (sourceSlaves.length > 0) {
-          pfVals = sourceSlaves
-            .map((s) => readDeviceMetric(s, 'pf'))
-            .filter((v) => Number.isFinite(v) && v > 0 && v <= 1.0)
+        for (const d of online) {
+          const slaves = d.slaves || d.configSlaves || []
+          for (const s of slaves) {
+            if (!isTelemetryActive(s)) continue
+            if (!isSourceNode(s, sourceSlaveIds)) continue
+            const p = readDeviceMetric(s, 'pf')
+            if (Number.isFinite(p) && p > 0 && p <= 1.0) pfVals.push(p)
+          }
         }
         if (pfVals.length === 0) {
           pfVals = online

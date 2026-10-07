@@ -227,60 +227,45 @@ export default function DashboardTelemetry({
 
   const KPI_CONFIG = useMemo(() => {
     const colors = kpiColors()
-    // Calculate sources-based Power Factor when scoped to all devices and sources are available
+    // Calculate sources-based Power Factor across ALL configured source slaves
     let sourcesPfValue = null
     let sourcesCount = 0
     if (groupFilter === 'all') {
       const srcList = (liveSources?.length ? liveSources : powerFlow?.sources) || []
+      const configuredSourceIds = new Set([
+        ...(Array.isArray(sourceSlaveIds) ? sourceSlaveIds : (sourceSlaveIds instanceof Set ? [...sourceSlaveIds] : [])),
+        ...srcList.flatMap((s) => s.slaveIds || []),
+      ].map(String))
+
+      const isSourceName = (name) => /wapda|grid|solar|generator|gen\b|^g[0-9]|invt/i.test(String(name || ''))
       const pfVals = []
-      for (const s of srcList) {
-        const devIds = s.deviceIds || []
-        const slvIds = s.slaveIds || []
-        let srcPf = NaN
+      const evaluatedSlaves = []
 
-        // Check linked slaves for PF
-        for (const sId of slvIds) {
-          for (const d of devices) {
-            const slv = (d.configSlaves || d.slaves || []).find((x) => x.id === sId)
-            if (slv && !isSwitchOff(slv) && !isOffline(slv)) {
-              const p = readDeviceMetric(slv, 'pf')
-              if (Number.isFinite(p) && p > 0 && p <= 1.0) {
-                srcPf = p
-                break
-              }
-            }
+      // Evaluate every slave across active online devices
+      for (const d of devices) {
+        if (isSwitchOff(d) || isOffline(d)) continue
+        const slaves = d.configSlaves || d.slaves || []
+        for (const slv of slaves) {
+          if (isSwitchOff(slv) || isOffline(slv)) continue
+          const idStr = String(slv.id ?? '')
+          const isSource = configuredSourceIds.has(idStr) || isSourceName(slv.name)
+          if (!isSource) continue
+
+          const p = readDeviceMetric(slv, 'pf')
+          if (Number.isFinite(p) && p > 0 && p <= 1.0) {
+            pfVals.push(p)
+            evaluatedSlaves.push({ name: slv.name, device: d.name, pf: p })
           }
-          if (Number.isFinite(srcPf)) break
-        }
-
-        // Check linked devices for PF
-        if (!Number.isFinite(srcPf)) {
-          for (const dId of devIds) {
-            const d = devices.find((x) => x.id === dId)
-            if (d && !isSwitchOff(d) && !isOffline(d)) {
-              const p = readDeviceMetric(d, 'pf')
-              if (Number.isFinite(p) && p > 0 && p <= 1.0) {
-                srcPf = p
-                break
-              }
-            }
-          }
-        }
-
-        // Fallback for grid source to gridMetrics
-        if (!Number.isFinite(srcPf) && (s.type === 'grid' || s.id === 'grid' || String(s.id).startsWith('grid'))) {
-          const gPf = Number(powerFlow?.gridMetrics?.powerFactor)
-          if (Number.isFinite(gPf) && gPf > 0 && gPf <= 1.0) srcPf = gPf
-        }
-
-        if (Number.isFinite(srcPf) && srcPf > 0 && srcPf <= 1.0) {
-          pfVals.push(srcPf)
         }
       }
 
       if (pfVals.length > 0) {
-        sourcesPfValue = +(pfVals.reduce((a, b) => a + b, 0) / pfVals.length).toFixed(2)
+        const sum = pfVals.reduce((a, b) => a + b, 0)
+        sourcesPfValue = +(sum / pfVals.length).toFixed(2)
         sourcesCount = pfVals.length
+        if (typeof window !== 'undefined') {
+          console.log(`[Power Factor KPI] Calculated arithmetic average across ${pfVals.length} source slaves:`, evaluatedSlaves, `Sum: ${sum.toFixed(4)}, Average: ${sourcesPfValue}`)
+        }
       } else if (powerFlow?.gridMetrics?.powerFactor != null && Number(powerFlow.gridMetrics.powerFactor) > 0) {
         sourcesPfValue = +Number(powerFlow.gridMetrics.powerFactor).toFixed(2)
         sourcesCount = 1
@@ -345,7 +330,7 @@ export default function DashboardTelemetry({
         subLabel: finalSub,
       }
     })
-  }, [kpiState.cards, powerKpiLabel, groupFilter, isDeviceMode, selectedDevice, totalPowerOverride, totalPowerSubLabel, liveSources, powerFlow, devices, totalSlavesCount, onlineSlavesCount, kpiState.onlineCount])
+  }, [kpiState.cards, powerKpiLabel, groupFilter, isDeviceMode, selectedDevice, totalPowerOverride, totalPowerSubLabel, liveSources, powerFlow, devices, sourceSlaveIds, totalSlavesCount, onlineSlavesCount, kpiState.onlineCount])
 
   const activeGroupLabel = useMemo(() => {
     if (groupFilter === 'all') return allDevicesLabel
