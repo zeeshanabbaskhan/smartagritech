@@ -470,6 +470,50 @@ export function getDeviceLoadMetric(device, metric, { sourceSlaveIds = null } = 
   return +vals.reduce((sum, v) => sum + v, 0).toFixed(2)
 }
 
+/** Identify main WAPDA incomer slaves (e.g. WAPDA-AMB, WAPDA-AFL) */
+export function isWapdaIncomerSlave(node) {
+  if (!node) return false
+  const raw = String(node.name || '').toLowerCase()
+  const norm = raw.replace(/[\s_\-]+/g, '')
+  return norm.includes('wapdaamb') || norm.includes('wapdaafl') || norm === 'wafl' || (norm.includes('wapda') && !norm.includes('gen') && !norm.includes('solar') && !norm.includes('load'))
+}
+
+/** Collect all online WAPDA incomer slaves across devices */
+export function collectWapdaIncomerSlaves(devices = []) {
+  const result = []
+  const seen = new Set()
+  for (const d of devices) {
+    if (!isTelemetryActive(d)) continue
+    const slaves = d.configSlaves || d.slaves || []
+    for (const s of slaves) {
+      if (!isTelemetryActive(s)) continue
+      if (isWapdaIncomerSlave(s)) {
+        const key = s.id || `${d.id}-${s.name}`
+        if (!seen.has(key)) {
+          seen.add(key)
+          result.push(s)
+        }
+      }
+    }
+  }
+  return result
+}
+
+/** Get WAPDA incomer slaves of a specific device */
+export function getDeviceWapdaSlaves(device) {
+  if (!device || !isTelemetryActive(device)) return []
+  const slaves = device.configSlaves || device.slaves || []
+  return slaves.filter((s) => isTelemetryActive(s) && isWapdaIncomerSlave(s))
+}
+
+/** Get WAPDA incomer metric value of a device */
+export function getDeviceWapdaMetric(device, metric) {
+  const wSlaves = getDeviceWapdaSlaves(device)
+  if (!wSlaves.length) return 0
+  const vals = wSlaves.map((s) => readDeviceMetric(s, metric)).filter(Number.isFinite)
+  return +vals.reduce((sum, v) => sum + v, 0).toFixed(2)
+}
+
 /**
  * Fleet KPIs from real shared variable names across online devices.
  * Uses deterministic electrical ordering (Power -> Current A -> Current B -> Current C)
@@ -482,6 +526,7 @@ export function computeDynamicKpis(devices = [], { sourceSlaveIds = null } = {})
   const online = devices.filter((d) => isTelemetryActive(d))
   const loadSlaves = collectLoadSlaves(online, { sourceSlaveIds })
   const sourceSlaves = collectSourceSlaves(online, { sourceSlaveIds })
+  const wapdaSlaves = collectWapdaIncomerSlaves(online)
   const nameCounts = new Map()
   for (const d of online) {
     for (const { name, value } of listDeviceMetricEntries(d, { limit: 0 })) {
@@ -641,9 +686,10 @@ export function computeDynamicKpis(devices = [], { sourceSlaveIds = null } = {})
         }
       }
 
-      // Phase currents: true sum across every individual online load slave.
+      // Phase currents: main WAPDA incomer meters only (not a sum of machines or load slaves)
       if (isPhaseCurrentVariable(name)) {
-        const curVals = loadSlaves
+        const curSlaves = wapdaSlaves.length > 0 ? wapdaSlaves : []
+        const curVals = curSlaves
           .map((s) => readDeviceMetric(s, name))
           .filter(Number.isFinite)
         const curSum = curVals.reduce((s, v) => s + v, 0)
@@ -652,9 +698,9 @@ export function computeDynamicKpis(devices = [], { sourceSlaveIds = null } = {})
           label: formatCardLabel(name),
           metric: name,
           unit: unitForVariable(name),
-          value: curSum,
+          value: +curSum.toFixed(2),
           agg: 'Sum',
-          sub: `Sum · ${loadSlaves.length} load slaves`,
+          sub: 'Incomer',
           gaugeMax: curSum > 0 ? curSum * 1.2 : 100,
         }
       }
@@ -681,17 +727,18 @@ export function computeDynamicKpis(devices = [], { sourceSlaveIds = null } = {})
   // Compat: no live metrics yet — classic EMS-shaped KPIs
   const nums = (type) => online.map((d) => readDeviceMetric(d, type)).filter(Number.isFinite)
   const sum = (type) => nums(type).reduce((s, v) => s + v, 0)
-  const slaveNums = (type) => loadSlaves.map((s) => readDeviceMetric(s, type)).filter(Number.isFinite)
+  const wapdaNums = (type) => wapdaSlaves.map((s) => readDeviceMetric(s, type)).filter(Number.isFinite)
   const currentCard = (key, label, type) => {
-    const vals = slaveNums(type)
+    const vals = wapdaNums(type)
+    const curSum = vals.reduce((s, v) => s + v, 0)
     return {
       key,
       label,
       metric: type,
       unit: 'A',
-      value: vals.reduce((s, v) => s + v, 0),
+      value: +curSum.toFixed(2),
       agg: 'Sum',
-      sub: `Sum · ${loadSlaves.length} load slaves`,
+      sub: 'Incomer',
       gaugeMax: 80,
     }
   }

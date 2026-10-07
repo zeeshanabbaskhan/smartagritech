@@ -13,6 +13,8 @@ import {
   getDeviceLoadSlaves,
   getDeviceSourceMetric,
   getDeviceLoadMetric,
+  getDeviceWapdaSlaves,
+  getDeviceWapdaMetric,
 } from '../../utils/deviceMetrics'
 import DeviceSlaveMetricsPanel from '../shared/DeviceSlaveMetricsPanel'
 import { formatTileValue } from '../shared/dashboardFormatters'
@@ -326,10 +328,13 @@ export default function DashboardTelemetry({
         && Number.isFinite(totalPowerOverride)
 
       let finalValue = useOverride ? totalPowerOverride : c.value
+      const isCurrent = isPhaseCurrentVariable(c.metric || c.key)
       let finalSub = c.sub || `${c.agg} · ${totalSlavesCount > 0 ? `${onlineSlavesCount} online slaves` : `${kpiState.onlineCount} online`}`
 
       if (useOverride && totalPowerSubLabel) {
         finalSub = totalPowerSubLabel
+      } else if (isCurrent) {
+        finalSub = 'Incomer'
       } else if (isPf) {
         if (sourcesPfValue != null && Number.isFinite(sourcesPfValue)) {
           finalValue = sourcesPfValue
@@ -456,10 +461,10 @@ export default function DashboardTelemetry({
     }
 
     if (isCurrent) {
-      const loadDevs = activeDevices.filter((d) => getDeviceLoadSlaves(d, { sourceSlaveIds }).length > 0)
+      const wapdaDevs = activeDevices.filter((d) => getDeviceWapdaSlaves(d).length > 0)
       return {
-        devices: loadDevs,
-        getValue: (device) => getDeviceLoadMetric(device, drillCfg.metric, { sourceSlaveIds }),
+        devices: wapdaDevs,
+        getValue: (device) => getDeviceWapdaMetric(device, drillCfg.metric),
       }
     }
 
