@@ -10,7 +10,6 @@ const { cached } = require('../utils/responseCache')
 const { assertDeviceAccess, assertSlaveAccess } = require('../utils/deviceAccess')
 const { readLatest } = require('../utils/redisLatest')
 const { legacyDisplayValue } = require('../utils/legacyDisplayValue')
-const { applyIngestFormulas, CONFIG_VAR_INCLUDE } = require('../utils/applyIngestFormulas')
 const {
   PREFERRED_METRIC_COLUMNS,
   IDENTITY_COLUMNS,
@@ -682,13 +681,6 @@ const downloadCSV = async (req, res, next) => {
       where.timestamp = { gte: new Date(Date.now() - TIME_RANGE_MS[timeRange]) }
     }
 
-    // Formulated (dashboard-matching) values unless a raw export was explicitly requested.
-    const isRaw = req.query.raw === 'true' || req.query.format === 'raw'
-    const configVars = isRaw ? [] : await prisma.deviceConfigVariable.findMany({
-      where: { deviceId },
-      include: CONFIG_VAR_INCLUDE,
-    })
-
     // Collect batches so we can omit preferred columns that never appear (CF subset style).
     const MAX_ROWS = 50_000
     const collected = []
@@ -713,10 +705,8 @@ const downloadCSV = async (req, res, next) => {
       })
       if (!rows.length) break
       for (const row of rows) {
-        const processedReadings = (!isRaw && configVars.length)
-          ? applyIngestFormulas(configVars, row.readings, row.deviceConfigSlaveId || slaveId)
-          : row.readings
-        const { metrics, extras } = pivotReadingsArray(processedReadings)
+        // Stored readings are already formulated at ingest — re-applying would double-scale.
+        const { metrics, extras } = pivotReadingsArray(row.readings)
         for (const [k, v] of Object.entries(metrics)) {
           if (v !== undefined && v !== '') usedPreferred.add(k)
         }
