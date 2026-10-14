@@ -200,8 +200,11 @@ const SLAVE_ALIASES = {
   'oups': ['ozone ups', 'oups'],
   // AFL3
   '132kwcomp': ['comp-132kw', '132 kw comp', '132kwcomp'],
+  '1stpr': ['1f-main db-finishing', '1st floor pr', '1stfloorpr'],
   '1stfloorpr': ['1f-main db-finishing', '1st floor pr', '1stfloorpr'],
+  '2nd': ['2f-main db-sewing', '2nd floor', '2ndfloor'],
   '2ndfloor': ['2f-main db-sewing', '2nd floor', '2ndfloor'],
+  '3rd': ['3f-main db-sewing', 'pending', '3rd floor', '3rdfloor'],
   '3rdfloor': ['3f-main db-sewing', 'pending', '3rd floor', '3rdfloor'],
   '55kwcomp': ['55kw comp', '55kwcomp'],
   'etpdryer': ['etp-afl', 'etp dryer', 'etpdryer'],
@@ -541,4 +544,7 @@ module.exports = {
   publishDeviceCommand,
   getRuntimeStatus,
   loadDeviceMaps,
+  normalizeSlave,
+  SLAVE_ALIASES,
+  mapReadings,
 }
