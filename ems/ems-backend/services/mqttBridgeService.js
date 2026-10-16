@@ -220,6 +220,7 @@ const SLAVE_ALIASES = {
   'chall': ['cutting hall', 'c hall', 'chall'],
   'lhall': ['laser hall', 'l hall', 'lhall'],
   'sh3': ['sewing-3f-amb', 'sh3'],
+  'shall1': ['sewing-1f-amb', 'shall1', 's hall 1', 'shall 1'],
   // Ambition3
   'dac': ['3f-air-cooler', 'dac'],
   'fhall': ['finshing amb', 'f hall', 'fhall'],

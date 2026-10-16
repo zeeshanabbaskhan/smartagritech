@@ -41,6 +41,25 @@ const AFL2 = {
   ],
 }
 
+// Ambition2 mid-rename: one config still on the old SHall1 name, one on Sewing-1F-AMB
+const AMB2_OLD = {
+  id: 'amb2-device-old',
+  name: 'Ambition2 (old)',
+  configSlaves: [
+    makeSlave('amb2-shall1', 'SHall1'),
+    makeSlave('amb2-sh3', 'Sewing-3F-AMB'),
+  ],
+}
+
+const AMB2_NEW = {
+  id: 'amb2-device-new',
+  name: 'Ambition2 (new)',
+  configSlaves: [
+    makeSlave('amb2-shall1', 'Sewing-1F-AMB'),
+    makeSlave('amb2-sh3', 'Sewing-3F-AMB'),
+  ],
+}
+
 const ID = {
   floor1: '3a70e759-535c-4422-a411-05ea5ae6b757',
   floor2: '84f266fb-2b03-4337-9bf5-9a735e5ad7d7',
@@ -51,6 +70,8 @@ const ID = {
   spare: '0ecda43c-c693-4575-9401-bedbe16c4b8b',
   back1f: 'd6720abf-4da9-4623-99c3-fe32eed08ba5',
   cooler2f: 'd1ba2cce-5de6-471c-855d-cb5a6f37d8d2',
+  shall1: 'amb2-shall1',
+  sh3: 'amb2-sh3',
 }
 
 const REGISTERS = { 40089: 12.5, 40077: 231.4, 40139: 98765.4 }
@@ -126,7 +147,16 @@ expectSlave(AFL2, '1f back side db', ID.back1f)
 expectSlave(AFL2, '2fcooler', ID.cooler2f)
 expectSlave(AFL2, 'air cooler 2nd floor', ID.cooler2f)
 
-console.log('\ne) Negative')
+console.log('\ne) Ambition2 SHall1 → Sewing-1F-AMB rename')
+expectSlave(AMB2_OLD, 'SHall1', ID.shall1)
+expectSlave(AMB2_OLD, 'shall1', ID.shall1)
+expectSlave(AMB2_NEW, 'SHall1', ID.shall1)
+expectSlave(AMB2_NEW, 'shall1', ID.shall1)
+expectSlave(AMB2_NEW, 'S Hall 1', ID.shall1)
+expectSlave(AMB2_NEW, 'sewing-1f-amb', ID.shall1)
+expectSlave(AMB2_NEW, 'sh3', ID.sh3)
+
+console.log('\nf) Negative')
 expectNull(AFL3, 'unknown-meter-name')
 
 const aliasKeys = Object.keys(SLAVE_ALIASES).length
