@@ -1186,6 +1186,10 @@ model PowerFlowConfig {
   sites          Json     @default("[]")
   /// optional savings snapshot { daily, weekly, monthly, unit }
   savings        Json     @default("{}")
+  /// Executive dashboard limits { thresholds: {}, slaveThresholds: {} }
+  executiveLimits Json?   @default("{}")
+  /// Optimistic concurrency control version
+  version        Int      @default(1)
   updatedAt      DateTime @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)

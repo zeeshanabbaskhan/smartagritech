@@ -33,9 +33,11 @@ import AdminDeviceTimestamps  from './pages/admin/AdminDeviceTimestamps'
 import AdminScheduleTasks     from './pages/admin/AdminScheduleTasks'
 import AdminThemeSettings     from './pages/admin/AdminThemeSettings'
 import AdminSettings          from './pages/admin/AdminSettings'
+import AdminControllerPage    from './pages/admin/AdminControllerPage'
 
 // Org
 import OrgDashboard        from './pages/org/OrgDashboard'
+import OrgControllerPage   from './pages/org/OrgControllerPage'
 import OrgDevices          from './pages/org/OrgDevices'
 import OrgHistoricalData      from './pages/org/OrgHistoricalData'
 import OrgTemplateTriggers    from './pages/org/OrgTemplateTriggers'
@@ -139,6 +141,7 @@ function AppRoutes() {
         <Route path="data-center"       element={<AdminDataCenter />} />
         <Route path="custom-dashboard"  element={<DashboardList />} />
         <Route path="custom-dashboard/:id" element={<DashboardEditor />} />
+        <Route path="controller"        element={<AdminControllerPage />} />
         <Route path="historical-data"   element={<AdminHistoricalData />} />
         <Route path="variable-alarms"   element={<AdminVariableAlarms />} />
         <Route path="linkage-records"   element={<AdminLinkageRecords />} />
@@ -158,6 +161,7 @@ function AppRoutes() {
         </ProtectedRoute>
       }>
         <Route index                    element={<OrgDashboard />} />
+        <Route path="controller"        element={<OrgControllerPage />} />
         <Route path="custom-dashboard"  element={<DashboardList />} />
         <Route path="custom-dashboard/:id" element={<DashboardEditor />} />
         <Route path="devices"           element={<OrgDevices />} />

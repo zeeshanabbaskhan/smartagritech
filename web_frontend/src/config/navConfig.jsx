@@ -15,6 +15,7 @@ import {
 export const adminNav = [
   { divider: true, label: 'Main' },
   { to: '/admin',               label: 'Dashboard',        icon: LayoutDashboard },
+  { to: '/admin/controller',    label: 'EMS Controller',   icon: SlidersHorizontal },
   { to: '/admin/custom-dashboard', label: 'Custom Dashboards', icon: LayoutTemplate },
   { divider: true, label: 'Management' },
   { to: '/admin/organizations', label: 'Organizations',    icon: Building2 },
@@ -46,6 +47,7 @@ export const adminNav = [
 export const orgNav = [
   { divider: true, label: 'Main' },
   { to: '/org',                    label: 'Dashboard',       icon: LayoutDashboard },
+  { to: '/org/controller',         label: 'EMS Controller',  icon: SlidersHorizontal },
   { to: '/org/custom-dashboard',   label: 'Custom Dashboards', icon: LayoutTemplate },
   { divider: true, label: 'Devices' },
   { to: '/org/devices',            label: 'My Devices',      icon: Cpu },

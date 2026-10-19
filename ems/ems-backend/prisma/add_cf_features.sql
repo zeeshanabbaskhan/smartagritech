@@ -98,6 +98,11 @@ CREATE TABLE IF NOT EXISTS "power_flow_configs" (
   "savings" JSONB NOT NULL DEFAULT '{}',
   "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+ALTER TABLE "power_flow_configs" ADD COLUMN IF NOT EXISTS "sites" JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE "power_flow_configs" ADD COLUMN IF NOT EXISTS "executiveLimits" JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE "power_flow_configs" ADD COLUMN IF NOT EXISTS "version" INT DEFAULT 1;
+UPDATE "power_flow_configs" SET "version" = 1 WHERE "version" IS NULL;
+UPDATE "power_flow_configs" SET "executiveLimits" = '{}'::jsonb WHERE "executiveLimits" IS NULL;
 
 CREATE TABLE IF NOT EXISTS "facility_node_devices" (
   "facilityNodeId" TEXT NOT NULL REFERENCES "facility_nodes"("id") ON DELETE CASCADE,

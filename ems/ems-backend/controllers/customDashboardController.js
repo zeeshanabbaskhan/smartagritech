@@ -7,7 +7,11 @@ const { listAccessibleDeviceIds } = require('../utils/deviceAccess')
 const { readLatestMerged, readLatestForSlave } = require('../utils/redisLatest')
 
 const resolveOrgId = (req, bodyOrgId) => {
-  if (req.user.role === 'SUPER_ADMIN') return bodyOrgId || req.query.organizationId
+  const requestedOrgId = bodyOrgId || req.query.organizationId
+  if (req.user.role === 'SUPER_ADMIN') return requestedOrgId || req.user.organizationId
+  if (requestedOrgId && requestedOrgId !== req.user.organizationId) {
+    throw new AppError('Cannot modify configuration for another organization', 403)
+  }
   return req.user.organizationId
 }
 
@@ -783,7 +787,10 @@ async function buildPowerFlowData(req, orgId, config) {
   const totalSolarKw = round2(solarSources.reduce((sum, s) => sum + (Number(s.valueKw) || 0), 0))
 
   const SOLAR_PEAK_SUN_HOURS = 5.5
-  const TARIFF_PKR = Number(config.savings?.tariffRate) || 38.5
+  const storedSavings = (config?.savings && typeof config.savings === 'object' && !Array.isArray(config.savings))
+    ? config.savings
+    : {}
+  const TARIFF_PKR = Number(storedSavings.tariffRate) || 38.5
 
   let totalSolarTodayKwh = 0
   for (const s of solarSources) {
@@ -853,13 +860,14 @@ async function buildPowerFlowData(req, orgId, config) {
   totalMonthlyKWh = round2(totalMonthlyKWh > 0 ? totalMonthlyKWh : (effectiveDailyKWh * currentDayOfMonth))
 
   const effectiveSavings = {
+    ...storedSavings,
     daily: Math.round(effectiveDailyKWh * TARIFF_PKR),
     weekly: Math.round(totalWeeklyKWh * TARIFF_PKR),
     monthly: Math.round(totalMonthlyKWh * TARIFF_PKR),
     dailyKWh: effectiveDailyKWh,
     weeklyKWh: totalWeeklyKWh,
     monthlyKWh: totalMonthlyKWh,
-    unit: 'PKR',
+    unit: storedSavings.unit || 'PKR',
     tariffRate: TARIFF_PKR,
     solarKw: totalSolarKw,
   }
@@ -941,6 +949,89 @@ async function buildPowerFlowData(req, orgId, config) {
     totalLoadKw,
     solarKw: totalSolarKw,
     gridKw: round2(totalGridKw),
+    executiveLimits: config.executiveLimits || {},
+    version: config.version || 1,
+    updatedAt: config.updatedAt,
+  }
+}
+
+const ALLOWED_METRIC_KEYS = new Set([
+  'totalLoad', 'solarPower', 'generatorPower', 'gridPower',
+  'currentA', 'currentB', 'currentC', 'powerFactor'
+])
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+const validateExecutiveLimitsPayload = async (limits, orgId, dbClient = prisma) => {
+  if (typeof limits !== 'object' || limits === null || Array.isArray(limits)) {
+    throw new AppError('executiveLimits must be a JSON object', 400)
+  }
+
+  const validateRule = (label, conf) => {
+    if (typeof conf !== 'object' || conf === null || Array.isArray(conf)) {
+      throw new AppError(`Threshold configuration for ${label} must be an object`, 400)
+    }
+    if (typeof conf.enabled !== 'boolean') {
+      throw new AppError(`Field 'enabled' for ${label} must be a boolean`, 400)
+    }
+    if (!conf.enabled) return // Skip numerical range checks if disabled
+
+    if (!['above', 'below'].includes(conf.direction)) {
+      throw new AppError(`Direction for ${label} must be 'above' or 'below'`, 400)
+    }
+    const { warningValue, criticalValue } = conf
+    if (!Number.isFinite(Number(warningValue)) || !Number.isFinite(Number(criticalValue)) || Number(warningValue) < 0 || Number(criticalValue) < 0) {
+      throw new AppError(`Threshold values for ${label} must be positive finite numbers`, 400)
+    }
+
+    const w = Number(warningValue)
+    const c = Number(criticalValue)
+
+    if (label === 'powerFactor') {
+      if (conf.direction !== 'below') throw new AppError('Power Factor threshold direction must be "below"', 400)
+      if (w > 1.0 || c > 1.0) throw new AppError('Power Factor thresholds must not exceed 1.00', 400)
+      if (c >= w) throw new AppError('For Power Factor, critical threshold must be less than warning threshold', 400)
+    } else {
+      if (conf.direction !== 'above') throw new AppError(`${label} threshold direction must be "above"`, 400)
+      if (c <= w) throw new AppError(`For ${label}, critical threshold must be greater than warning threshold`, 400)
+    }
+  }
+
+  if (limits.thresholds && typeof limits.thresholds === 'object') {
+    for (const [key, conf] of Object.entries(limits.thresholds)) {
+      if (!ALLOWED_METRIC_KEYS.has(key)) throw new AppError(`Invalid metric key: ${key}`, 400)
+      validateRule(key, conf)
+    }
+  }
+
+  if (limits.slaveThresholds && typeof limits.slaveThresholds === 'object') {
+    const slaveIds = Object.keys(limits.slaveThresholds)
+    if (slaveIds.length > 0) {
+      for (const slaveId of slaveIds) {
+        if (!UUID_REGEX.test(slaveId)) throw new AppError(`Invalid slave ID format: ${slaveId}`, 400)
+        const conf = limits.slaveThresholds[slaveId]
+        if (conf.metricKey && !['power', 'current'].includes(conf.metricKey)) {
+          throw new AppError(`Unsupported measurement '${conf.metricKey}' for slave ${slaveId}`, 400)
+        }
+        validateRule(`slave-${slaveId}`, conf)
+      }
+
+      // Database-level verification: all referenced slaves must exist and belong to the target org
+      if (dbClient?.deviceConfigSlave && orgId) {
+        const ownedSlaves = await dbClient.deviceConfigSlave.findMany({
+          where: {
+            id: { in: slaveIds },
+            organizationId: orgId,
+          },
+          select: { id: true },
+        })
+        const ownedSet = new Set(ownedSlaves.map((s) => s.id))
+        for (const slaveId of slaveIds) {
+          if (!ownedSet.has(slaveId)) {
+            throw new AppError(`Slave '${slaveId}' does not exist or does not belong to organization '${orgId}'`, 400)
+          }
+        }
+      }
+    }
   }
 }
 
@@ -961,6 +1052,8 @@ const getPowerFlow = async (req, res, next) => {
           ],
           sites: DEFAULT_SITES,
           savings: { daily: 0, weekly: 0, monthly: 0, unit: 'PKR' },
+          executiveLimits: {},
+          version: 1,
         },
       })
     }
@@ -975,24 +1068,102 @@ const updatePowerFlow = async (req, res, next) => {
     if (!orgId) return next(new AppError('organizationId is required', 400))
     if (req.user.role === 'USER') return next(new AppError('Not allowed', 403))
 
-    const { sources, sites, savings } = req.body
+    if (req.user.role === 'SUPER_ADMIN' && (req.body.organizationId || req.query.organizationId)) {
+      const targetOrg = await prisma.organization.findUnique({ where: { id: orgId }, select: { id: true } })
+      if (!targetOrg) return next(new AppError('Organization not found', 404))
+    }
+
+    const { sources, sites, savings, executiveLimits, expectedVersion } = req.body
+
+    let cleanSavings = undefined
+    if (savings !== undefined) {
+      if (typeof savings !== 'object' || savings === null || Array.isArray(savings)) {
+        throw new AppError('savings must be a JSON object', 400)
+      }
+      cleanSavings = { ...savings }
+      if (cleanSavings.tariffRate !== undefined && cleanSavings.tariffRate !== null && cleanSavings.tariffRate !== '') {
+        const tr = Number(cleanSavings.tariffRate)
+        if (!Number.isFinite(tr) || tr < 0) {
+          throw new AppError('tariffRate must be a positive finite number', 400)
+        }
+        cleanSavings.tariffRate = tr
+      }
+    }
+
+    if (executiveLimits !== undefined) {
+      await validateExecutiveLimitsPayload(executiveLimits, orgId, prisma)
+    }
+
     const nextSites = sites !== undefined ? normaliseSites(sites) : undefined
+
+    // Genuinely atomic optimistic concurrency check via compare-and-swap on version
+    if (expectedVersion !== undefined && Number.isFinite(Number(expectedVersion))) {
+      const expVer = Number(expectedVersion)
+      const updateData = {
+        ...(sources !== undefined ? { sources } : {}),
+        ...(nextSites !== undefined ? { sites: nextSites } : {}),
+        ...(cleanSavings !== undefined ? { savings: cleanSavings } : {}),
+        ...(executiveLimits !== undefined ? { executiveLimits } : {}),
+        version: { increment: 1 },
+      }
+
+      const updateResult = await prisma.powerFlowConfig.updateMany({
+        where: {
+          organizationId: orgId,
+          version: expVer,
+        },
+        data: updateData,
+      })
+
+      if (updateResult.count === 0) {
+        const existing = await prisma.powerFlowConfig.findUnique({
+          where: { organizationId: orgId },
+          select: { id: true, version: true },
+        })
+
+        if (!existing) {
+          // If record doesn't exist yet, create initial record
+          const created = await prisma.powerFlowConfig.create({
+            data: {
+              organizationId: orgId,
+              sources: sources || [],
+              sites: nextSites || DEFAULT_SITES,
+              savings: cleanSavings || {},
+              executiveLimits: executiveLimits || {},
+              version: 1,
+            },
+          })
+          return res.json({ success: true, data: await buildPowerFlowData(req, orgId, created) })
+        }
+
+        // Record exists, but version did not match -> Genuine conflict!
+        return next(new AppError('Configuration conflict: This dashboard was updated by another administrator. Please reload before saving.', 409))
+      }
+
+      const updated = await prisma.powerFlowConfig.findUnique({ where: { organizationId: orgId } })
+      return res.json({ success: true, data: await buildPowerFlowData(req, orgId, updated) })
+    }
+
+    // Fallback upsert for backward compatibility when expectedVersion is omitted
     const config = await prisma.powerFlowConfig.upsert({
       where: { organizationId: orgId },
       create: {
         organizationId: orgId,
         sources: sources || [],
         sites: nextSites || DEFAULT_SITES,
-        savings: savings || {},
+        savings: cleanSavings || {},
+        executiveLimits: executiveLimits || {},
+        version: 1,
       },
       update: {
         sources: sources !== undefined ? sources : undefined,
         sites: nextSites,
-        savings: savings !== undefined ? savings : undefined,
+        savings: cleanSavings !== undefined ? cleanSavings : undefined,
+        executiveLimits: executiveLimits !== undefined ? executiveLimits : undefined,
+        version: { increment: 1 },
       },
     })
-    // Return the same fully populated shape a read would, so the client can
-    // render live totals straight from the save response.
+
     res.json({ success: true, data: await buildPowerFlowData(req, orgId, config) })
   } catch (err) { next(err) }
 }
@@ -1000,4 +1171,5 @@ const updatePowerFlow = async (req, res, next) => {
 module.exports = {
   listDashboards, getDashboard, createDashboard, updateDashboard, deleteDashboard,
   getPowerFlow, updatePowerFlow,
+  resolveOrgId, validateExecutiveLimitsPayload, buildPowerFlowData,
 }
