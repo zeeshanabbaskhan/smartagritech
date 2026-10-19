@@ -205,10 +205,10 @@ export function generateBreakerDetails(breaker, buildingCode) {
 
   // Exact 25 Organization Dashboard Telemetry Variables
   const variables24 = [
-    { key: 'Total Power', name: 'Total Power', shortName: 'Total Power', value: Number(loadKw.toFixed(1)), unit: 'kW', group: 'power' },
-    { key: 'PowerA', name: 'PowerA', shortName: 'PowerA', value: Number(((loadKw / 3) * 0.98).toFixed(1)), unit: 'kW', group: 'power' },
-    { key: 'PowerB', name: 'PowerB', shortName: 'PowerB', value: Number(((loadKw / 3) * 1.01).toFixed(1)), unit: 'kW', group: 'power' },
-    { key: 'PowerC', name: 'PowerC', shortName: 'PowerC', value: Number(((loadKw / 3) * 1.01).toFixed(1)), unit: 'kW', group: 'power' },
+    { key: 'Total Power', name: 'Total Power', shortName: 'Total Power', value: Number(loadKw.toFixed(1)), unit: 'kWh', group: 'power' },
+    { key: 'PowerA', name: 'PowerA', shortName: 'PowerA', value: Number(((loadKw / 3) * 0.98).toFixed(1)), unit: 'kWh', group: 'power' },
+    { key: 'PowerB', name: 'PowerB', shortName: 'PowerB', value: Number(((loadKw / 3) * 1.01).toFixed(1)), unit: 'kWh', group: 'power' },
+    { key: 'PowerC', name: 'PowerC', shortName: 'PowerC', value: Number(((loadKw / 3) * 1.01).toFixed(1)), unit: 'kWh', group: 'power' },
     { key: 'Phase VoltageA', name: 'Phase VoltageA', shortName: 'Phase VoltageA', value: Number((vLine + 0.8).toFixed(1)), unit: 'V', group: 'voltage' },
     { key: 'Phase VoltageB', name: 'Phase VoltageB', shortName: 'Phase VoltageB', value: Number((vLine - 0.7).toFixed(1)), unit: 'V', group: 'voltage' },
     { key: 'Phase VoltageC', name: 'Phase VoltageC', shortName: 'Phase VoltageC', value: Number((vLine - 0.1).toFixed(1)), unit: 'V', group: 'voltage' },
@@ -366,10 +366,10 @@ function getResolvedVariables(node) {
   const units = Number(node?.units) || 12540.5
 
   return [
-    { key: 'Total Power', name: 'Total Power', shortName: 'Total Power', value: Number(loadKw.toFixed(1)), unit: 'kW', group: 'power' },
-    { key: 'PowerA', name: 'PowerA', shortName: 'PowerA', value: Number(((loadKw / 3) * 0.98).toFixed(1)), unit: 'kW', group: 'power' },
-    { key: 'PowerB', name: 'PowerB', shortName: 'PowerB', value: Number(((loadKw / 3) * 1.01).toFixed(1)), unit: 'kW', group: 'power' },
-    { key: 'PowerC', name: 'PowerC', shortName: 'PowerC', value: Number(((loadKw / 3) * 1.01).toFixed(1)), unit: 'kW', group: 'power' },
+    { key: 'Total Power', name: 'Total Power', shortName: 'Total Power', value: Number(loadKw.toFixed(1)), unit: 'kWh', group: 'power' },
+    { key: 'PowerA', name: 'PowerA', shortName: 'PowerA', value: Number(((loadKw / 3) * 0.98).toFixed(1)), unit: 'kWh', group: 'power' },
+    { key: 'PowerB', name: 'PowerB', shortName: 'PowerB', value: Number(((loadKw / 3) * 1.01).toFixed(1)), unit: 'kWh', group: 'power' },
+    { key: 'PowerC', name: 'PowerC', shortName: 'PowerC', value: Number(((loadKw / 3) * 1.01).toFixed(1)), unit: 'kWh', group: 'power' },
     { key: 'Phase VoltageA', name: 'Phase VoltageA', shortName: 'Phase VoltageA', value: Number((vLine + 0.8).toFixed(1)), unit: 'V', group: 'voltage' },
     { key: 'Phase VoltageB', name: 'Phase VoltageB', shortName: 'Phase VoltageB', value: Number((vLine - 0.7).toFixed(1)), unit: 'V', group: 'voltage' },
     { key: 'Phase VoltageC', name: 'Phase VoltageC', shortName: 'Phase VoltageC', value: Number((vLine - 0.1).toFixed(1)), unit: 'V', group: 'voltage' },
@@ -1166,26 +1166,29 @@ function EnergyFlowOverview({ data, onSelectNode }) {
       <div
         key={b.id || `${buildingCode}-${name}`}
         onClick={() => onSelectNode?.(b, buildingCode)}
-        className={`group relative p-0.5 sm:p-1 rounded-md border text-center transition-all duration-150 cursor-pointer select-none flex flex-col justify-between min-h-[34px] sm:min-h-[36px] ${
+        className={`group relative p-0.5 sm:p-1 rounded-md border text-center transition-all duration-150 cursor-pointer select-none flex flex-col justify-between min-h-[38px] sm:min-h-[40px] bg-white dark:bg-slate-900 ${
           isTieLine
-            ? 'bg-indigo-500/10 border-indigo-500/50 text-indigo-700 dark:text-indigo-300 ring-1 ring-indigo-500/30'
+            ? 'border-indigo-500/70 text-indigo-700 dark:text-indigo-300 ring-1 ring-indigo-500/30'
             : isTripped
-            ? 'bg-red-500/20 border-red-500 text-red-600 animate-pulse'
+            ? 'border-red-500 text-red-600 ring-1 ring-red-500 animate-pulse'
             : isHeavy
-            ? 'bg-amber-500/15 border-amber-500/60 hover:border-amber-500'
+            ? 'border-amber-500 hover:border-amber-600'
             : isGenerating
-            ? 'bg-emerald-500/15 border-emerald-500/60 hover:border-emerald-500'
+            ? 'border-emerald-500 hover:border-emerald-600'
             : isSpare
-            ? 'bg-slate-200/40 dark:bg-slate-800/30 border-slate-300 dark:border-slate-700 text-slate-400 opacity-60'
-            : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:border-blue-500 hover:shadow-xs'
+            ? 'border-slate-300 dark:border-slate-700 text-slate-400 opacity-60'
+            : 'border-slate-300 dark:border-slate-700 hover:border-blue-500 hover:shadow-xs'
         }`}
-        title={`${name} - ${loadKwVal.toFixed(1)} kW`}
+        title={`${name} - ${loadKwVal.toFixed(1)} kWh`}
       >
-        <div className="flex items-center justify-between gap-1 leading-none mb-0.5">
-          <span className="text-[8.5px] sm:text-[9.5px] font-bold tracking-tight text-slate-900 dark:text-slate-100 truncate w-full">
+        <div className="flex items-start justify-between gap-0.5 leading-tight mb-0.5 w-full">
+          <span
+            className="text-[7px] sm:text-[7.5px] font-bold tracking-tight text-slate-900 dark:text-slate-100 break-words line-clamp-2 text-left flex-1"
+            title={name}
+          >
             {name}
           </span>
-          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+          <span className={`w-1.5 h-1.5 rounded-full shrink-0 mt-0.5 ${
             isTripped ? 'bg-red-600 animate-ping' :
             isHeavy ? 'bg-amber-500' :
             isGenerating ? 'bg-emerald-500' :
@@ -1195,10 +1198,10 @@ function EnergyFlowOverview({ data, onSelectNode }) {
           }`} />
         </div>
         <div className="flex items-baseline justify-center gap-0.5 font-mono leading-none">
-          <span className="text-[10px] sm:text-[11px] font-black text-slate-900 dark:text-slate-100">
+          <span className="text-[9px] sm:text-[10px] font-black text-slate-900 dark:text-slate-100">
             {loadKwVal.toFixed(1)}
           </span>
-          <span className="text-[7.5px] font-sans text-slate-400">kW</span>
+          <span className="text-[6.5px] sm:text-[7px] font-sans text-slate-400">kWh</span>
         </div>
       </div>
     )
@@ -1219,54 +1222,54 @@ function EnergyFlowOverview({ data, onSelectNode }) {
       <div className="flex justify-center mb-0.5">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-1.5 w-full max-w-2xl">
           {/* Total WAPDA */}
-          <div className="py-0.5 px-2 rounded-lg border-2 border-blue-500 bg-blue-500/5 text-center shadow-2xs">
-            <span className="text-[8.5px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 block truncate">
+          <div className="py-0.5 px-2 rounded-lg border-2 border-blue-500 bg-white dark:bg-slate-900 text-center shadow-2xs">
+            <span className="text-[8px] sm:text-[8.5px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 block truncate">
               Total WAPDA
             </span>
             <div className="flex items-baseline justify-center gap-1">
               <span className="text-sm sm:text-base font-black font-mono text-slate-900 dark:text-slate-100 leading-none">
                 {Number(metrics.totalWapda || 0).toFixed(1)}
               </span>
-              <span className="text-[8px] font-bold text-slate-400">kW</span>
+              <span className="text-[8px] font-bold text-slate-400">kWh</span>
             </div>
           </div>
 
           {/* Total Running Load B1 + B2 */}
-          <div className="py-0.5 px-2 rounded-lg border-2 border-blue-600 bg-blue-500/10 text-center shadow-2xs ring-1 ring-blue-500/30">
-            <span className="text-[8.5px] font-black uppercase tracking-wider text-blue-600 dark:text-blue-400 block truncate">
+          <div className="py-0.5 px-2 rounded-lg border-2 border-blue-600 bg-white dark:bg-slate-900 text-center shadow-2xs ring-1 ring-blue-500/30">
+            <span className="text-[8px] sm:text-[8.5px] font-black uppercase tracking-wider text-blue-600 dark:text-blue-400 block truncate">
               Total Running Load B1 + B2
             </span>
             <div className="flex items-baseline justify-center gap-1">
               <span className="text-sm sm:text-base font-black font-mono text-blue-600 dark:text-blue-400 leading-none">
                 {Number(metrics.totalRunningLoad || 0).toFixed(1)}
               </span>
-              <span className="text-[8px] font-bold text-slate-400">kW</span>
+              <span className="text-[8px] font-bold text-slate-400">kWh</span>
             </div>
           </div>
 
           {/* Solar Total */}
-          <div className="py-0.5 px-2 rounded-lg border-2 border-amber-500 bg-amber-500/5 text-center shadow-2xs">
-            <span className="text-[8.5px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 block truncate">
+          <div className="py-0.5 px-2 rounded-lg border-2 border-amber-500 bg-white dark:bg-slate-900 text-center shadow-2xs">
+            <span className="text-[8px] sm:text-[8.5px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 block truncate">
               Solar Total (All 7 Inverters B1+B2)
             </span>
             <div className="flex items-baseline justify-center gap-1">
               <span className="text-sm sm:text-base font-black font-mono text-slate-900 dark:text-slate-100 leading-none">
                 {Number(metrics.solarTotal || 0).toFixed(1)}
               </span>
-              <span className="text-[8px] font-bold text-slate-400">kW</span>
+              <span className="text-[8px] font-bold text-slate-400">kWh</span>
             </div>
           </div>
 
           {/* Total Genset */}
-          <div className="py-0.5 px-2 rounded-lg border-2 border-purple-500 bg-purple-500/5 text-center shadow-2xs">
-            <span className="text-[8.5px] font-bold uppercase tracking-wider text-purple-600 dark:text-purple-400 block truncate">
+          <div className="py-0.5 px-2 rounded-lg border-2 border-purple-500 bg-white dark:bg-slate-900 text-center shadow-2xs">
+            <span className="text-[8px] sm:text-[8.5px] font-bold uppercase tracking-wider text-purple-600 dark:text-purple-400 block truncate">
               Total Genset
             </span>
             <div className="flex items-baseline justify-center gap-1">
               <span className="text-sm sm:text-base font-black font-mono text-slate-900 dark:text-slate-100 leading-none">
                 {Number(metrics.totalGenset || 0).toFixed(1)}
               </span>
-              <span className="text-[8px] font-bold text-slate-400">kW</span>
+              <span className="text-[8px] font-bold text-slate-400">kWh</span>
             </div>
           </div>
         </div>
@@ -1288,21 +1291,21 @@ function EnergyFlowOverview({ data, onSelectNode }) {
         {/* ============================================================== */}
         {/* ─── LEFT: B1 (AMBITION) ────────────────────────────────────── */}
         {/* ============================================================== */}
-        <div className="p-1.5 sm:p-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white/70 dark:bg-slate-900/70 shadow-2xs flex flex-col justify-between">
+        <div className="p-1.5 sm:p-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xs flex flex-col justify-between">
           {/* B1 Header Box */}
           <div className="flex flex-col items-center mb-0.5">
-            <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest leading-none mb-0.5">
+            <span className="text-[8.5px] sm:text-[9px] font-bold text-slate-500 uppercase tracking-widest leading-none mb-0.5">
               B1 (Ambition)
             </span>
             <div
               onClick={() => onSelectNode?.({ ...building1, category: 'Main Substation' }, 'B1')}
-              className="px-3 py-0.5 rounded-lg border-2 border-blue-500 bg-blue-500/10 text-center cursor-pointer hover:scale-[1.01] transition shadow-2xs"
+              className="px-3 py-0.5 rounded-lg border-2 border-blue-500 bg-white dark:bg-slate-900 text-center cursor-pointer hover:scale-[1.01] transition shadow-2xs"
             >
-              <span className="text-[8.5px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 block leading-none">
+              <span className="text-[8px] sm:text-[8.5px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 block leading-none">
                 Total Running Load B1
               </span>
               <span className="text-sm font-black font-mono text-slate-900 dark:text-slate-100 leading-tight">
-                {Number(building1.runningLoad || 0).toFixed(1)} <span className="text-[8.5px] font-sans font-bold text-slate-400">kW</span>
+                {Number(building1.runningLoad || 0).toFixed(1)} <span className="text-[8px] font-sans font-bold text-slate-400">kWh</span>
               </span>
             </div>
             {/* Vertical connector line */}
@@ -1317,19 +1320,19 @@ function EnergyFlowOverview({ data, onSelectNode }) {
                 <div
                   key={src.id}
                   onClick={() => onSelectNode?.(src, 'B1')}
-                  className={`py-0.5 px-1 rounded-md border text-center cursor-pointer hover:border-primary-500 transition shadow-2xs ${
+                  className={`py-0.5 px-1 rounded-md border text-center cursor-pointer hover:border-primary-500 transition shadow-2xs bg-white dark:bg-slate-900 ${
                     src.id === 'b1-wapda'
-                      ? 'border-blue-500 bg-blue-500/10'
+                      ? 'border-blue-500'
                       : src.type === 'solar'
-                      ? 'border-amber-500 bg-amber-500/10'
-                      : 'border-purple-500 bg-purple-500/10'
+                      ? 'border-amber-500'
+                      : 'border-purple-500'
                   }`}
                 >
-                  <span className="text-[8.5px] font-bold text-slate-800 dark:text-slate-200 block truncate leading-tight">
+                  <span className="text-[7px] sm:text-[7.5px] font-bold text-slate-800 dark:text-slate-200 block break-words line-clamp-2 leading-tight" title={src.name}>
                     {src.name}
                   </span>
-                  <span className="text-[10px] font-black font-mono text-slate-900 dark:text-slate-100 leading-none">
-                    {srcKw.toFixed(1)} <span className="text-[7.5px] font-sans text-slate-400">kW</span>
+                  <span className="text-[9.5px] sm:text-[10px] font-black font-mono text-slate-900 dark:text-slate-100 leading-none">
+                    {srcKw.toFixed(1)} <span className="text-[7px] font-sans text-slate-400">kWh</span>
                   </span>
                 </div>
               )
@@ -1339,7 +1342,7 @@ function EnergyFlowOverview({ data, onSelectNode }) {
           {/* Distribution Feeder Busbar */}
           <div className="flex items-center justify-center relative my-0.5">
             <div className="w-full h-0.5 bg-slate-400 dark:bg-slate-600" />
-            <div className="absolute px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-[8.5px] font-bold text-slate-600 dark:text-slate-300 whitespace-nowrap">
+            <div className="absolute px-1.5 py-0.2 rounded bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-[8.5px] font-bold text-slate-600 dark:text-slate-300 whitespace-nowrap">
               &#123; B1 Side Total 24 Breakers &#125;
             </div>
           </div>
@@ -1370,21 +1373,21 @@ function EnergyFlowOverview({ data, onSelectNode }) {
         {/* ============================================================== */}
         {/* ─── RIGHT: BUILDING 2 (AFL) ────────────────────────────────── */}
         {/* ============================================================== */}
-        <div className="p-1.5 sm:p-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white/70 dark:bg-slate-900/70 shadow-2xs flex flex-col justify-between">
+        <div className="p-1.5 sm:p-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xs flex flex-col justify-between">
           {/* B2 Header Box */}
           <div className="flex flex-col items-center mb-0.5">
-            <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest leading-none mb-0.5">
+            <span className="text-[8.5px] sm:text-[9px] font-bold text-slate-500 uppercase tracking-widest leading-none mb-0.5">
               Building 2 (AFL)
             </span>
             <div
               onClick={() => onSelectNode?.({ ...building2, category: 'Main Substation' }, 'B2')}
-              className="px-3 py-0.5 rounded-lg border-2 border-emerald-500 bg-emerald-500/10 text-center cursor-pointer hover:scale-[1.01] transition shadow-2xs"
+              className="px-3 py-0.5 rounded-lg border-2 border-emerald-500 bg-white dark:bg-slate-900 text-center cursor-pointer hover:scale-[1.01] transition shadow-2xs"
             >
-              <span className="text-[8.5px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 block leading-none">
+              <span className="text-[8px] sm:text-[8.5px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 block leading-none">
                 Total Running Load B2
               </span>
               <span className="text-sm font-black font-mono text-slate-900 dark:text-slate-100 leading-tight">
-                {Number(building2.runningLoad || 0).toFixed(1)} <span className="text-[8.5px] font-sans font-bold text-slate-400">kW</span>
+                {Number(building2.runningLoad || 0).toFixed(1)} <span className="text-[8px] font-sans font-bold text-slate-400">kWh</span>
               </span>
             </div>
             {/* Vertical connector line */}
@@ -1399,19 +1402,19 @@ function EnergyFlowOverview({ data, onSelectNode }) {
                 <div
                   key={src.id}
                   onClick={() => onSelectNode?.(src, 'B2')}
-                  className={`py-0.5 px-1 rounded-md border text-center cursor-pointer hover:border-emerald-500 transition shadow-2xs ${
+                  className={`py-0.5 px-1 rounded-md border text-center cursor-pointer hover:border-emerald-500 transition shadow-2xs bg-white dark:bg-slate-900 ${
                     src.id === 'b2-wapda'
-                      ? 'border-blue-500 bg-blue-500/10'
+                      ? 'border-blue-500'
                       : src.type === 'solar'
-                      ? 'border-amber-500 bg-amber-500/10'
-                      : 'border-purple-500 bg-purple-500/10'
+                      ? 'border-amber-500'
+                      : 'border-purple-500'
                   }`}
                 >
-                  <span className="text-[8.5px] font-bold text-slate-800 dark:text-slate-200 block truncate leading-tight">
+                  <span className="text-[7px] sm:text-[7.5px] font-bold text-slate-800 dark:text-slate-200 block break-words line-clamp-2 leading-tight" title={src.name}>
                     {src.name}
                   </span>
-                  <span className="text-[10px] font-black font-mono text-slate-900 dark:text-slate-100 leading-none">
-                    {srcKw.toFixed(1)} <span className="text-[7.5px] font-sans text-slate-400">kW</span>
+                  <span className="text-[9.5px] sm:text-[10px] font-black font-mono text-slate-900 dark:text-slate-100 leading-none">
+                    {srcKw.toFixed(1)} <span className="text-[7px] font-sans text-slate-400">kWh</span>
                   </span>
                 </div>
               )
@@ -1421,7 +1424,7 @@ function EnergyFlowOverview({ data, onSelectNode }) {
           {/* Distribution Feeder Busbar */}
           <div className="flex items-center justify-center relative my-0.5">
             <div className="w-full h-0.5 bg-slate-400 dark:bg-slate-600" />
-            <div className="absolute px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-[8.5px] font-bold text-slate-600 dark:text-slate-300 whitespace-nowrap">
+            <div className="absolute px-1.5 py-0.2 rounded bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-[8.5px] font-bold text-slate-600 dark:text-slate-300 whitespace-nowrap">
               &#123; B2 Side Total 22 Breakers &#125;
             </div>
           </div>

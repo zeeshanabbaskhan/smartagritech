@@ -111,10 +111,10 @@ function build24Variables(slave, loadKw, ratedA = 100) {
   const units = safeExtractNumber(metrics['Units'], 0.0)
 
   return [
-    { key: 'Total Power', name: 'Total Power', shortName: 'Total Power', value: +pTotal.toFixed(1), unit: 'kW', group: 'power' },
-    { key: 'PowerA', name: 'PowerA', shortName: 'PowerA', value: +pA.toFixed(1), unit: 'kW', group: 'power' },
-    { key: 'PowerB', name: 'PowerB', shortName: 'PowerB', value: +pB.toFixed(1), unit: 'kW', group: 'power' },
-    { key: 'PowerC', name: 'PowerC', shortName: 'PowerC', value: +pC.toFixed(1), unit: 'kW', group: 'power' },
+    { key: 'Total Power', name: 'Total Power', shortName: 'Total Power', value: +pTotal.toFixed(1), unit: 'kWh', group: 'power' },
+    { key: 'PowerA', name: 'PowerA', shortName: 'PowerA', value: +pA.toFixed(1), unit: 'kWh', group: 'power' },
+    { key: 'PowerB', name: 'PowerB', shortName: 'PowerB', value: +pB.toFixed(1), unit: 'kWh', group: 'power' },
+    { key: 'PowerC', name: 'PowerC', shortName: 'PowerC', value: +pC.toFixed(1), unit: 'kWh', group: 'power' },
     { key: 'Phase VoltageA', name: 'Phase VoltageA', shortName: 'Phase VoltageA', value: +vLineA.toFixed(1), unit: 'V', group: 'voltage' },
     { key: 'Phase VoltageB', name: 'Phase VoltageB', shortName: 'Phase VoltageB', value: +vLineB.toFixed(1), unit: 'V', group: 'voltage' },
     { key: 'Phase VoltageC', name: 'Phase VoltageC', shortName: 'Phase VoltageC', value: +vLineC.toFixed(1), unit: 'V', group: 'voltage' },
