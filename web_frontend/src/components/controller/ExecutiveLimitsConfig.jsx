@@ -4,7 +4,7 @@ import {
   validateThresholdRule,
 } from '../../utils/thresholdUtils'
 import { TextInput, ToggleInput, SelectInput } from '../ui/FormFields'
-import { AlertTriangle, CheckCircle, ShieldAlert, Cpu, Plus, Trash2, Info } from 'lucide-react'
+import { AlertTriangle, CheckCircle, ShieldAlert, Cpu, Plus, Trash2, Info, Zap, Check } from 'lucide-react'
 
 export default function ExecutiveLimitsConfig({
   executiveLimits = {},
@@ -14,6 +14,9 @@ export default function ExecutiveLimitsConfig({
 }) {
   const [selectedSlaveId, setSelectedSlaveId] = useState('')
   const [slaveMetricType, setSlaveMetricType] = useState('power')
+  const [batchWarning, setBatchWarning] = useState('70')
+  const [batchCritical, setBatchCritical] = useState('100')
+  const [batchAppliedMsg, setBatchAppliedMsg] = useState('')
 
   const thresholds = executiveLimits?.thresholds || {}
   const slaveThresholds = executiveLimits?.slaveThresholds || {}
@@ -100,6 +103,40 @@ export default function ExecutiveLimitsConfig({
       ...executiveLimits,
       slaveThresholds: next,
     })
+  }
+
+  const applyBatchToAllSlaves = () => {
+    if (readOnly) return
+    const w = String(batchWarning || '70').trim()
+    const c = String(batchCritical || '100').trim()
+    const next = { ...slaveThresholds }
+
+    for (const slv of allSlaves) {
+      next[slv.id] = {
+        enabled: true,
+        direction: 'above',
+        metricKey: 'power',
+        warningValue: w,
+        criticalValue: c,
+        unit: 'kWh',
+        slaveName: slv.name,
+        deviceName: slv.deviceName,
+      }
+    }
+
+    onChange?.({
+      ...executiveLimits,
+      slaveDefault: {
+        enabled: true,
+        warningValue: w,
+        criticalValue: c,
+        unit: 'kWh',
+      },
+      slaveThresholds: next,
+    })
+
+    setBatchAppliedMsg(`Configured all ${allSlaves.length} slaves to Yellow: ${w} kWh, Red: ${c} kWh! Click "Save Configuration" at the top to save.`)
+    setTimeout(() => setBatchAppliedMsg(''), 6000)
   }
 
   // Available slaves not yet configured
@@ -259,6 +296,60 @@ export default function ExecutiveLimitsConfig({
             </p>
           </div>
         </div>
+
+        {/* Quick Batch Setup for All Slaves */}
+        {!readOnly && (
+          <div className="p-4 rounded-xl bg-primary-50/50 dark:bg-primary-950/20 border-2 border-primary-200 dark:border-primary-800/60 mb-4 shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3 pb-2 border-b border-primary-200/60 dark:border-primary-800/40">
+              <div>
+                <h4 className="text-xs font-black text-primary-900 dark:text-primary-100 uppercase tracking-wider flex items-center gap-1.5">
+                  <Zap size={14} className="text-primary-600" />
+                  Quick Batch Threshold for ALL Breakers & Slaves ({allSlaves.length} Connected)
+                </h4>
+                <p className="text-[11px] text-surface-500 dark:text-surface-400">
+                  Instantly set the <strong>Yellow Warning</strong> and <strong>Red Critical</strong> block color limits across all breaker boxes.
+                </p>
+              </div>
+            </div>
+
+            {batchAppliedMsg && (
+              <div className="p-2.5 mb-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 text-xs font-bold text-emerald-800 dark:text-emerald-200 flex items-center gap-2">
+                <Check size={14} className="text-emerald-600" />
+                {batchAppliedMsg}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+              <div className="sm:col-span-4">
+                <TextInput
+                  label="Yellow Warning Threshold (kWh)"
+                  type="number"
+                  value={batchWarning}
+                  onChange={(e) => setBatchWarning(e.target.value)}
+                  placeholder="e.g. 70"
+                />
+              </div>
+              <div className="sm:col-span-4">
+                <TextInput
+                  label="Red Critical Threshold (kWh)"
+                  type="number"
+                  value={batchCritical}
+                  onChange={(e) => setBatchCritical(e.target.value)}
+                  placeholder="e.g. 100"
+                />
+              </div>
+              <div className="sm:col-span-4 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={applyBatchToAllSlaves}
+                  className="btn-primary w-full py-2.5 flex items-center justify-center gap-1.5 text-xs font-bold shadow-xs cursor-pointer"
+                >
+                  <Zap size={14} /> Apply to All Slaves
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Add slave threshold picker */}
         {!readOnly && (

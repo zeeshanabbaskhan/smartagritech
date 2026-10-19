@@ -1151,46 +1151,57 @@ function EnergyFlowOverview({ data, onSelectNode }) {
   const metrics = data.metrics || {}
   const building1 = data.building1 || {}
   const building2 = data.building2 || {}
+  const executiveLimits = data.executiveLimits || {}
+  const slaveThresholds = executiveLimits.slaveThresholds || {}
+  const slaveDefault = executiveLimits.slaveDefault || {}
 
   const renderBreakerBox = (b, buildingCode) => {
     if (!b) return null
     const name = b.name || ''
     const isSpare = b.status === 'spare' || name.toLowerCase().includes('spare')
     const isGenerating = b.status === 'generating' || name.toLowerCase().includes('solar')
-    const isHeavy = b.status === 'heavy'
-    const isTripped = b.status === 'tripped'
     const isTieLine = b.status === 'tie-line' || name.toLowerCase().includes('ambition')
     const loadKwVal = Number.isFinite(Number(b.loadKw)) ? Number(b.loadKw) : 0
+
+    // Threshold evaluation: checks slave override, then global default, falling back to 70 / 100
+    const slaveThresh = b.slaveId ? slaveThresholds[b.slaveId] : null
+    const warnLimit = Number(slaveThresh?.warningValue || slaveDefault?.warningValue || 70)
+    const critLimit = Number(slaveThresh?.criticalValue || slaveDefault?.criticalValue || 100)
+
+    const isTripped = b.status === 'tripped' || (loadKwVal >= critLimit && !isGenerating && !isSpare)
+    const isHeavy = !isTripped && (b.status === 'heavy' || (loadKwVal >= warnLimit && !isGenerating && !isSpare))
 
     return (
       <div
         key={b.id || `${buildingCode}-${name}`}
         onClick={() => onSelectNode?.(b, buildingCode)}
-        className={`group relative p-0.5 sm:p-1 rounded-md border text-center transition-all duration-150 cursor-pointer select-none flex flex-col justify-between min-h-[38px] sm:min-h-[40px] bg-white dark:bg-slate-900 ${
-          isTieLine
-            ? 'border-indigo-500/70 text-indigo-700 dark:text-indigo-300 ring-1 ring-indigo-500/30'
-            : isTripped
-            ? 'border-red-500 text-red-600 ring-1 ring-red-500 animate-pulse'
+        className={`group relative p-0.5 sm:p-1 rounded-md border text-center transition-all duration-150 cursor-pointer select-none flex flex-col justify-between min-h-[38px] sm:min-h-[40px] ${
+          isTripped
+            ? 'bg-red-500 text-white border-red-600 ring-2 ring-red-400 font-bold shadow-md animate-pulse'
             : isHeavy
-            ? 'border-amber-500 hover:border-amber-600'
+            ? 'bg-amber-300 text-amber-950 border-amber-400 ring-2 ring-amber-300 font-bold shadow-xs'
+            : isTieLine
+            ? 'bg-white dark:bg-slate-900 border-indigo-500/70 text-indigo-700 dark:text-indigo-300 ring-1 ring-indigo-500/30'
             : isGenerating
-            ? 'border-emerald-500 hover:border-emerald-600'
+            ? 'bg-white dark:bg-slate-900 border-emerald-500 hover:border-emerald-600'
             : isSpare
-            ? 'border-slate-300 dark:border-slate-700 text-slate-400 opacity-60'
-            : 'border-slate-300 dark:border-slate-700 hover:border-blue-500 hover:shadow-xs'
+            ? 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-slate-400 opacity-60'
+            : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:border-blue-500 hover:shadow-xs'
         }`}
-        title={`${name} - ${loadKwVal.toFixed(1)} kWh`}
+        title={`${name} - ${loadKwVal.toFixed(1)} kWh ${isTripped ? `(CRITICAL >= ${critLimit} kWh)` : isHeavy ? `(WARNING >= ${warnLimit} kWh)` : '(NORMAL)'}`}
       >
         <div className="flex items-start justify-between gap-0.5 leading-tight mb-0.5 w-full">
           <span
-            className="text-[7px] sm:text-[7.5px] font-bold tracking-tight text-slate-900 dark:text-slate-100 break-words line-clamp-2 text-left flex-1"
+            className={`text-[7px] sm:text-[7.5px] font-bold tracking-tight break-words line-clamp-2 text-left flex-1 ${
+              isTripped ? 'text-white' : isHeavy ? 'text-amber-950' : 'text-slate-900 dark:text-slate-100'
+            }`}
             title={name}
           >
             {name}
           </span>
           <span className={`w-1.5 h-1.5 rounded-full shrink-0 mt-0.5 ${
-            isTripped ? 'bg-red-600 animate-ping' :
-            isHeavy ? 'bg-amber-500' :
+            isTripped ? 'bg-white animate-ping' :
+            isHeavy ? 'bg-amber-700 animate-pulse' :
             isGenerating ? 'bg-emerald-500' :
             isSpare ? 'bg-slate-400' :
             isTieLine ? 'bg-indigo-500 animate-pulse' :
@@ -1198,10 +1209,14 @@ function EnergyFlowOverview({ data, onSelectNode }) {
           }`} />
         </div>
         <div className="flex items-baseline justify-center gap-0.5 font-mono leading-none">
-          <span className="text-[9px] sm:text-[10px] font-black text-slate-900 dark:text-slate-100">
+          <span className={`text-[9px] sm:text-[10px] font-black ${
+            isTripped ? 'text-white' : isHeavy ? 'text-amber-950' : 'text-slate-900 dark:text-slate-100'
+          }`}>
             {loadKwVal.toFixed(1)}
           </span>
-          <span className="text-[6.5px] sm:text-[7px] font-sans text-slate-400">kWh</span>
+          <span className={`text-[6.5px] sm:text-[7px] font-sans ${
+            isTripped ? 'text-red-100' : isHeavy ? 'text-amber-800' : 'text-slate-400'
+          }`}>kWh</span>
         </div>
       </div>
     )

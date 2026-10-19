@@ -440,6 +440,7 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
       row3: b2Row3,
       row4: b2Row4,
     },
+    executiveLimits: powerFlow?.executiveLimits || null,
   }
 }
 
