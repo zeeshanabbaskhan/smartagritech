@@ -1,0 +1,1774 @@
+/**
+
+ * ALL-IN-ONE STANDALONE EXECUTIVE DASHBOARD
+
+ * Contains all components, electrical topology, 24 variables, and CSV exporter in a single file.
+
+ * Drop this single file into any React project.
+
+ */
+
+import { useState, useEffect, useMemo } from 'react'
+import {
+  Zap, Sun, Fuel, Activity, Radio, ArrowRight,
+  X, Gauge, AlertTriangle, ShieldCheck, Flame, Power,
+  Maximize2, Minimize2, Download, Calendar, Layers,
+  CheckSquare, Square, Check, BarChart2, TrendingUp,
+  Cpu, Clock, RefreshCw, FileText, Play, Pause,
+  Moon, Minus, Plus
+} from 'lucide-react'
+import {
+  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid
+} from 'recharts'
+
+
+/**
+ * Standalone Client-side CSV export helper.
+ * Generates and triggers instant browser download of standard CSV files.
+ */
+export function toCsv(header, rows) {
+  return [header, ...rows]
+    .map((row) => row.map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','))
+    .join('\n')
+}
+
+export function downloadCsv(filename, header, rows) {
+  // UTF-8 BOM helps Excel and SCADA open the file with the correct encoding.
+  const csv = `\uFEFF${toCsv(header, rows)}`
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+
+/**
+ * Energy Flow Overview Data Model & Live Simulation Engine
+ * Models Building 1 (Ambition) and Building 2 (AFL) electrical architecture
+ * strictly matching the single-line diagram sketch.
+ */
+
+export const INITIAL_FLOW_DATA = {
+  timestamp: new Date().toISOString(),
+  metrics: {
+    totalWapda: 545.3,
+    totalRunningLoad: 740.5,
+    solarTotal: 195.2,
+    totalGenset: 0.0,
+    powerFactor: 0.98,
+    gridFrequency: 50.02,
+    co2AvoidedKg: 87.8,
+    tariffRatePkr: 38.5,
+  },
+  building1: {
+    id: 'b1',
+    name: 'B1 (Ambition Plant)',
+    code: 'B1',
+    runningLoad: 568.8,
+    maxCapacityKw: 2000,
+    sources: [
+      { id: 'b1-wapda', name: 'WAPDA-AMB', type: 'grid', loadKw: 432.6, voltage: 402, current: 620, pf: 0.98, status: 'active' },
+      { id: 'b1-genset1', name: 'Genset 01 (G1)', type: 'genset', loadKw: 0.0, voltage: 400, current: 0, pf: 0.96, status: 'standby' },
+      { id: 'b1-genset2', name: 'Genset 02 (G2)', type: 'genset', loadKw: 0.0, voltage: 400, current: 0, pf: 0.95, status: 'standby' },
+      { id: 'b1-solar', name: 'Solar AMB (5 Inv)', type: 'solar', loadKw: 136.2, voltage: 405, current: 195, pf: 0.99, status: 'generating' },
+    ],
+    // 4 exact rows of real registered Ambition slaves:
+    row1: [
+      { id: 'b1-r1-1', name: 'Office-Amb', ratedA: 100, loadKw: 54.8, status: 'normal' },
+      { id: 'b1-r1-2', name: 'Sampling Stitching', ratedA: 250, loadKw: 61.9, status: 'normal' },
+      { id: 'b1-r1-3', name: 'Washing Hall', ratedA: 400, loadKw: 192.8, status: 'heavy' },
+      { id: 'b1-r1-4', name: 'Finshing AMB', ratedA: 250, loadKw: 45.2, status: 'normal' },
+      { id: 'b1-r1-5', name: 'Boiler', ratedA: 350, loadKw: 54.5, status: 'normal' },
+      { id: 'b1-r1-6', name: 'SEWING-3F-AMB', ratedA: 200, loadKw: 8.5, status: 'normal' },
+      { id: 'b1-r1-7', name: 'SHall1', ratedA: 160, loadKw: 43.5, status: 'normal' },
+    ],
+    row2: [
+      { id: 'b1-r2-1', name: 'Cutting Hall', ratedA: 300, loadKw: 2.8, status: 'normal' },
+      { id: 'b1-r2-2', name: 'Laser Hall', ratedA: 100, loadKw: 8.0, status: 'normal' },
+      { id: 'b1-r2-3', name: 'ETP-AMB', ratedA: 200, loadKw: 21.8, status: 'normal' },
+      { id: 'b1-r2-4', name: 'LT Room', ratedA: 125, loadKw: 4.6, status: 'normal' },
+      { id: 'b1-r2-5', name: 'Comp-AMB', ratedA: 200, loadKw: 71.5, status: 'normal' },
+      { id: 'b1-r2-6', name: '3F-AIR-Cooler', ratedA: 150, loadKw: 0.4, status: 'normal' },
+      { id: 'b1-r2-7', name: 'Wash-Random-UPS', ratedA: 200, loadKw: 2.6, status: 'normal' },
+    ],
+    row3: [
+      { id: 'b1-r3-1', name: 'Solar-INVT-4', ratedA: 160, loadKw: 35.0, status: 'generating' },
+      { id: 'b1-r3-2', name: 'Solar-INVT-5', ratedA: 160, loadKw: 32.2, status: 'generating' },
+      { id: 'b1-r3-3', name: 'Solar AMB-1,2,3', ratedA: 160, loadKw: 59.2, status: 'generating' },
+      { id: 'b1-r3-4', name: 'Dryer Hall', ratedA: 350, loadKw: 89.4, status: 'normal' },
+      { id: 'b1-r3-5', name: 'WashingLTPanel', ratedA: 400, loadKw: 241.9, status: 'heavy' },
+      { id: 'b1-r3-6', name: 'Spare-1', ratedA: 100, loadKw: 0.0, status: 'spare' },
+      { id: 'b1-r3-7', name: 'Spare-2', ratedA: 100, loadKw: 0.0, status: 'spare' },
+    ],
+    row4: [
+      { id: 'b1-r4-1', name: 'G1', ratedA: 100, loadKw: 0.0, status: 'normal' },
+      { id: 'b1-r4-2', name: 'G2', ratedA: 100, loadKw: 0.0, status: 'normal' },
+      { id: 'b1-r4-3', name: 'WAPDA-AMB', ratedA: 400, loadKw: 432.6, status: 'heavy' },
+      { id: 'b1-r4-4', name: 'Tie-Feeder to AFL', ratedA: 350, loadKw: 0.0, status: 'tie-line' },
+    ],
+  },
+  building2: {
+    id: 'b2',
+    name: 'Building 2 (AFL Plant)',
+    code: 'B2',
+    runningLoad: 171.7,
+    maxCapacityKw: 1800,
+    sources: [
+      { id: 'b2-solar', name: 'Solar AFL', type: 'solar', loadKw: 59.0, voltage: 405, current: 85, pf: 0.99, status: 'generating' },
+      { id: 'b2-genset', name: 'Genset (G3 AFL)', type: 'genset', loadKw: 0.0, voltage: 400, current: 0, pf: 0.96, status: 'standby' },
+      { id: 'b2-wapda', name: 'WAPDA-AFL', type: 'grid', loadKw: 112.7, voltage: 401, current: 162, pf: 0.98, status: 'active' },
+    ],
+    // 4 exact rows of real registered AFL slaves:
+    row1: [
+      { id: 'b2-r1-1', name: '1F-MAIN DB-FINISHING', ratedA: 250, loadKw: 12.9, status: 'normal' },
+      { id: 'b2-r1-2', name: '2F-MAIN DB-SEWING', ratedA: 200, loadKw: 19.8, status: 'normal' },
+      { id: 'b2-r1-3', name: '3F-MAIN DB-SEWING', ratedA: 160, loadKw: 6.1, status: 'normal' },
+      { id: 'b2-r1-4', name: 'GF-Main-DB', ratedA: 160, loadKw: 22.0, status: 'normal' },
+      { id: 'b2-r1-5', name: 'Ground Floor B', ratedA: 160, loadKw: 5.6, status: 'normal' },
+      { id: 'b2-r1-6', name: '1F Back Side DB', ratedA: 100, loadKw: 0.8, status: 'normal' },
+      { id: 'b2-r1-7', name: '2F-DB Back Side', ratedA: 100, loadKw: 0.0, status: 'normal' },
+    ],
+    row2: [
+      { id: 'b2-r2-1', name: 'COMP-132KW', ratedA: 300, loadKw: 74.1, status: 'heavy' },
+      { id: 'b2-r2-2', name: '55KW Comp', ratedA: 150, loadKw: 0.0, status: 'normal' },
+      { id: 'b2-r2-3', name: 'Comp', ratedA: 150, loadKw: 0.0, status: 'normal' },
+      { id: 'b2-r2-4', name: 'ETP-AFL', ratedA: 200, loadKw: 23.4, status: 'normal' },
+      { id: 'b2-r2-5', name: 'Air Cooler 2nd Floor', ratedA: 100, loadKw: 0.0, status: 'normal' },
+      { id: 'b2-r2-6', name: 'Solar AFL', ratedA: 250, loadKw: 59.0, status: 'generating' },
+      { id: 'b2-r2-7', name: 'Drain Pump', ratedA: 125, loadKw: 0.0, status: 'normal' },
+    ],
+    row3: [
+      { id: 'b2-r3-1', name: 'Spray Booth 1', ratedA: 125, loadKw: 0.0, status: 'normal' },
+      { id: 'b2-r3-2', name: 'Spray Booth 2', ratedA: 125, loadKw: 0.0, status: 'normal' },
+      { id: 'b2-r3-3', name: 'Spray Booth 3', ratedA: 125, loadKw: 0.0, status: 'normal' },
+      { id: 'b2-r3-4', name: 'LT Panel Room-AFL', ratedA: 160, loadKw: 4.1, status: 'normal' },
+      { id: 'b2-r3-5', name: 'Ozone UPS', ratedA: 100, loadKw: 2.3, status: 'normal' },
+      { id: 'b2-r3-6', name: 'Spare', ratedA: 100, loadKw: 0.0, status: 'spare' },
+      { id: 'b2-r3-7', name: 'Spare Feeder 2', ratedA: 100, loadKw: 0.0, status: 'spare' },
+    ],
+    row4: [
+      { id: 'b2-r4-1', name: 'G3 AFL', ratedA: 150, loadKw: 0.0, status: 'normal' },
+      { id: 'b2-r4-2', name: 'WAPDA-AFL', ratedA: 200, loadKw: 112.7, status: 'normal' },
+      { id: 'b2-r4-3', name: 'From Ambition (Tie-Line)', ratedA: 300, loadKw: 0.0, status: 'tie-line' },
+    ],
+  },
+}
+
+// Flat list helper
+export function getAllBreakers(building) {
+  return [...building.row1, ...building.row2, ...building.row3, ...building.row4]
+}
+
+/**
+ * Generates electrical telemetry for individual breaker nodes
+ */
+export function generateBreakerDetails(breaker, buildingCode) {
+  if (Array.isArray(breaker.variables24) && breaker.variables24.length > 0) {
+    const isTripped = breaker.status === 'tripped'
+    const loadKw = isTripped ? 0 : (breaker.loadKw || 0)
+    const sparkline = Array.from({ length: 12 }, (_, i) => {
+      const jitter = loadKw > 0 ? (Math.random() * 2 - 1) : 0
+      return {
+        time: `-${(11 - i) * 5}m`,
+        kw: Math.max(0, Number((loadKw + jitter).toFixed(1))),
+      }
+    })
+    return {
+      ...breaker,
+      loadKw,
+      buildingCode: buildingCode || breaker.buildingCode,
+      slaveId: breaker.slaveId ? (String(breaker.slaveId).length > 8 ? String(breaker.slaveId).slice(-6).toUpperCase() : breaker.slaveId) : '0x01',
+      slaveName: breaker.name,
+      gateway: breaker.deviceName || `EMS-GW-${buildingCode || 'B1'}-01`,
+      busChannel: 'Modbus RTU RS485',
+      sparkline,
+    }
+  }
+
+  const isTripped = breaker.status === 'tripped'
+  const loadKw = isTripped ? 0 : (breaker.loadKw || 0)
+  const vLine = 400 + (Math.random() * 4 - 2)
+  const vPhase = +(vLine / Math.sqrt(3)).toFixed(1)
+  const pf = isTripped ? 0 : 0.94 + Math.random() * 0.04
+  const freq = 50.0 + (Math.random() * 0.08 - 0.04)
+  const current = loadKw > 0
+    ? (loadKw * 1000) / (Math.sqrt(3) * vLine * pf)
+    : 0
+  const kva = pf > 0 ? loadKw / pf : 0
+  const kvar = Math.sqrt(Math.max(0, kva * kva - loadKw * loadKw))
+  const utilization = breaker.ratedA > 0 ? Math.min(100, Math.round((current / breaker.ratedA) * 100)) : 0
+
+  const slaveIdHex = ('0x' + (Math.abs(breaker.id.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0) % 30) + 1).toString(16).padStart(2, '0')).toUpperCase()
+
+  // Exact 25 Organization Dashboard Telemetry Variables
+  const variables24 = [
+    { key: 'Total Power', name: 'Total Power', shortName: 'Total Power', value: Number(loadKw.toFixed(1)), unit: 'kW', group: 'power' },
+    { key: 'PowerA', name: 'PowerA', shortName: 'PowerA', value: Number(((loadKw / 3) * 0.98).toFixed(1)), unit: 'kW', group: 'power' },
+    { key: 'PowerB', name: 'PowerB', shortName: 'PowerB', value: Number(((loadKw / 3) * 1.01).toFixed(1)), unit: 'kW', group: 'power' },
+    { key: 'PowerC', name: 'PowerC', shortName: 'PowerC', value: Number(((loadKw / 3) * 1.01).toFixed(1)), unit: 'kW', group: 'power' },
+    { key: 'Phase VoltageA', name: 'Phase VoltageA', shortName: 'Phase VoltageA', value: Number((vLine + 0.8).toFixed(1)), unit: 'V', group: 'voltage' },
+    { key: 'Phase VoltageB', name: 'Phase VoltageB', shortName: 'Phase VoltageB', value: Number((vLine - 0.7).toFixed(1)), unit: 'V', group: 'voltage' },
+    { key: 'Phase VoltageC', name: 'Phase VoltageC', shortName: 'Phase VoltageC', value: Number((vLine - 0.1).toFixed(1)), unit: 'V', group: 'voltage' },
+    { key: 'Voltage', name: 'Voltage', shortName: 'Voltage', value: Number(vPhase.toFixed(1)), unit: 'V', group: 'voltage' },
+    { key: 'VoltageA', name: 'VoltageA', shortName: 'VoltageA', value: Number((vPhase + 0.4).toFixed(1)), unit: 'V', group: 'voltage' },
+    { key: 'VoltageB', name: 'VoltageB', shortName: 'VoltageB', value: Number((vPhase - 0.5).toFixed(1)), unit: 'V', group: 'voltage' },
+    { key: 'VoltageC', name: 'VoltageC', shortName: 'VoltageC', value: Number((vPhase + 0.1).toFixed(1)), unit: 'V', group: 'voltage' },
+    { key: 'Current A', name: 'Current A', shortName: 'Current A', value: Number((current * 0.98).toFixed(1)), unit: 'A', group: 'current' },
+    { key: 'Current B', name: 'Current B', shortName: 'Current B', value: Number((current * 1.01).toFixed(1)), unit: 'A', group: 'current' },
+    { key: 'Current C', name: 'Current C', shortName: 'Current C', value: Number((current * 1.01).toFixed(1)), unit: 'A', group: 'current' },
+    { key: 'Total Reactive Power', name: 'Total Reactive Power', shortName: 'Total Reactive', value: Number(kvar.toFixed(1)), unit: 'kVAR', group: 'reactive' },
+    { key: 'Reactive Power A', name: 'Reactive Power A', shortName: 'Reactive A', value: Number(((kvar / 3) * 0.97).toFixed(1)), unit: 'kVAR', group: 'reactive' },
+    { key: 'Reactive Power B', name: 'Reactive Power B', shortName: 'Reactive B', value: Number(((kvar / 3) * 1.02).toFixed(1)), unit: 'kVAR', group: 'reactive' },
+    { key: 'Reactive Power C', name: 'Reactive Power C', shortName: 'Reactive C', value: Number(((kvar / 3) * 1.01).toFixed(1)), unit: 'kVAR', group: 'reactive' },
+    { key: 'Total Apparent Power', name: 'Total Apparent Power', shortName: 'Total Apparent', value: Number(kva.toFixed(1)), unit: 'kVA', group: 'apparent' },
+    { key: 'Apparent Power A', name: 'Apparent Power A', shortName: 'Apparent A', value: Number(((kva / 3) * 0.98).toFixed(1)), unit: 'kVA', group: 'apparent' },
+    { key: 'Apparent Power B', name: 'Apparent Power B', shortName: 'Apparent B', value: Number(((kva / 3) * 1.01).toFixed(1)), unit: 'kVA', group: 'apparent' },
+    { key: 'Apparent Power C', name: 'Apparent Power C', shortName: 'Apparent C', value: Number(((kva / 3) * 1.01).toFixed(1)), unit: 'kVA', group: 'apparent' },
+    { key: 'Power Factor', name: 'Power Factor', shortName: 'Power Factor', value: Number(pf.toFixed(3)), unit: 'PF', group: 'quality' },
+    { key: 'Frequency', name: 'Frequency', shortName: 'Frequency', value: Number(freq.toFixed(2)), unit: 'Hz', group: 'quality' },
+    { key: 'Units', name: 'Units', shortName: 'Units (kWh)', value: Number((loadKw * 240.5).toFixed(1)), unit: 'kWh', group: 'energy' },
+  ]
+
+  const sparkline = Array.from({ length: 12 }, (_, i) => {
+    const jitter = loadKw > 0 ? (Math.random() * 4 - 2) : 0
+    return {
+      time: `-${(11 - i) * 5}m`,
+      kw: Math.max(0, Number((loadKw + jitter).toFixed(1))),
+    }
+  })
+
+  return {
+    ...breaker,
+    loadKw,
+    buildingCode,
+    slaveId: slaveIdHex,
+    slaveName: `${breaker.name} Meter (${slaveIdHex})`,
+    gateway: `EMS-GW-${buildingCode || 'B1'}-01`,
+    busChannel: 'RS485 Ch-1 (9600 8-N-1)',
+    voltage: Number(voltage.toFixed(1)),
+    current: Number(current.toFixed(1)),
+    powerFactor: Number(pf.toFixed(2)),
+    frequency: Number(freq.toFixed(2)),
+    kvar: Number(kvar.toFixed(1)),
+    kva: Number(kva.toFixed(1)),
+    utilizationPercent: utilization,
+    sparkline,
+    variables24,
+    thdPercent: loadKw > 0 ? Number((2.1 + Math.random() * 1.5).toFixed(1)) : 0.8,
+  }
+}
+
+/**
+ * Real-time simulation tick for coherent mathematical balance
+ */
+export function simulateFlowTick(prev) {
+  const jitterFactor = () => (Math.random() * 0.01 - 0.005) // ±0.5% subtle jitter
+
+  const updateRow = (row) =>
+    row.map((b) => {
+      if (b.status === 'spare' || b.loadKw === 0) return b
+      const newKw = Number((b.loadKw * (1 + jitterFactor())).toFixed(1))
+      return { ...b, loadKw: Math.max(0.1, newKw) }
+    })
+
+  const b1r1 = updateRow(prev.building1.row1)
+  const b1r2 = updateRow(prev.building1.row2)
+  const b1r3 = updateRow(prev.building1.row3)
+  const b1r4 = updateRow(prev.building1.row4)
+
+  const b2r1 = updateRow(prev.building2.row1)
+  const b2r2 = updateRow(prev.building2.row2)
+  const b2r3 = updateRow(prev.building2.row3)
+  const b2r4 = updateRow(prev.building2.row4)
+
+  const b1All = [...b1r1, ...b1r2, ...b1r3, ...b1r4]
+  const b2All = [...b2r1, ...b2r2, ...b2r3, ...b2r4]
+
+  const b1Solar = Number(((prev.building1.sources.find((s) => s.type === 'solar')?.loadKw || 136.2) * (1 + jitterFactor())).toFixed(1))
+  const b2Solar = Number(((prev.building2.sources.find((s) => s.type === 'solar')?.loadKw || 59.0) * (1 + jitterFactor())).toFixed(1))
+  const solarTotal = Number((b1Solar + b2Solar).toFixed(1))
+
+  const b1Genset1 = Number((prev.building1.sources.find((s) => s.id === 'b1-genset1')?.loadKw || 0.0))
+  const b1Genset2 = Number((prev.building1.sources.find((s) => s.id === 'b1-genset2')?.loadKw || 0.0))
+  const b2Genset = Number((prev.building2.sources.find((s) => s.type === 'genset')?.loadKw || 0.0))
+  const totalGenset = Number((b1Genset1 + b1Genset2 + b2Genset).toFixed(1))
+
+  const b1Wapda = Number(((prev.building1.sources.find((s) => s.id === 'b1-wapda')?.loadKw || 432.6) * (1 + jitterFactor())).toFixed(1))
+  const b2Wapda = Number(((prev.building2.sources.find((s) => s.id === 'b2-wapda')?.loadKw || 112.7) * (1 + jitterFactor())).toFixed(1))
+  const totalWapda = Number((b1Wapda + b2Wapda).toFixed(1))
+
+  const b1Load = Number((b1Wapda + b1Solar + b1Genset1 + b1Genset2).toFixed(1))
+  const b2Load = Number((b2Wapda + b2Solar + b2Genset).toFixed(1))
+  const totalRunningLoad = Number((b1Load + b2Load).toFixed(1))
+
+  return {
+    timestamp: new Date().toISOString(),
+    metrics: {
+      totalWapda,
+      totalRunningLoad,
+      solarTotal,
+      totalGenset,
+      powerFactor: Number((0.96 + Math.random() * 0.01).toFixed(2)),
+      gridFrequency: Number((50.0 + (Math.random() * 0.04 - 0.02)).toFixed(2)),
+      co2AvoidedKg: Number(((prev.metrics.co2AvoidedKg || 387.0) + (solarTotal * 0.0001)).toFixed(1)),
+      tariffRatePkr: prev.metrics.tariffRatePkr || 28.0,
+    },
+    building1: {
+      ...prev.building1,
+      runningLoad: b1Load,
+      sources: prev.building1.sources.map((s) => {
+        if (s.id === 'b1-wapda') return { ...s, loadKw: b1Wapda }
+        if (s.type === 'solar') return { ...s, loadKw: b1Solar }
+        return s
+      }),
+      row1: b1r1,
+      row2: b1r2,
+      row3: b1r3,
+      row4: b1r4,
+    },
+    building2: {
+      ...prev.building2,
+      runningLoad: b2Load,
+      sources: prev.building2.sources.map((s) => {
+        if (s.id === 'b2-wapda') return { ...s, loadKw: b2Wapda }
+        if (s.type === 'solar') return { ...s, loadKw: b2Solar }
+        return s
+      }),
+      row1: b2r1,
+      row2: b2r2,
+      row3: b2r3,
+      row4: b2r4,
+    },
+  }
+}
+
+
+
+
+
+
+// Exact Organization Dashboard Telemetry Variables Resolver
+function getResolvedVariables(node) {
+  if (Array.isArray(node?.variables24) && node.variables24.length > 0) {
+    return node.variables24
+  }
+  const loadKw = node?.status === 'tripped' ? 0 : (Number(node?.loadKw) || 45.0)
+  const vLine = Number(node?.voltage) || 400.0
+  const vPhase = +(vLine / Math.sqrt(3)).toFixed(1)
+  const pf = node?.status === 'tripped' ? 0 : (Number(node?.powerFactor) || 0.96)
+  const current = loadKw > 0 ? (loadKw * 1000) / (Math.sqrt(3) * vLine * (pf || 0.96)) : 0
+  const kva = pf > 0 ? loadKw / pf : 0
+  const kvar = Math.sqrt(Math.max(0, kva * kva - loadKw * loadKw))
+  const freq = Number(node?.frequency) || 50.02
+  const units = Number(node?.units) || 12540.5
+
+  return [
+    { key: 'Total Power', name: 'Total Power', shortName: 'Total Power', value: Number(loadKw.toFixed(1)), unit: 'kW', group: 'power' },
+    { key: 'PowerA', name: 'PowerA', shortName: 'PowerA', value: Number(((loadKw / 3) * 0.98).toFixed(1)), unit: 'kW', group: 'power' },
+    { key: 'PowerB', name: 'PowerB', shortName: 'PowerB', value: Number(((loadKw / 3) * 1.01).toFixed(1)), unit: 'kW', group: 'power' },
+    { key: 'PowerC', name: 'PowerC', shortName: 'PowerC', value: Number(((loadKw / 3) * 1.01).toFixed(1)), unit: 'kW', group: 'power' },
+    { key: 'Phase VoltageA', name: 'Phase VoltageA', shortName: 'Phase VoltageA', value: Number((vLine + 0.8).toFixed(1)), unit: 'V', group: 'voltage' },
+    { key: 'Phase VoltageB', name: 'Phase VoltageB', shortName: 'Phase VoltageB', value: Number((vLine - 0.7).toFixed(1)), unit: 'V', group: 'voltage' },
+    { key: 'Phase VoltageC', name: 'Phase VoltageC', shortName: 'Phase VoltageC', value: Number((vLine - 0.1).toFixed(1)), unit: 'V', group: 'voltage' },
+    { key: 'Voltage', name: 'Voltage', shortName: 'Voltage', value: Number(vPhase.toFixed(1)), unit: 'V', group: 'voltage' },
+    { key: 'VoltageA', name: 'VoltageA', shortName: 'VoltageA', value: Number((vPhase + 0.4).toFixed(1)), unit: 'V', group: 'voltage' },
+    { key: 'VoltageB', name: 'VoltageB', shortName: 'VoltageB', value: Number((vPhase - 0.5).toFixed(1)), unit: 'V', group: 'voltage' },
+    { key: 'VoltageC', name: 'VoltageC', shortName: 'VoltageC', value: Number((vPhase + 0.1).toFixed(1)), unit: 'V', group: 'voltage' },
+    { key: 'Current A', name: 'Current A', shortName: 'Current A', value: Number((current * 0.98).toFixed(1)), unit: 'A', group: 'current' },
+    { key: 'Current B', name: 'Current B', shortName: 'Current B', value: Number((current * 1.01).toFixed(1)), unit: 'A', group: 'current' },
+    { key: 'Current C', name: 'Current C', shortName: 'Current C', value: Number((current * 1.01).toFixed(1)), unit: 'A', group: 'current' },
+    { key: 'Total Reactive Power', name: 'Total Reactive Power', shortName: 'Total Reactive', value: Number(kvar.toFixed(1)), unit: 'kVAR', group: 'reactive' },
+    { key: 'Reactive Power A', name: 'Reactive Power A', shortName: 'Reactive A', value: Number(((kvar / 3) * 0.97).toFixed(1)), unit: 'kVAR', group: 'reactive' },
+    { key: 'Reactive Power B', name: 'Reactive Power B', shortName: 'Reactive B', value: Number(((kvar / 3) * 1.02).toFixed(1)), unit: 'kVAR', group: 'reactive' },
+    { key: 'Reactive Power C', name: 'Reactive Power C', shortName: 'Reactive C', value: Number(((kvar / 3) * 1.01).toFixed(1)), unit: 'kVAR', group: 'reactive' },
+    { key: 'Total Apparent Power', name: 'Total Apparent Power', shortName: 'Total Apparent', value: Number(kva.toFixed(1)), unit: 'kVA', group: 'apparent' },
+    { key: 'Apparent Power A', name: 'Apparent Power A', shortName: 'Apparent A', value: Number(((kva / 3) * 0.98).toFixed(1)), unit: 'kVA', group: 'apparent' },
+    { key: 'Apparent Power B', name: 'Apparent Power B', shortName: 'Apparent B', value: Number(((kva / 3) * 1.01).toFixed(1)), unit: 'kVA', group: 'apparent' },
+    { key: 'Apparent Power C', name: 'Apparent Power C', shortName: 'Apparent C', value: Number(((kva / 3) * 1.01).toFixed(1)), unit: 'kVA', group: 'apparent' },
+    { key: 'Power Factor', name: 'Power Factor', shortName: 'Power Factor', value: Number(pf.toFixed(3)), unit: 'PF', group: 'quality' },
+    { key: 'Frequency', name: 'Frequency', shortName: 'Frequency', value: Number(freq.toFixed(2)), unit: 'Hz', group: 'quality' },
+    { key: 'Units', name: 'Units', shortName: 'Units (kWh)', value: Number(units.toFixed(1)), unit: 'kWh', group: 'energy' },
+  ]
+}
+
+function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
+  if (!node) return null
+
+  const [activeTab, setActiveTab] = useState('telemetry') // 'telemetry' | 'history' | 'export'
+  const [isMaximized, setIsMaximized] = useState(false)
+  const [historyRange, setHistoryRange] = useState('24h') // '1h' | '24h' | '7d' | '30d'
+  const [historyVariable, setHistoryVariable] = useState('Total Power')
+
+  // CSV Export Date Range & Variable Selection
+  const [dateFrom, setDateFrom] = useState('2026-10-02')
+  const [dateTo, setDateTo] = useState('2026-10-09')
+  const [downloadSuccess, setDownloadSuccess] = useState('')
+
+  const variables = useMemo(() => getResolvedVariables(node), [node])
+
+  const [selectedVarKeys, setSelectedVarKeys] = useState(() =>
+    variables.map((v) => v.key)
+  )
+
+  useEffect(() => {
+    setSelectedVarKeys(variables.map((v) => v.key))
+    if (variables.length > 0 && !variables.some((v) => v.key === historyVariable)) {
+      setHistoryVariable(variables[0].key)
+    }
+  }, [variables])
+
+  const isSpare = node.status === 'spare'
+  const isGenerating = node.status === 'generating'
+  const isHeavy = node.status === 'heavy'
+  const isTripped = node.status === 'tripped'
+
+  // Toggle single variable selection
+  const toggleVar = (key) => {
+    setSelectedVarKeys((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+    )
+  }
+
+  // Select all / none
+  const handleSelectAll = () => setSelectedVarKeys(variables.map((v) => v.key))
+  const handleDeselectAll = () => setSelectedVarKeys([])
+
+  // Generate historical data points for interactive graph
+  const chartData = useMemo(() => {
+    const baseValue = variables.find((v) => v.key === historyVariable)?.value || node.loadKw || 50
+    let points = []
+
+    if (historyRange === '1h') {
+      points = Array.from({ length: 12 }, (_, i) => {
+        const timeStr = `${String(13 + Math.floor(i / 12)).padStart(2, '0')}:${String((i * 5) % 60).padStart(2, '0')}`
+        const jitter = (Math.sin(i * 0.8) * 0.08)
+        return {
+          timestamp: timeStr,
+          value: Number(Math.max(0, baseValue * (1 + jitter)).toFixed(1)),
+        }
+      })
+    } else if (historyRange === '24h') {
+      points = Array.from({ length: 24 }, (_, i) => {
+        const hour = `${String(i).padStart(2, '0')}:00`
+        // Daily industrial shift profile: low at night, peak during day shift
+        const shiftFactor = (i >= 8 && i <= 18) ? 1.15 : (i >= 19 && i <= 23) ? 0.95 : 0.65
+        const jitter = (Math.sin(i * 0.5) * 0.05)
+        return {
+          timestamp: hour,
+          value: Number(Math.max(0, baseValue * shiftFactor * (1 + jitter)).toFixed(1)),
+        }
+      })
+    } else if (historyRange === '7d') {
+      const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+      points = days.map((day, i) => {
+        const weekendFactor = (i >= 5) ? 0.7 : 1.05
+        const jitter = (Math.sin(i) * 0.06)
+        return {
+          timestamp: day,
+          value: Number(Math.max(0, baseValue * weekendFactor * (1 + jitter)).toFixed(1)),
+        }
+      })
+    } else {
+      // 30 Days
+      points = Array.from({ length: 30 }, (_, i) => {
+        const dayStr = `${i + 1} Oct`
+        const jitter = (Math.sin(i * 0.4) * 0.1)
+        return {
+          timestamp: dayStr,
+          value: Number(Math.max(0, baseValue * (1 + jitter)).toFixed(1)),
+        }
+      })
+    }
+
+    return points
+  }, [historyRange, historyVariable, variables, node.loadKw])
+
+  // Chart KPI stats
+  const chartStats = useMemo(() => {
+    if (!chartData || chartData.length === 0) return { peak: 0, avg: 0, min: 0 }
+    const vals = chartData.map((d) => d.value)
+    const peak = Math.max(...vals)
+    const min = Math.min(...vals)
+    const avg = vals.reduce((a, b) => a + b, 0) / vals.length
+    return {
+      peak: Number(peak.toFixed(1)),
+      min: Number(min.toFixed(1)),
+      avg: Number(avg.toFixed(1)),
+    }
+  }, [chartData])
+
+  // Trigger CSV Download
+  const handleDownloadCsv = () => {
+    if (selectedVarKeys.length === 0) return
+
+    const varsMap = new Map(variables.map((v) => [v.key, v]))
+    const selectedVars = selectedVarKeys.map((k) => varsMap.get(k)).filter(Boolean)
+
+    const header = [
+      'Timestamp',
+      'Device Name',
+      'Slave ID',
+      'Gateway',
+      'Building',
+      ...selectedVars.map((v) => `${v.name} (${v.unit || 'unit'})`.trim()),
+    ]
+
+    const rows = []
+    const start = new Date(dateFrom || '2026-10-02')
+    const end = new Date(dateTo || '2026-10-09')
+    const diffDays = Math.max(1, Math.min(60, Math.round((end - start) / (1000 * 60 * 60 * 24)) + 1))
+
+    for (let d = 0; d < diffDays; d++) {
+      const curDate = new Date(start)
+      curDate.setDate(curDate.getDate() + d)
+      const dateStr = curDate.toISOString().split('T')[0]
+
+      const sampleTimes = ['06:00:00', '12:00:00', '18:00:00', '23:00:00']
+      for (const t of sampleTimes) {
+        const ts = `${dateStr} ${t}`
+        const jitter = (Math.sin(d + t.charCodeAt(0)) * 0.1)
+
+        const values = selectedVars.map((v) => {
+          if (v.unit === 'kW' || v.unit === 'A' || v.unit === 'kVAR' || v.unit === 'kVA') {
+            return Number(Math.max(0, (v.value || 0) * (1 + jitter)).toFixed(1))
+          }
+          if (v.unit === 'V') {
+            return Number(((v.value || 0) + (jitter * 2)).toFixed(1))
+          }
+          if (v.unit === 'PF') {
+            return Number(Math.min(0.99, Math.max(0.85, (v.value || 0.96) + (jitter * 0.01))).toFixed(2))
+          }
+          if (v.unit === 'Hz') {
+            return Number((50.0 + (jitter * 0.04)).toFixed(2))
+          }
+          if (v.unit === 'kWh') {
+            return Number(((v.value || 0) + d * 45.2).toFixed(1))
+          }
+          return v.value
+        })
+
+        rows.push([
+          ts,
+          node.name,
+          node.slaveId || '0x04',
+          node.gateway || 'EMS-GW-01',
+          node.buildingCode || 'B1',
+          ...values,
+        ])
+      }
+    }
+
+    const safeName = (node.name || 'Device').replace(/[^a-zA-Z0-9_-]/g, '_')
+    const filename = `${safeName}_Slave_${node.slaveId || '0x04'}_${dateFrom}_to_${dateTo}.csv`
+
+    downloadCsv(filename, header, rows)
+    setDownloadSuccess(`Downloaded ${filename} (${rows.length} records)`)
+    setTimeout(() => setDownloadSuccess(''), 4000)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 overflow-hidden flex items-center justify-end bg-black/50 backdrop-blur-xs animate-fadeIn p-0 sm:p-2">
+      <div
+        className={`bg-white dark:bg-surface-900 shadow-2xl border border-surface-200 dark:border-surface-800 flex flex-col transition-all duration-200 overflow-hidden ${
+          isMaximized
+            ? 'w-full h-full max-w-7xl max-h-[96vh] rounded-2xl mx-auto'
+            : 'w-full sm:w-[480px] md:w-[520px] lg:w-[560px] h-full sm:rounded-2xl border-l'
+        }`}
+      >
+        {/* ─── 1. POPUP / DRAWER HEADER ─── */}
+        <div className="px-3 py-2 sm:px-4 sm:py-2.5 border-b border-surface-200 dark:border-surface-800 flex items-center justify-between bg-surface-50 dark:bg-surface-950/70 shrink-0">
+          <div className="flex items-center gap-2.5">
+            <div
+              className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold shadow-2xs shrink-0 ${
+                isTripped
+                  ? 'bg-danger-600/20 text-danger-600 border border-danger-600/30'
+                  : isGenerating
+                  ? 'bg-amber-500/20 text-amber-500 border border-amber-500/30'
+                  : isHeavy
+                  ? 'bg-warning-600/20 text-warning-600 border border-warning-600/30'
+                  : isSpare
+                  ? 'bg-surface-500/20 text-surface-400 border border-surface-500/30'
+                  : 'bg-primary-500/20 text-primary-500 border border-primary-500/30'
+              }`}
+            >
+              {isGenerating ? <Sun size={17} /> : node.type === 'genset' ? <Fuel size={17} /> : <Zap size={17} />}
+            </div>
+
+            <div>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <h3 className="font-bold text-surface-900 dark:text-surface-100 text-sm leading-none">
+                  {node.name}
+                </h3>
+                <span className="text-[9.5px] font-mono font-bold px-1.5 py-0.2 rounded bg-surface-200 dark:bg-surface-800 text-surface-700 dark:text-surface-300">
+                  {node.buildingCode || 'B1'}
+                </span>
+                <span className="text-[9.5px] font-mono font-bold px-1.5 py-0.2 rounded bg-primary-500/10 text-primary-600 dark:text-primary-400 border border-primary-500/20">
+                  Slave: {node.slaveId || '0x04'}
+                </span>
+              </div>
+              <p className="text-[10px] text-surface-500 leading-none mt-1">
+                {node.category || node.type || 'Distribution Board'} • {node.gateway || 'EMS-GW-01'}
+              </p>
+            </div>
+          </div>
+
+          {/* Action buttons: Maximize toggle & Close Cross */}
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setIsMaximized((v) => !v)}
+              className="p-1.5 rounded-lg text-surface-500 hover:text-surface-900 dark:hover:text-surface-100 hover:bg-surface-200 dark:hover:bg-surface-800 transition cursor-pointer"
+              title={isMaximized ? 'Restore to Half-Screen Drawer' : 'Maximize Window'}
+            >
+              {isMaximized ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1.5 rounded-lg text-surface-500 hover:text-surface-900 dark:hover:text-surface-100 hover:bg-surface-200 dark:hover:bg-surface-800 transition cursor-pointer"
+              title="Close"
+            >
+              <X size={17} />
+            </button>
+          </div>
+        </div>
+
+        {/* ─── 2. SUB-NAVIGATION TABS BAR ─── */}
+        <div className="px-3 sm:px-4 py-1.5 border-b border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 flex items-center justify-between gap-2 shrink-0">
+          <div className="flex rounded-lg border border-surface-200 dark:border-surface-800 p-0.5 bg-surface-100 dark:bg-surface-950 text-xs">
+            <button
+              type="button"
+              onClick={() => setActiveTab('telemetry')}
+              className={`px-2.5 py-1 rounded-md font-bold flex items-center gap-1.5 transition text-[11px] cursor-pointer ${
+                activeTab === 'telemetry'
+                  ? 'bg-white dark:bg-surface-800 text-primary-600 dark:text-primary-400 shadow-2xs'
+                  : 'text-surface-600 dark:text-surface-400 hover:text-surface-900 dark:hover:text-surface-100'
+              }`}
+            >
+              <Gauge size={13} />
+              Live Telemetry (24 Variables)
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('history')}
+              className={`px-2.5 py-1 rounded-md font-bold flex items-center gap-1.5 transition text-[11px] cursor-pointer ${
+                activeTab === 'history'
+                  ? 'bg-white dark:bg-surface-800 text-primary-600 dark:text-primary-400 shadow-2xs'
+                  : 'text-surface-600 dark:text-surface-400 hover:text-surface-900 dark:hover:text-surface-100'
+              }`}
+            >
+              <TrendingUp size={13} />
+              Historical Graph
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('export')}
+              className={`px-2.5 py-1 rounded-md font-bold flex items-center gap-1.5 transition text-[11px] cursor-pointer ${
+                activeTab === 'export'
+                  ? 'bg-white dark:bg-surface-800 text-primary-600 dark:text-primary-400 shadow-2xs'
+                  : 'text-surface-600 dark:text-surface-400 hover:text-surface-900 dark:hover:text-surface-100'
+              }`}
+            >
+              <Download size={13} />
+              CSV Export
+            </button>
+          </div>
+
+          {/* Quick status pill in tab header */}
+          <div className="hidden sm:flex items-center gap-1.5 text-[11px] font-mono">
+            <span
+              className={`w-2 h-2 rounded-full ${
+                isTripped
+                  ? 'bg-danger-600 animate-ping'
+                  : isHeavy
+                  ? 'bg-warning-500 animate-pulse'
+                  : isGenerating
+                  ? 'bg-amber-500 animate-pulse'
+                  : isSpare
+                  ? 'bg-surface-400'
+                  : 'bg-emerald-500'
+              }`}
+            />
+            <span className="font-bold text-surface-700 dark:text-surface-300">
+              {isTripped ? 'TRIPPED' : isSpare ? 'OFFLINE' : 'ONLINE'}
+            </span>
+          </div>
+        </div>
+
+        {/* ─── 3. TAB CONTENT BODY (ZERO SCROLL FIT) ─── */}
+        <div className="flex-1 p-2.5 sm:p-3 overflow-hidden flex flex-col justify-between">
+          {/* ============================================================== */}
+          {/* ─── TAB 1: LIVE TELEMETRY (24 VARIABLES IN COMPACT BLOCKS) ─── */}
+          {/* ============================================================== */}
+          {activeTab === 'telemetry' && (
+            <div className="flex flex-col gap-1.5">
+              {/* Status & Capacity Bar */}
+              <div className="p-1 sm:p-1.5 rounded-lg border border-surface-200 dark:border-surface-800 bg-surface-50 dark:bg-surface-950/60 flex items-center justify-between gap-3 shrink-0">
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`w-2 h-2 rounded-full shrink-0 ${
+                      isTripped
+                        ? 'bg-danger-600 animate-ping'
+                        : isHeavy
+                        ? 'bg-warning-500 animate-pulse'
+                        : isGenerating
+                        ? 'bg-amber-500 animate-pulse'
+                        : isSpare
+                        ? 'bg-surface-400'
+                        : 'bg-emerald-500'
+                    }`}
+                  />
+                  <span className="text-[10px] sm:text-[10.5px] font-black uppercase tracking-wider text-surface-800 dark:text-surface-200">
+                    {isTripped
+                      ? 'CIRCUIT TRIPPED (ALARM)'
+                      : isHeavy
+                      ? 'HEAVY LOAD WARNING'
+                      : isGenerating
+                      ? 'ACTIVE SOLAR GENERATION'
+                      : isSpare
+                      ? 'SPARE FEEDER'
+                      : 'NORMAL THREE-PHASE OPERATION'}
+                  </span>
+                  {node.ratedA && (
+                    <span className="text-[9.5px] font-mono text-surface-500 ml-1">
+                      (Rated: {node.ratedA} A)
+                    </span>
+                  )}
+                </div>
+
+                {/* Compact utilization progress */}
+                {node.ratedA && (
+                  <div className="flex items-center gap-2 min-w-[100px] sm:min-w-[140px]">
+                    <div className="flex-1 bg-surface-200 dark:bg-surface-800 rounded-full h-1.5 overflow-hidden">
+                      <div
+                        className={`h-full transition-all duration-500 ${
+                          (node.utilizationPercent || 0) > 90
+                            ? 'bg-danger-600'
+                            : (node.utilizationPercent || 0) > 75
+                            ? 'bg-warning-500'
+                            : 'bg-emerald-500'
+                        }`}
+                        style={{ width: `${Math.min(100, node.utilizationPercent || 0)}%` }}
+                      />
+                    </div>
+                    <span className="text-[9.5px] font-mono font-bold text-surface-700 dark:text-surface-300">
+                      {node.utilizationPercent || 0}%
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* 24 Variables Grid (Compact mini blocks - zero vertical stretch) */}
+              <div
+                className={`grid grid-cols-4 ${
+                  isMaximized ? 'lg:grid-cols-6' : ''
+                } gap-1`}
+              >
+                {variables.map((v) => (
+                  <div
+                    key={v.key}
+                    className="py-1 px-1.5 rounded-md border border-surface-200 dark:border-surface-800 bg-surface-50/70 dark:bg-surface-950/50 flex flex-col justify-between h-[34px] sm:h-[35px] transition hover:border-primary-500/50 shadow-2xs"
+                  >
+                    <div className="flex items-center justify-between gap-1 leading-none">
+                      <span
+                        className="text-[8.5px] sm:text-[9px] font-semibold text-surface-500 dark:text-surface-400 truncate"
+                        title={v.name}
+                      >
+                        {v.shortName}
+                      </span>
+                      <span className="text-[7px] font-mono font-bold px-0.5 rounded bg-surface-200/80 dark:bg-surface-800 text-surface-400 shrink-0 uppercase">
+                        {v.group}
+                      </span>
+                    </div>
+                    <div className="flex items-baseline gap-0.5 font-mono leading-none">
+                      <span className="text-[10.5px] sm:text-[11px] font-black text-surface-900 dark:text-surface-100">
+                        {v.value}
+                      </span>
+                      {v.unit && (
+                        <span className="text-[7.5px] font-sans font-medium text-surface-400">
+                          {v.unit}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ============================================================== */}
+          {/* ─── TAB 2: HISTORICAL DATA & GRAPH (PER SLAVE & DEVICE) ─────── */}
+          {/* ============================================================== */}
+          {activeTab === 'history' && (
+            <div className="h-full flex flex-col justify-between gap-1.5">
+              {/* Device & Slave Metadata Bar */}
+              <div className="p-1.5 sm:p-2 rounded-xl border border-surface-200 dark:border-surface-800 bg-surface-50 dark:bg-surface-950/60 flex flex-wrap items-center justify-between gap-2 shrink-0">
+                <div className="flex items-center gap-3 text-xs">
+                  <div>
+                    <span className="text-[9.5px] text-surface-400 uppercase font-bold block leading-none">
+                      Device / Board
+                    </span>
+                    <span className="font-bold text-surface-900 dark:text-surface-100">
+                      {node.name}
+                    </span>
+                  </div>
+                  <div className="w-[1px] h-6 bg-surface-200 dark:bg-surface-800" />
+                  <div>
+                    <span className="text-[9.5px] text-surface-400 uppercase font-bold block leading-none">
+                      Modbus Slave ID
+                    </span>
+                    <span className="font-mono font-bold text-primary-600 dark:text-primary-400">
+                      {node.slaveId || '0x04'}
+                    </span>
+                  </div>
+                  <div className="w-[1px] h-6 bg-surface-200 dark:bg-surface-800 hidden sm:block" />
+                  <div className="hidden sm:block">
+                    <span className="text-[9.5px] text-surface-400 uppercase font-bold block leading-none">
+                      Bus / Channel
+                    </span>
+                    <span className="font-mono text-surface-600 dark:text-surface-400 text-[11px]">
+                      {node.busChannel || 'RS485 Ch-1'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Variable Selector & Range Presets */}
+                <div className="flex items-center gap-1.5">
+                  <select
+                    value={historyVariable}
+                    onChange={(e) => setHistoryVariable(e.target.value)}
+                    className="input-field py-1 px-2 text-xs font-bold"
+                  >
+                    {variables.map((v) => (
+                      <option key={v.key} value={v.key}>
+                        {v.name} ({v.unit})
+                      </option>
+                    ))}
+                  </select>
+
+                  <div className="flex rounded-lg border border-surface-200 dark:border-surface-800 overflow-hidden text-xs bg-white dark:bg-surface-900">
+                    {['1h', '24h', '7d', '30d'].map((range) => (
+                      <button
+                        key={range}
+                        type="button"
+                        onClick={() => setHistoryRange(range)}
+                        className={`px-2 py-1 font-bold text-[10px] uppercase transition cursor-pointer ${
+                          historyRange === range
+                            ? 'bg-primary-600 text-white'
+                            : 'text-surface-600 dark:text-surface-400 hover:bg-surface-100 dark:hover:bg-surface-800'
+                        }`}
+                      >
+                        {range}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* KPI Stat Cards */}
+              <div className="grid grid-cols-4 gap-1.5 shrink-0">
+                <div className="p-1 px-2 rounded-lg border border-surface-200 dark:border-surface-800 bg-surface-50 dark:bg-surface-950/60 text-center">
+                  <span className="text-[8.5px] text-surface-400 uppercase font-bold block leading-none">Peak</span>
+                  <span className="text-xs font-mono font-black text-danger-600 dark:text-danger-400">
+                    {chartStats.peak}
+                  </span>
+                </div>
+                <div className="p-1 px-2 rounded-lg border border-surface-200 dark:border-surface-800 bg-surface-50 dark:bg-surface-950/60 text-center">
+                  <span className="text-[8.5px] text-surface-400 uppercase font-bold block leading-none">Average</span>
+                  <span className="text-xs font-mono font-black text-primary-600 dark:text-primary-400">
+                    {chartStats.avg}
+                  </span>
+                </div>
+                <div className="p-1 px-2 rounded-lg border border-surface-200 dark:border-surface-800 bg-surface-50 dark:bg-surface-950/60 text-center">
+                  <span className="text-[8.5px] text-surface-400 uppercase font-bold block leading-none">Minimum</span>
+                  <span className="text-xs font-mono font-black text-emerald-600 dark:text-emerald-400">
+                    {chartStats.min}
+                  </span>
+                </div>
+                <div className="p-1 px-2 rounded-lg border border-surface-200 dark:border-surface-800 bg-surface-50 dark:bg-surface-950/60 text-center">
+                  <span className="text-[8.5px] text-surface-400 uppercase font-bold block leading-none">Samples</span>
+                  <span className="text-xs font-mono font-black text-surface-800 dark:text-surface-200">
+                    {chartData.length} pts
+                  </span>
+                </div>
+              </div>
+
+              {/* Interactive Recharts Graph */}
+              <div
+                className={`w-full p-2 bg-surface-50 dark:bg-surface-950/60 rounded-xl border border-surface-200 dark:border-surface-800 flex-1 min-h-[180px] ${
+                  isMaximized ? 'h-[380px]' : 'h-[220px]'
+                }`}
+              >
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={chartData} margin={{ top: 8, right: 10, left: -20, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="historyGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.4} />
+                        <stop offset="95%" stopColor="#3B82F6" stopOpacity={0.0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+                    <XAxis dataKey="timestamp" tick={{ fontSize: 9 }} stroke="#94A3B8" />
+                    <YAxis tick={{ fontSize: 9 }} stroke="#94A3B8" />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: '#1E293B',
+                        borderColor: '#334155',
+                        borderRadius: '8px',
+                        fontSize: '11px',
+                        color: '#F8FAFC',
+                      }}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="value"
+                      name={variables.find((v) => v.key === historyVariable)?.shortName || 'Value'}
+                      stroke="#3B82F6"
+                      strokeWidth={2}
+                      fillOpacity={1}
+                      fill="url(#historyGrad)"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+
+          {/* ============================================================== */}
+          {/* ─── TAB 3: CSV EXPORT (DATE RANGE & VARIABLE SELECTION) ─────── */}
+          {/* ============================================================== */}
+          {activeTab === 'export' && (
+            <div className="h-full flex flex-col justify-between gap-2">
+              {/* Target info and date range picker */}
+              <div className="p-2 sm:p-2.5 rounded-xl border border-surface-200 dark:border-surface-800 bg-surface-50 dark:bg-surface-950/60 space-y-2 shrink-0">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-xs">
+                    <span className="font-bold text-surface-900 dark:text-surface-100">
+                      Target Device: {node.name}
+                    </span>
+                    <span className="text-surface-500 ml-2">
+                      (Modbus Slave: <strong className="font-mono text-primary-600">{node.slaveId || '0x04'}</strong>)
+                    </span>
+                  </div>
+
+                  {/* Date range inputs */}
+                  <div className="flex items-center gap-1.5 text-xs">
+                    <div className="flex items-center gap-1">
+                      <span className="text-[10px] font-bold text-surface-400">From:</span>
+                      <input
+                        type="date"
+                        value={dateFrom}
+                        onChange={(e) => setDateFrom(e.target.value)}
+                        className="input-field py-0.5 px-1.5 text-[11px] font-mono"
+                      />
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="text-[10px] font-bold text-surface-400">To:</span>
+                      <input
+                        type="date"
+                        value={dateTo}
+                        onChange={(e) => setDateTo(e.target.value)}
+                        className="input-field py-0.5 px-1.5 text-[11px] font-mono"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Quick Date Range Shortcuts */}
+                <div className="flex items-center justify-between gap-2 pt-1 border-t border-surface-200 dark:border-surface-800 text-[10px]">
+                  <span className="text-surface-400 font-bold uppercase tracking-wider">Date Presets:</span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDateFrom('2026-10-09')
+                        setDateTo('2026-10-09')
+                      }}
+                      className="px-2 py-0.5 rounded border border-surface-200 dark:border-surface-700 hover:bg-surface-200 dark:hover:bg-surface-800 font-medium cursor-pointer"
+                    >
+                      Today
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDateFrom('2026-10-02')
+                        setDateTo('2026-10-09')
+                      }}
+                      className="px-2 py-0.5 rounded border border-surface-200 dark:border-surface-700 hover:bg-surface-200 dark:hover:bg-surface-800 font-medium cursor-pointer"
+                    >
+                      Last 7 Days
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDateFrom('2026-09-09')
+                        setDateTo('2026-10-09')
+                      }}
+                      className="px-2 py-0.5 rounded border border-surface-200 dark:border-surface-700 hover:bg-surface-200 dark:hover:bg-surface-800 font-medium cursor-pointer"
+                    >
+                      Last 30 Days
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Variable Selection Section */}
+              <div className="p-2 sm:p-2.5 rounded-xl border border-surface-200 dark:border-surface-800 bg-surface-50 dark:bg-surface-950/60 flex-1 flex flex-col justify-between overflow-hidden">
+                <div className="flex items-center justify-between gap-2 mb-1.5 shrink-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-surface-900 dark:text-surface-100">
+                      Select Variables to Export:
+                    </span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-primary-500/10 text-primary-600 dark:text-primary-400 font-bold">
+                      {selectedVarKeys.length} of {variables.length} selected
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 text-[10px]">
+                    <button
+                      type="button"
+                      onClick={handleSelectAll}
+                      className="px-2 py-0.5 rounded bg-surface-200 dark:bg-surface-800 font-bold hover:bg-surface-300 dark:hover:bg-surface-700 cursor-pointer"
+                    >
+                      Select All
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDeselectAll}
+                      className="px-2 py-0.5 rounded bg-surface-200 dark:bg-surface-800 font-bold hover:bg-surface-300 dark:hover:bg-surface-700 cursor-pointer"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+
+                {/* 24 Clickable Variable Toggle Pills */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1 overflow-y-auto max-h-[160px] sm:max-h-[180px] p-1">
+                  {variables.map((v) => {
+                    const isSelected = selectedVarKeys.includes(v.key)
+                    return (
+                      <button
+                        key={v.key}
+                        type="button"
+                        onClick={() => toggleVar(v.key)}
+                        className={`p-1 px-1.5 rounded-md text-[9.5px] font-bold border flex items-center justify-between gap-1 transition text-left cursor-pointer ${
+                          isSelected
+                            ? 'bg-primary-600 text-white border-primary-600 shadow-2xs'
+                            : 'bg-white dark:bg-surface-900 text-surface-600 dark:text-surface-400 border-surface-200 dark:border-surface-800 hover:border-surface-400'
+                        }`}
+                      >
+                        <span className="truncate">{v.shortName}</span>
+                        {isSelected ? (
+                          <Check size={11} className="shrink-0" />
+                        ) : (
+                          <span className="w-2.5 h-2.5 rounded-xs border border-surface-400 shrink-0" />
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {/* Download CSV Action button */}
+                <div className="pt-2 border-t border-surface-200 dark:border-surface-800 flex items-center justify-between gap-3 shrink-0">
+                  <div className="text-[11px] text-surface-500 truncate">
+                    {downloadSuccess ? (
+                      <span className="text-emerald-600 dark:text-emerald-400 font-bold">
+                        ✓ {downloadSuccess}
+                      </span>
+                    ) : (
+                      <span>Format: Industrial Wide CSV (Excel / SCADA compatible)</span>
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleDownloadCsv}
+                    disabled={selectedVarKeys.length === 0}
+                    className="btn-primary py-1.5 px-3 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    <Download size={13} />
+                    Download CSV ({selectedVarKeys.length} Variables)
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ─── 4. POPUP FOOTER ACTIONS ─── */}
+        <div className="p-2 sm:p-2.5 px-3 sm:px-4 border-t border-surface-200 dark:border-surface-800 bg-surface-50 dark:bg-surface-950/70 flex items-center justify-between gap-3 shrink-0">
+          <div className="flex items-center gap-2">
+            <div className={`py-1 px-2.5 rounded-lg text-xs font-bold flex items-center gap-1.5 border shadow-2xs ${
+              node?.status === 'offline'
+                ? 'bg-danger-500/10 text-danger-600 border-danger-500/20'
+                : node?.status === 'generating'
+                ? 'bg-amber-500/10 text-amber-600 border-amber-500/20'
+                : node?.status === 'spare'
+                ? 'bg-slate-500/10 text-slate-500 border-slate-500/20'
+                : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
+            }`}>
+              <span className={`w-2 h-2 rounded-full ${node?.status === 'offline' ? 'bg-danger-500' : 'bg-emerald-500 animate-pulse'}`} />
+              <span>{node?.status === 'offline' ? 'Offline' : node?.status === 'generating' ? 'Solar Generating' : node?.status === 'spare' ? 'Spare Breaker' : 'Live Feeder Active'}</span>
+            </div>
+
+            <span className="text-[10px] text-surface-400 hidden sm:inline">
+              Modbus RTU • 24 Registers Polled • Rated {node?.ratedA || 100}A
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setActiveTab('export')}
+              className="py-1.5 px-2.5 rounded-xl text-xs font-bold text-surface-700 dark:text-surface-300 border border-surface-200 dark:border-surface-700 hover:bg-surface-100 dark:hover:bg-surface-800 inline-flex items-center gap-1 transition cursor-pointer"
+            >
+              <Download size={12} />
+              Export
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="py-1.5 px-3 rounded-xl text-xs font-semibold bg-surface-200 dark:bg-surface-800 text-surface-700 dark:text-surface-300 hover:bg-surface-300 dark:hover:bg-surface-700 transition cursor-pointer"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
+
+
+function EnergyFlowOverview({ data, onSelectNode }) {
+  if (!data) return null
+
+  const metrics = data.metrics || {}
+  const building1 = data.building1 || {}
+  const building2 = data.building2 || {}
+
+  const renderBreakerBox = (b, buildingCode) => {
+    if (!b) return null
+    const name = b.name || ''
+    const isSpare = b.status === 'spare' || name.toLowerCase().includes('spare')
+    const isGenerating = b.status === 'generating' || name.toLowerCase().includes('solar')
+    const isHeavy = b.status === 'heavy'
+    const isTripped = b.status === 'tripped'
+    const isTieLine = b.status === 'tie-line' || name.toLowerCase().includes('ambition')
+    const loadKwVal = Number.isFinite(Number(b.loadKw)) ? Number(b.loadKw) : 0
+
+    return (
+      <div
+        key={b.id || `${buildingCode}-${name}`}
+        onClick={() => onSelectNode?.(b, buildingCode)}
+        className={`group relative p-0.5 sm:p-1 rounded-md border text-center transition-all duration-150 cursor-pointer select-none flex flex-col justify-between min-h-[34px] sm:min-h-[36px] ${
+          isTieLine
+            ? 'bg-indigo-500/10 border-indigo-500/50 text-indigo-700 dark:text-indigo-300 ring-1 ring-indigo-500/30'
+            : isTripped
+            ? 'bg-red-500/20 border-red-500 text-red-600 animate-pulse'
+            : isHeavy
+            ? 'bg-amber-500/15 border-amber-500/60 hover:border-amber-500'
+            : isGenerating
+            ? 'bg-emerald-500/15 border-emerald-500/60 hover:border-emerald-500'
+            : isSpare
+            ? 'bg-slate-200/40 dark:bg-slate-800/30 border-slate-300 dark:border-slate-700 text-slate-400 opacity-60'
+            : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:border-blue-500 hover:shadow-xs'
+        }`}
+        title={`${name} - ${loadKwVal.toFixed(1)} kW`}
+      >
+        <div className="flex items-center justify-between gap-1 leading-none mb-0.5">
+          <span className="text-[8.5px] sm:text-[9.5px] font-bold tracking-tight text-slate-900 dark:text-slate-100 truncate w-full">
+            {name}
+          </span>
+          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+            isTripped ? 'bg-red-600 animate-ping' :
+            isHeavy ? 'bg-amber-500' :
+            isGenerating ? 'bg-emerald-500' :
+            isSpare ? 'bg-slate-400' :
+            isTieLine ? 'bg-indigo-500 animate-pulse' :
+            'bg-emerald-500'
+          }`} />
+        </div>
+        <div className="flex items-baseline justify-center gap-0.5 font-mono leading-none">
+          <span className="text-[10px] sm:text-[11px] font-black text-slate-900 dark:text-slate-100">
+            {loadKwVal.toFixed(1)}
+          </span>
+          <span className="text-[7.5px] font-sans text-slate-400">kW</span>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="w-full flex flex-col justify-between select-none max-w-[1600px] mx-auto text-slate-800 dark:text-slate-200">
+      {/* ─── 1. TOP HEADER & TITLE (Matching Hand-Drawn Double Underline) ─── */}
+      <div className="text-center mb-0.5">
+        <h1 className="text-sm sm:text-base font-black uppercase tracking-wider text-slate-900 dark:text-slate-100 inline-block relative">
+          Energy Flow Overview
+          <div className="w-full h-[2px] bg-slate-900 dark:bg-slate-100 mt-0.5" />
+          <div className="w-full h-[1px] bg-slate-900 dark:bg-slate-100 mt-[1px]" />
+        </h1>
+      </div>
+
+      {/* ─── 2. TOP CENTER SUMMARY CARDS (4 Boxes from Sketch) ─── */}
+      <div className="flex justify-center mb-0.5">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-1.5 w-full max-w-2xl">
+          {/* Total WAPDA */}
+          <div className="py-0.5 px-2 rounded-lg border-2 border-blue-500 bg-blue-500/5 text-center shadow-2xs">
+            <span className="text-[8.5px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 block truncate">
+              Total WAPDA
+            </span>
+            <div className="flex items-baseline justify-center gap-1">
+              <span className="text-sm sm:text-base font-black font-mono text-slate-900 dark:text-slate-100 leading-none">
+                {Number(metrics.totalWapda || 0).toFixed(1)}
+              </span>
+              <span className="text-[8px] font-bold text-slate-400">kW</span>
+            </div>
+          </div>
+
+          {/* Total Running Load B1 + B2 */}
+          <div className="py-0.5 px-2 rounded-lg border-2 border-blue-600 bg-blue-500/10 text-center shadow-2xs ring-1 ring-blue-500/30">
+            <span className="text-[8.5px] font-black uppercase tracking-wider text-blue-600 dark:text-blue-400 block truncate">
+              Total Running Load B1 + B2
+            </span>
+            <div className="flex items-baseline justify-center gap-1">
+              <span className="text-sm sm:text-base font-black font-mono text-blue-600 dark:text-blue-400 leading-none">
+                {Number(metrics.totalRunningLoad || 0).toFixed(1)}
+              </span>
+              <span className="text-[8px] font-bold text-slate-400">kW</span>
+            </div>
+          </div>
+
+          {/* Solar Total */}
+          <div className="py-0.5 px-2 rounded-lg border-2 border-amber-500 bg-amber-500/5 text-center shadow-2xs">
+            <span className="text-[8.5px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 block truncate">
+              Solar Total (All 7 Inverters B1+B2)
+            </span>
+            <div className="flex items-baseline justify-center gap-1">
+              <span className="text-sm sm:text-base font-black font-mono text-slate-900 dark:text-slate-100 leading-none">
+                {Number(metrics.solarTotal || 0).toFixed(1)}
+              </span>
+              <span className="text-[8px] font-bold text-slate-400">kW</span>
+            </div>
+          </div>
+
+          {/* Total Genset */}
+          <div className="py-0.5 px-2 rounded-lg border-2 border-purple-500 bg-purple-500/5 text-center shadow-2xs">
+            <span className="text-[8.5px] font-bold uppercase tracking-wider text-purple-600 dark:text-purple-400 block truncate">
+              Total Genset
+            </span>
+            <div className="flex items-baseline justify-center gap-1">
+              <span className="text-sm sm:text-base font-black font-mono text-slate-900 dark:text-slate-100 leading-none">
+                {Number(metrics.totalGenset || 0).toFixed(1)}
+              </span>
+              <span className="text-[8px] font-bold text-slate-400">kW</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ─── 3. HORIZONTAL SCHEMATIC BUS CONNECTOR LINE ─── */}
+      <div className="relative h-2.5 flex items-center justify-center">
+        {/* Main horizontal busbar connecting B1 to B2 */}
+        <div className="w-[88%] h-0.5 bg-slate-400 dark:bg-slate-600 rounded-full relative">
+          <div className="absolute inset-0 bg-linear-to-r from-blue-500 via-primary-500 to-emerald-500 rounded-full opacity-70 animate-pulse" />
+        </div>
+        {/* Vertical drops down to B1 and B2 */}
+        <div className="absolute left-[8%] top-1.5 w-0.5 h-1.5 bg-slate-400 dark:bg-slate-600" />
+        <div className="absolute right-[8%] top-1.5 w-0.5 h-1.5 bg-slate-400 dark:bg-slate-600" />
+      </div>
+
+      {/* ─── 4. DUAL BRANCH SPLIT: B1 (LEFT) & B2 (RIGHT) ─── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 xl:gap-3 items-start">
+        {/* ============================================================== */}
+        {/* ─── LEFT: B1 (AMBITION) ────────────────────────────────────── */}
+        {/* ============================================================== */}
+        <div className="p-1.5 sm:p-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white/70 dark:bg-slate-900/70 shadow-2xs flex flex-col justify-between">
+          {/* B1 Header Box */}
+          <div className="flex flex-col items-center mb-0.5">
+            <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest leading-none mb-0.5">
+              B1 (Ambition)
+            </span>
+            <div
+              onClick={() => onSelectNode?.({ ...building1, category: 'Main Substation' }, 'B1')}
+              className="px-3 py-0.5 rounded-lg border-2 border-blue-500 bg-blue-500/10 text-center cursor-pointer hover:scale-[1.01] transition shadow-2xs"
+            >
+              <span className="text-[8.5px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 block leading-none">
+                Total Running Load B1
+              </span>
+              <span className="text-sm font-black font-mono text-slate-900 dark:text-slate-100 leading-tight">
+                {Number(building1.runningLoad || 0).toFixed(1)} <span className="text-[8.5px] font-sans font-bold text-slate-400">kW</span>
+              </span>
+            </div>
+            {/* Vertical connector line */}
+            <div className="w-0.5 h-1.5 bg-slate-400 dark:bg-slate-600 my-0.5" />
+          </div>
+
+          {/* B1 Sources Row (4 Boxes from Sketch) */}
+          <div className="grid grid-cols-4 gap-1 mb-0.5">
+            {(building1.sources || []).map((src) => {
+              const srcKw = Number(src?.loadKw || 0)
+              return (
+                <div
+                  key={src.id}
+                  onClick={() => onSelectNode?.(src, 'B1')}
+                  className={`py-0.5 px-1 rounded-md border text-center cursor-pointer hover:border-primary-500 transition shadow-2xs ${
+                    src.id === 'b1-wapda'
+                      ? 'border-blue-500 bg-blue-500/10'
+                      : src.type === 'solar'
+                      ? 'border-amber-500 bg-amber-500/10'
+                      : 'border-purple-500 bg-purple-500/10'
+                  }`}
+                >
+                  <span className="text-[8.5px] font-bold text-slate-800 dark:text-slate-200 block truncate leading-tight">
+                    {src.name}
+                  </span>
+                  <span className="text-[10px] font-black font-mono text-slate-900 dark:text-slate-100 leading-none">
+                    {srcKw.toFixed(1)} <span className="text-[7.5px] font-sans text-slate-400">kW</span>
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Distribution Feeder Busbar */}
+          <div className="flex items-center justify-center relative my-0.5">
+            <div className="w-full h-0.5 bg-slate-400 dark:bg-slate-600" />
+            <div className="absolute px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-[8.5px] font-bold text-slate-600 dark:text-slate-300 whitespace-nowrap">
+              &#123; B1 Side Total 24 Breakers &#125;
+            </div>
+          </div>
+
+          {/* 4 Rows of Breakers */}
+          <div className="space-y-0.5 mt-0.5">
+            {/* Row 1 (7 boxes) */}
+            <div className="grid grid-cols-7 gap-0.5 sm:gap-1">
+              {(building1.row1 || []).map((b) => renderBreakerBox(b, 'B1'))}
+            </div>
+            {/* Row 2 (7 boxes) */}
+            <div className="grid grid-cols-7 gap-0.5 sm:gap-1">
+              {(building1.row2 || []).map((b) => renderBreakerBox(b, 'B1'))}
+            </div>
+            {/* Row 3 (7 boxes) */}
+            <div className="grid grid-cols-7 gap-0.5 sm:gap-1">
+              {(building1.row3 || []).map((b) => renderBreakerBox(b, 'B1'))}
+            </div>
+            {/* Row 4 (4 boxes) */}
+            <div className="grid grid-cols-7 gap-0.5 sm:gap-1">
+              {(building1.row4 || []).map((b) => renderBreakerBox(b, 'B1'))}
+              {/* 3 blank fillers to align properly */}
+              <div className="col-span-3" />
+            </div>
+          </div>
+        </div>
+
+        {/* ============================================================== */}
+        {/* ─── RIGHT: BUILDING 2 (AFL) ────────────────────────────────── */}
+        {/* ============================================================== */}
+        <div className="p-1.5 sm:p-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white/70 dark:bg-slate-900/70 shadow-2xs flex flex-col justify-between">
+          {/* B2 Header Box */}
+          <div className="flex flex-col items-center mb-0.5">
+            <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest leading-none mb-0.5">
+              Building 2 (AFL)
+            </span>
+            <div
+              onClick={() => onSelectNode?.({ ...building2, category: 'Main Substation' }, 'B2')}
+              className="px-3 py-0.5 rounded-lg border-2 border-emerald-500 bg-emerald-500/10 text-center cursor-pointer hover:scale-[1.01] transition shadow-2xs"
+            >
+              <span className="text-[8.5px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 block leading-none">
+                Total Running Load B2
+              </span>
+              <span className="text-sm font-black font-mono text-slate-900 dark:text-slate-100 leading-tight">
+                {Number(building2.runningLoad || 0).toFixed(1)} <span className="text-[8.5px] font-sans font-bold text-slate-400">kW</span>
+              </span>
+            </div>
+            {/* Vertical connector line */}
+            <div className="w-0.5 h-1.5 bg-slate-400 dark:bg-slate-600 my-0.5" />
+          </div>
+
+          {/* B2 Sources Row (3 Boxes from Sketch: Solar 2 Inv, Genset 1, Wapda - B2) */}
+          <div className="grid grid-cols-3 gap-1 mb-0.5">
+            {(building2.sources || []).map((src) => {
+              const srcKw = Number(src?.loadKw || 0)
+              return (
+                <div
+                  key={src.id}
+                  onClick={() => onSelectNode?.(src, 'B2')}
+                  className={`py-0.5 px-1 rounded-md border text-center cursor-pointer hover:border-emerald-500 transition shadow-2xs ${
+                    src.id === 'b2-wapda'
+                      ? 'border-blue-500 bg-blue-500/10'
+                      : src.type === 'solar'
+                      ? 'border-amber-500 bg-amber-500/10'
+                      : 'border-purple-500 bg-purple-500/10'
+                  }`}
+                >
+                  <span className="text-[8.5px] font-bold text-slate-800 dark:text-slate-200 block truncate leading-tight">
+                    {src.name}
+                  </span>
+                  <span className="text-[10px] font-black font-mono text-slate-900 dark:text-slate-100 leading-none">
+                    {srcKw.toFixed(1)} <span className="text-[7.5px] font-sans text-slate-400">kW</span>
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Distribution Feeder Busbar */}
+          <div className="flex items-center justify-center relative my-0.5">
+            <div className="w-full h-0.5 bg-slate-400 dark:bg-slate-600" />
+            <div className="absolute px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-[8.5px] font-bold text-slate-600 dark:text-slate-300 whitespace-nowrap">
+              &#123; B2 Side Total 22 Breakers &#125;
+            </div>
+          </div>
+
+          {/* 4 Rows of Breakers */}
+          <div className="space-y-0.5 mt-0.5">
+            {/* Row 1 (7 boxes) */}
+            <div className="grid grid-cols-7 gap-0.5 sm:gap-1">
+              {(building2.row1 || []).map((b) => renderBreakerBox(b, 'B2'))}
+            </div>
+            {/* Row 2 (7 boxes) */}
+            <div className="grid grid-cols-7 gap-0.5 sm:gap-1">
+              {(building2.row2 || []).map((b) => renderBreakerBox(b, 'B2'))}
+            </div>
+            {/* Row 3 (7 boxes) */}
+            <div className="grid grid-cols-7 gap-0.5 sm:gap-1">
+              {(building2.row3 || []).map((b) => renderBreakerBox(b, 'B2'))}
+            </div>
+            {/* Row 4 (3 boxes) */}
+            <div className="grid grid-cols-7 gap-0.5 sm:gap-1">
+              {(building2.row4 || []).map((b) => renderBreakerBox(b, 'B2'))}
+              {/* 4 blank fillers to align properly */}
+              <div className="col-span-4" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
+
+
+
+
+
+/**
+ * Self-Contained Executive Energy Flow Dashboard Component
+ * 
+ * Can be dropped into any React application.
+ * 
+ * Props:
+ * - initialData: Optional initial telemetry object. If omitted, uses default single-line model.
+ * - liveSimulation: Whether to tick simulation when not connected to real backend (default: true).
+ * - showPreviewHeader: Whether to show top standalone preview title/theme bar (default: false).
+ * - onBreakerSelect: Optional callback when a breaker node is clicked.
+ */
+export default function ExecutiveDashboard({
+  initialData,
+  liveSimulation = true,
+  showPreviewHeader = false,
+  onBreakerSelect,
+  onRefresh,
+}) {
+  const [data, setData] = useState(() => initialData || INITIAL_FLOW_DATA)
+  const [isLive, setIsLive] = useState(liveSimulation)
+  const [refreshIntervalMs, setRefreshIntervalMs] = useState(3000)
+  const [selectedNode, setSelectedNode] = useState(null)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    return document.documentElement.classList.contains('dark')
+  })
+
+  // Display Fit Zoom (default 85% for zero-scroll fit on office LCD screens & laptops)
+  const [zoomPercent, setZoomPercent] = useState(() => {
+    const saved = typeof window !== 'undefined' ? localStorage.getItem('ems_exec_zoom') : null
+    return saved ? Number(saved) : 85
+  })
+
+  const updateZoom = (val) => {
+    const clamped = Math.max(60, Math.min(130, val))
+    setZoomPercent(clamped)
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('ems_exec_zoom', clamped)
+    }
+  }
+
+  const toggleTheme = () => {
+    const next = !isDarkMode
+    setIsDarkMode(next)
+    if (next) {
+      document.documentElement.classList.add('dark')
+    } else {
+      document.documentElement.classList.remove('dark')
+    }
+  }
+
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen?.().catch(() => {})
+      setIsFullscreen(true)
+    } else {
+      document.exitFullscreen?.().catch(() => {})
+      setIsFullscreen(false)
+    }
+  }
+
+  // Sync isLive with liveSimulation prop
+  useEffect(() => {
+    setIsLive(liveSimulation)
+  }, [liveSimulation])
+
+  // Update data if parent passes new realData
+  useEffect(() => {
+    if (initialData) {
+      setData(initialData)
+    }
+  }, [initialData])
+
+  // Live simulation ticker (runs ONLY when live simulation is enabled and no real backend)
+  useEffect(() => {
+    if (!isLive) return
+    const timer = setInterval(() => {
+      setData((prev) => simulateFlowTick(prev))
+    }, refreshIntervalMs)
+    return () => clearInterval(timer)
+  }, [isLive, refreshIntervalMs])
+
+  // Handle node selection for drawer
+  const handleSelectNode = (node, buildingCode) => {
+    const detailed = generateBreakerDetails(node, buildingCode)
+    setSelectedNode(detailed)
+    onBreakerSelect?.(detailed)
+  }
+
+  // Toggle breaker trip simulation
+  const handleToggleTrip = (nodeId) => {
+    setData((prev) => {
+      const toggleInRow = (row) =>
+        row.map((item) =>
+          item.id === nodeId
+            ? { ...item, status: item.status === 'tripped' ? 'normal' : 'tripped', loadKw: item.status === 'tripped' ? 45.0 : 0.0 }
+            : item
+        )
+
+      return {
+        ...prev,
+        building1: {
+          ...prev.building1,
+          row1: toggleInRow(prev.building1.row1),
+          row2: toggleInRow(prev.building1.row2),
+          row3: toggleInRow(prev.building1.row3),
+          row4: toggleInRow(prev.building1.row4),
+        },
+        building2: {
+          ...prev.building2,
+          row1: toggleInRow(prev.building2.row1),
+          row2: toggleInRow(prev.building2.row2),
+          row3: toggleInRow(prev.building2.row3),
+          row4: toggleInRow(prev.building2.row4),
+        },
+      }
+    })
+
+    setSelectedNode((prev) =>
+      prev && prev.id === nodeId
+        ? {
+            ...prev,
+            status: prev.status === 'tripped' ? 'normal' : 'tripped',
+            loadKw: prev.status === 'tripped' ? 45.0 : 0.0,
+            utilizationPercent: prev.status === 'tripped' ? 45 : 0,
+          }
+        : prev
+    )
+  }
+
+  return (
+    <div className={`flex flex-col justify-between w-full ${showPreviewHeader ? 'min-h-screen lg:h-screen lg:max-h-screen lg:overflow-hidden bg-slate-50 dark:bg-slate-950 p-1.5 sm:p-2.5 gap-1.5' : 'space-y-2'}`}>
+      {/* ─── OPTIONAL TOP PREVIEW HEADER ─── */}
+      {showPreviewHeader && (
+        <header className="py-1.5 px-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold shadow-xs">
+              <Zap size={16} />
+            </div>
+            <div>
+              <h1 className="text-sm font-bold text-slate-900 dark:text-slate-100 leading-none">
+                Energy Management System
+              </h1>
+              <p className="text-[10px] text-slate-500 mt-0.5">Executive Energy Flow Overview</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={toggleTheme}
+              className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+              title="Toggle Dark / Light Theme"
+            >
+              {isDarkMode ? <Sun size={14} /> : <Moon size={14} />}
+            </button>
+          </div>
+        </header>
+      )}
+
+      {/* ─── EXECUTIVE DASHBOARD HEADER & CONTROLS ─── */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
+        <div>
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg md:text-xl font-black text-slate-900 dark:text-slate-100 tracking-tight leading-tight">
+              Executive Dashboard
+            </h2>
+            <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+              Energy Flow Overview
+            </span>
+          </div>
+          <p className="text-[11px] text-slate-500 mt-0.5 leading-tight">
+            Real-time dual-building power distribution network for <strong className="text-slate-700 dark:text-slate-300">Building 1 (Ambition)</strong> and <strong className="text-slate-700 dark:text-slate-300">Building 2 (AFL)</strong>.
+          </p>
+        </div>
+
+        {/* Action & View Controls */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Zoom / Screen Fit Controller */}
+          <div className="flex items-center rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-1.5 py-1 text-xs gap-1 shadow-2xs">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-1 hidden sm:inline">
+              Fit:
+            </span>
+            <button
+              type="button"
+              onClick={() => updateZoom(zoomPercent - 5)}
+              disabled={zoomPercent <= 60}
+              className="p-1 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 cursor-pointer"
+              title="Zoom Out (Fit smaller screens)"
+            >
+              <Minus size={12} />
+            </button>
+            <button
+              type="button"
+              onClick={() => updateZoom(zoomPercent === 85 ? 100 : 85)}
+              className={`px-1.5 py-0.5 rounded-md text-[11px] font-mono font-bold transition cursor-pointer ${
+                zoomPercent === 85
+                  ? 'bg-blue-600 text-white'
+                  : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+              }`}
+              title="Click to toggle between 85% (Screen Fit) and 100%"
+            >
+              {zoomPercent}%
+            </button>
+            <button
+              type="button"
+              onClick={() => updateZoom(zoomPercent + 5)}
+              disabled={zoomPercent >= 130}
+              className="p-1 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 cursor-pointer"
+              title="Zoom In"
+            >
+              <Plus size={12} />
+            </button>
+            <button
+              type="button"
+              onClick={() => updateZoom(85)}
+              className={`px-1.5 py-0.5 rounded-md text-[10px] font-bold transition cursor-pointer ${
+                zoomPercent === 85
+                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
+                  : 'text-slate-500 hover:text-slate-900 dark:hover:text-slate-100'
+              }`}
+              title="Reset to 85% (Default Zero-Scroll Fit)"
+            >
+              Fit Screen
+            </button>
+          </div>
+
+          {/* TV Fullscreen Button */}
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            className="px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition border bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer shadow-2xs"
+            title="Toggle Office TV / LCD Wall Monitor Fullscreen (Zero Scroll)"
+          >
+            {isFullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+            {isFullscreen ? 'Exit TV Mode' : '⛶ Office TV Mode'}
+          </button>
+
+          {/* Live Telemetry Status vs Simulation Controls */}
+          {!liveSimulation ? (
+            <>
+              <div
+                className="px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 border bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 shadow-2xs"
+                title="Real-time telemetry stream active from plant"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+                Live Telemetry
+              </div>
+              {onRefresh && (
+                <button
+                  type="button"
+                  onClick={onRefresh}
+                  className="p-1.5 rounded-xl text-xs font-bold flex items-center gap-1 transition border bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer shadow-2xs"
+                  title="Refresh telemetry now"
+                >
+                  <RefreshCw size={13} />
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => setIsLive((v) => !v)}
+                className={`px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition border ${
+                  isLive
+                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700'
+                }`}
+              >
+                {isLive ? (
+                  <>
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+                    <Pause size={12} /> Live Running
+                  </>
+                ) : (
+                  <>
+                    <Play size={12} /> Paused
+                  </>
+                )}
+              </button>
+
+              <select
+                value={refreshIntervalMs}
+                onChange={(e) => setRefreshIntervalMs(Number(e.target.value))}
+                className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 py-1 px-1.5 text-xs font-bold"
+                disabled={!isLive}
+              >
+                <option value={1000}>1s Tick</option>
+                <option value={3000}>3s Tick</option>
+                <option value={5000}>5s Tick</option>
+              </select>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* ─── FLOW OVERVIEW DISPLAY ─── */}
+      <div
+        className="w-full flex-1 transition-all duration-150 origin-top flex flex-col justify-start"
+        style={{ zoom: `${zoomPercent}%` }}
+      >
+        <EnergyFlowOverview data={data} onSelectNode={handleSelectNode} />
+      </div>
+
+      {/* ─── BREAKER TELEMETRY SLIDE-OVER DRAWER ─── */}
+      <BreakerTelemetryDrawer
+        node={selectedNode}
+        onClose={() => setSelectedNode(null)}
+        onToggleTrip={handleToggleTrip}
+      />
+    </div>
+  )
+}

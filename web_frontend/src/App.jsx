@@ -89,6 +89,9 @@ import EvFleet                from './pages/org/ev-chargers/EvFleet'
 import EvProfile              from './pages/org/ev-chargers/EvProfile'
 import EvControl              from './pages/org/ev-chargers/EvControl'
 
+// Executive Energy Flow Dashboard
+import ExecutiveDashboardPage from './pages/executive/ExecutiveDashboardPage'
+
 function ProtectedRoute({ children, requiredRole }) {
   const { user } = useAuth()
   if (!user) return <Navigate to="/login" replace />
@@ -117,6 +120,7 @@ function AppRoutes() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/" element={<Navigate to={user ? `/${user.role}` : '/login'} replace />} />
+      <Route path="/executive-dashboard" element={<ExecutiveDashboardPage />} />
 
       {/* ── Super Admin ── */}
       <Route path="/admin" element={
@@ -142,6 +146,7 @@ function AppRoutes() {
         <Route path="custom-dashboard"  element={<DashboardList />} />
         <Route path="custom-dashboard/:id" element={<DashboardEditor />} />
         <Route path="controller"        element={<AdminControllerPage />} />
+        <Route path="executive-dashboard" element={<ExecutiveDashboardPage />} />
         <Route path="historical-data"   element={<AdminHistoricalData />} />
         <Route path="variable-alarms"   element={<AdminVariableAlarms />} />
         <Route path="linkage-records"   element={<AdminLinkageRecords />} />
@@ -162,6 +167,7 @@ function AppRoutes() {
       }>
         <Route index                    element={<OrgDashboard />} />
         <Route path="controller"        element={<OrgControllerPage />} />
+        <Route path="executive-dashboard" element={<ExecutiveDashboardPage />} />
         <Route path="custom-dashboard"  element={<DashboardList />} />
         <Route path="custom-dashboard/:id" element={<DashboardEditor />} />
         <Route path="devices"           element={<OrgDevices />} />
@@ -218,6 +224,7 @@ function AppRoutes() {
         <Route path="anomalies"          element={<UserAnomalies />} />
         <Route path="custom-dashboard"  element={<DashboardList />} />
         <Route path="custom-dashboard/:id" element={<DashboardEditor />} />
+        <Route path="executive-dashboard" element={<ExecutiveDashboardPage />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />
