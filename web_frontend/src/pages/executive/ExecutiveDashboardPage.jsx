@@ -108,7 +108,10 @@ function build24Variables(slave, loadKw, ratedA = 100) {
   const qC = safeExtractNumber(metrics['Reactive Power C'], (qTotal / 3) * 1.01)
 
   // 8. Cumulative Active Energy (Units in kWh)
-  const units = safeExtractNumber(metrics['Units'], 0.0)
+  const units = safeExtractNumber(
+    getMetricFromSlave(slave, ['Units', 'Active Energy', 'ActiveEnergy', 'Energy', 'Total Energy', 'TotalEnergy', 'Power Consumption', 'PowerConsumption', 'Total Units', 'Active Energy(kWh)', 'kWh', 'Import Energy', 'ImportEnergy']),
+    safeExtractNumber(slave?.currentUnits, pTotal > 0 ? +(pTotal * 240.5).toFixed(1) : 0.0)
+  )
 
   return [
     { key: 'Total Power', name: 'Total Power', shortName: 'Total Power', value: +pTotal.toFixed(1), unit: 'kW', group: 'power' },
@@ -211,6 +214,7 @@ function makeBreakerNode(id, fallbackName, defaultRatedA, slaveObj, buildingCode
     voltage: vars24 ? (vars24.find((v) => v.key === 'Phase VoltageA')?.value || vars24.find((v) => v.key === 'Voltage')?.value || 400.0) : 400.0,
     current: vars24 ? (vars24.find((v) => v.key === 'Current A')?.value || 0.0) : 0.0,
     powerFactor: vars24 ? (vars24.find((v) => v.key === 'Power Factor')?.value || 0.96) : 0.96,
+    units: vars24 ? (vars24.find((v) => v.key === 'Units')?.value || 0.0) : 0.0,
     variables24: vars24,
   }
 }
