@@ -83,7 +83,7 @@ export const INITIAL_FLOW_DATA = {
       { id: 'b1-r1-4', name: 'Finshing AMB', ratedA: 250, loadKw: 45.2, status: 'normal' },
       { id: 'b1-r1-5', name: 'Boiler', ratedA: 350, loadKw: 54.5, status: 'normal' },
       { id: 'b1-r1-6', name: 'SEWING-3F-AMB', ratedA: 200, loadKw: 8.5, status: 'normal' },
-      { id: 'b1-r1-7', name: 'Sewing-1F-AMB', ratedA: 160, loadKw: 43.5, status: 'normal' },
+      { id: 'b1-r1-7', name: 'sewing-if-amb', ratedA: 160, loadKw: 66.5, status: 'normal' },
     ],
     row2: [
       { id: 'b1-r2-1', name: 'Cutting Hall', ratedA: 300, loadKw: 2.8, status: 'normal' },
@@ -101,7 +101,7 @@ export const INITIAL_FLOW_DATA = {
       { id: 'b1-r3-4', name: 'Dryer Hall', ratedA: 350, loadKw: 89.4, status: 'normal' },
       { id: 'b1-r3-5', name: 'WashingLTPanel', ratedA: 400, loadKw: 241.9, status: 'heavy' },
       { id: 'b1-r3-6', name: 'Spare-1', ratedA: 100, loadKw: 0.0, status: 'spare' },
-      { id: 'b1-r3-7', name: 'Spare-2', ratedA: 100, loadKw: 0.0, status: 'spare' },
+      { id: 'b1-r3-7', name: 'Spare-2', ratedA: 250, loadKw: 135.1, status: 'heavy' },
     ],
     row4: [
       { id: 'b1-r4-1', name: 'G1', ratedA: 100, loadKw: 0.0, status: 'normal' },
@@ -1158,7 +1158,7 @@ function EnergyFlowOverview({ data, onSelectNode }) {
   const renderBreakerBox = (b, buildingCode) => {
     if (!b) return null
     const name = b.name || ''
-    const isSpare = b.status === 'spare' || name.toLowerCase().includes('spare')
+    const isSpare = (b.status === 'spare' || name.toLowerCase().includes('spare')) && loadKwVal === 0
     const isGenerating = b.status === 'generating' || name.toLowerCase().includes('solar')
     const isTieLine = b.status === 'tie-line' || name.toLowerCase().includes('ambition')
     const loadKwVal = Number.isFinite(Number(b.loadKw)) ? Number(b.loadKw) : 0
