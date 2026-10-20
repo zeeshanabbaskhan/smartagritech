@@ -662,7 +662,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                   : 'bg-primary-500/20 text-primary-500 border border-primary-500/30'
               }`}
             >
-              {isGenerating ? <Sun size={17} /> : node.type === 'genset' ? <Fuel size={17} /> : <Zap size={17} />}
+              {(isGenerating || node.type === 'solar' || /solar/i.test(node.name)) ? <Sun size={17} /> : (node.type === 'genset' || /genset|gen/i.test(node.name)) ? <Fuel size={17} /> : <Zap size={17} />}
             </div>
 
             <div>
@@ -1582,10 +1582,13 @@ function EnergyFlowOverview({ data, onSelectNode }) {
         title={`${name} - ${loadKwVal.toFixed(1)} kW ${isCritical ? `(CRITICAL >= ${critLimit} kW)` : isHeavy ? `(WARNING >= ${warnLimit} kW)` : isTripped ? '(TRIPPED)' : '(NORMAL)'}`}
       >
         <div
-          className="w-full text-center text-[7.5px] sm:text-[8px] font-bold tracking-tight leading-[1.15] line-clamp-2 px-0.5 text-slate-800 dark:text-slate-100"
+          className="w-full text-center text-[7.5px] sm:text-[8px] font-bold tracking-tight leading-[1.15] line-clamp-2 px-0.5 text-slate-800 dark:text-slate-100 flex items-center justify-center gap-0.5"
           title={name}
         >
-          {name}
+          {isGenerating && <Sun size={8.5} className="text-amber-500 shrink-0" />}
+          {(b.type === 'genset' || /^(g1|g2|g3|genset)/i.test(name)) && <Fuel size={8.5} className="text-purple-500 shrink-0" />}
+          {/wapda/i.test(name) && <Zap size={8.5} className="text-blue-500 shrink-0" />}
+          <span className="truncate">{name}</span>
         </div>
         <div className="flex items-center justify-between w-full pt-1 px-0.5">
           <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotClass}`} />
@@ -1618,9 +1621,12 @@ function EnergyFlowOverview({ data, onSelectNode }) {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-1.5 w-full max-w-2xl">
           {/* Total WAPDA */}
           <div className="py-0.5 px-2 rounded-lg border-2 border-blue-500 bg-white dark:bg-slate-900 text-center shadow-2xs">
-            <span className="text-[8px] sm:text-[8.5px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 block truncate">
-              Total WAPDA
-            </span>
+            <div className="flex items-center justify-center gap-1">
+              <Zap size={11} className="text-blue-600 dark:text-blue-400 shrink-0" />
+              <span className="text-[8px] sm:text-[8.5px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 block truncate">
+                Total WAPDA
+              </span>
+            </div>
             <div className="flex items-baseline justify-center gap-1">
               <span className="text-sm sm:text-base font-black font-mono text-slate-900 dark:text-slate-100 leading-none">
                 {Number(metrics.totalWapda || 0).toFixed(1)}
@@ -1631,9 +1637,12 @@ function EnergyFlowOverview({ data, onSelectNode }) {
 
           {/* Total Running Load B1 + B2 */}
           <div className="py-0.5 px-2 rounded-lg border-2 border-blue-600 bg-white dark:bg-slate-900 text-center shadow-2xs ring-1 ring-blue-500/30">
-            <span className="text-[8px] sm:text-[8.5px] font-black uppercase tracking-wider text-blue-600 dark:text-blue-400 block truncate">
-              Total Running Load B1 + B2
-            </span>
+            <div className="flex items-center justify-center gap-1">
+              <Activity size={11} className="text-blue-600 dark:text-blue-400 shrink-0" />
+              <span className="text-[8px] sm:text-[8.5px] font-black uppercase tracking-wider text-blue-600 dark:text-blue-400 block truncate">
+                Total Running Load B1 + B2
+              </span>
+            </div>
             <div className="flex items-baseline justify-center gap-1">
               <span className="text-sm sm:text-base font-black font-mono text-blue-600 dark:text-blue-400 leading-none">
                 {Number(metrics.totalRunningLoad || 0).toFixed(1)}
@@ -1644,9 +1653,12 @@ function EnergyFlowOverview({ data, onSelectNode }) {
 
           {/* Solar Total */}
           <div className="py-0.5 px-2 rounded-lg border-2 border-amber-500 bg-white dark:bg-slate-900 text-center shadow-2xs">
-            <span className="text-[8px] sm:text-[8.5px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 block truncate">
-              Solar Total (All 7 Inverters B1+B2)
-            </span>
+            <div className="flex items-center justify-center gap-1">
+              <Sun size={11} className="text-amber-600 dark:text-amber-400 shrink-0" />
+              <span className="text-[8px] sm:text-[8.5px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 block truncate">
+                Solar Total (All 7 Inverters B1+B2)
+              </span>
+            </div>
             <div className="flex items-baseline justify-center gap-1">
               <span className="text-sm sm:text-base font-black font-mono text-slate-900 dark:text-slate-100 leading-none">
                 {Number(metrics.solarTotal || 0).toFixed(1)}
@@ -1657,9 +1669,12 @@ function EnergyFlowOverview({ data, onSelectNode }) {
 
           {/* Total Genset */}
           <div className="py-0.5 px-2 rounded-lg border-2 border-purple-500 bg-white dark:bg-slate-900 text-center shadow-2xs">
-            <span className="text-[8px] sm:text-[8.5px] font-bold uppercase tracking-wider text-purple-600 dark:text-purple-400 block truncate">
-              Total Genset
-            </span>
+            <div className="flex items-center justify-center gap-1">
+              <Fuel size={11} className="text-purple-600 dark:text-purple-400 shrink-0" />
+              <span className="text-[8px] sm:text-[8.5px] font-bold uppercase tracking-wider text-purple-600 dark:text-purple-400 block truncate">
+                Total Genset
+              </span>
+            </div>
             <div className="flex items-baseline justify-center gap-1">
               <span className="text-sm sm:text-base font-black font-mono text-slate-900 dark:text-slate-100 leading-none">
                 {Number(metrics.totalGenset || 0).toFixed(1)}
@@ -1712,22 +1727,31 @@ function EnergyFlowOverview({ data, onSelectNode }) {
           <div className="grid grid-cols-4 gap-1 mb-0.5">
             {(building1.sources || []).map((src) => {
               const srcKw = Number(src?.loadKw || 0)
+              const isWapda = src.id === 'b1-wapda' || src.type === 'grid' || /wapda/i.test(src.name)
+              const isSolar = src.type === 'solar' || /solar/i.test(src.name)
+              const isGenset = src.type === 'genset' || /genset|gen/i.test(src.name)
+
               return (
                 <div
                   key={src.id}
                   onClick={() => onSelectNode?.(src, 'B1')}
                   className={`group py-0.5 px-1 rounded-md border text-center cursor-pointer hover:border-primary-500 hover:shadow-xs transition shadow-2xs bg-white dark:bg-slate-900 ${
-                    src.id === 'b1-wapda'
+                    isWapda
                       ? 'border-blue-500'
-                      : src.type === 'solar'
+                      : isSolar
                       ? 'border-amber-500'
                       : 'border-purple-500'
                   }`}
                   title={`${src.name} - ${srcKw.toFixed(1)} kW (Click to view live telemetry & historical graph)`}
                 >
-                  <span className="text-[7px] sm:text-[7.5px] font-bold text-slate-800 dark:text-slate-200 block break-words line-clamp-2 leading-tight group-hover:text-primary-600 dark:group-hover:text-primary-400 transition" title={src.name}>
-                    {src.name}
-                  </span>
+                  <div className="flex items-center justify-center gap-1 px-0.5 mb-0.5">
+                    {isWapda && <Zap size={10} className="text-blue-500 shrink-0" />}
+                    {isSolar && <Sun size={10} className="text-amber-500 shrink-0" />}
+                    {isGenset && <Fuel size={10} className="text-purple-500 shrink-0" />}
+                    <span className="text-[7px] sm:text-[7.5px] font-bold text-slate-800 dark:text-slate-200 block truncate leading-tight group-hover:text-primary-600 dark:group-hover:text-primary-400 transition" title={src.name}>
+                      {src.name}
+                    </span>
+                  </div>
                   <span className="text-[9.5px] sm:text-[10px] font-black font-mono text-slate-900 dark:text-slate-100 leading-none">
                     {srcKw.toFixed(1)} <span className="text-[7px] font-sans text-slate-400">kW</span>
                   </span>
@@ -1796,22 +1820,31 @@ function EnergyFlowOverview({ data, onSelectNode }) {
           <div className="grid grid-cols-3 gap-1 mb-0.5">
             {(building2.sources || []).map((src) => {
               const srcKw = Number(src?.loadKw || 0)
+              const isWapda = src.id === 'b2-wapda' || src.type === 'grid' || /wapda/i.test(src.name)
+              const isSolar = src.type === 'solar' || /solar/i.test(src.name)
+              const isGenset = src.type === 'genset' || /genset|gen/i.test(src.name)
+
               return (
                 <div
                   key={src.id}
                   onClick={() => onSelectNode?.(src, 'B2')}
                   className={`group py-0.5 px-1 rounded-md border text-center cursor-pointer hover:border-emerald-500 hover:shadow-xs transition shadow-2xs bg-white dark:bg-slate-900 ${
-                    src.id === 'b2-wapda'
+                    isWapda
                       ? 'border-blue-500'
-                      : src.type === 'solar'
+                      : isSolar
                       ? 'border-amber-500'
                       : 'border-purple-500'
                   }`}
                   title={`${src.name} - ${srcKw.toFixed(1)} kW (Click to view live telemetry & historical graph)`}
                 >
-                  <span className="text-[7px] sm:text-[7.5px] font-bold text-slate-800 dark:text-slate-200 block break-words line-clamp-2 leading-tight group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition" title={src.name}>
-                    {src.name}
-                  </span>
+                  <div className="flex items-center justify-center gap-1 px-0.5 mb-0.5">
+                    {isWapda && <Zap size={10} className="text-blue-500 shrink-0" />}
+                    {isSolar && <Sun size={10} className="text-amber-500 shrink-0" />}
+                    {isGenset && <Fuel size={10} className="text-purple-500 shrink-0" />}
+                    <span className="text-[7px] sm:text-[7.5px] font-bold text-slate-800 dark:text-slate-200 block truncate leading-tight group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition" title={src.name}>
+                      {src.name}
+                    </span>
+                  </div>
                   <span className="text-[9.5px] sm:text-[10px] font-black font-mono text-slate-900 dark:text-slate-100 leading-none">
                     {srcKw.toFixed(1)} <span className="text-[7px] font-sans text-slate-400">kW</span>
                   </span>
