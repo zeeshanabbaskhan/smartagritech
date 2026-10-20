@@ -544,7 +544,7 @@ export default function OrganizationAnalyticsPage({ type }) {
             ) : type === 'current' ? (
               <BarChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
-                <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
+                <XAxis dataKey="time" interval={timeRange === '24h' ? 0 : 'preserveEnd'} tick={{ fontSize: timeRange === '24h' ? 10 : 11, fill: '#9AA09A' }} angle={timeRange === '24h' ? -35 : 0} textAnchor={timeRange === '24h' ? 'end' : 'middle'} height={timeRange === '24h' ? 42 : 30} stroke="#D1D5C8" />
                 <YAxis tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
                 <Tooltip />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
@@ -561,7 +561,7 @@ export default function OrganizationAnalyticsPage({ type }) {
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
-                <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
+                <XAxis dataKey="time" interval={timeRange === '24h' ? 0 : 'preserveEnd'} tick={{ fontSize: timeRange === '24h' ? 10 : 11, fill: '#9AA09A' }} angle={timeRange === '24h' ? -35 : 0} textAnchor={timeRange === '24h' ? 'end' : 'middle'} height={timeRange === '24h' ? 42 : 30} stroke="#D1D5C8" />
                 <YAxis tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
                 <Tooltip formatter={(v) => [`${Number(v).toFixed(1)} kW`, 'Active Power']} />
                 <Area type="monotone" dataKey="power" stroke="#F5A623" fill="url(#orgEnergyGrad)" strokeWidth={2} name="Power" />
@@ -569,7 +569,7 @@ export default function OrganizationAnalyticsPage({ type }) {
             ) : type === 'powerFactor' ? (
               <LineChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
-                <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
+                <XAxis dataKey="time" interval={timeRange === '24h' ? 0 : 'preserveEnd'} tick={{ fontSize: timeRange === '24h' ? 10 : 11, fill: '#9AA09A' }} angle={timeRange === '24h' ? -35 : 0} textAnchor={timeRange === '24h' ? 'end' : 'middle'} height={timeRange === '24h' ? 42 : 30} stroke="#D1D5C8" />
                 <YAxis domain={[0.8, 1]} tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
                 <Tooltip />
                 <Line type="monotone" dataKey="pf" stroke="#F5A623" dot={false} strokeWidth={2} name="Power Factor" />
@@ -577,7 +577,7 @@ export default function OrganizationAnalyticsPage({ type }) {
             ) : (
               <LineChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#ECEEE6" />
-                <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
+                <XAxis dataKey="time" interval={timeRange === '24h' ? 0 : 'preserveEnd'} tick={{ fontSize: timeRange === '24h' ? 10 : 11, fill: '#9AA09A' }} angle={timeRange === '24h' ? -35 : 0} textAnchor={timeRange === '24h' ? 'end' : 'middle'} height={timeRange === '24h' ? 42 : 30} stroke="#D1D5C8" />
                 <YAxis domain={['auto', 'auto']} tick={{ fontSize: 11, fill: '#9AA09A' }} stroke="#D1D5C8" />
                 <Tooltip />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
