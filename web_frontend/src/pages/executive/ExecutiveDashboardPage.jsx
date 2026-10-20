@@ -17,16 +17,16 @@ function safeExtractNumber(raw, fallback = 0) {
   if (typeof raw === 'number') return Number.isFinite(raw) ? raw : fallback
   if (typeof raw === 'object' && raw !== null) {
     if (raw.displayValue != null && raw.displayValue !== '') {
-      const d = parseFloat(raw.displayValue)
+      const d = parseFloat(String(raw.displayValue).replace(/,/g, ''))
       if (Number.isFinite(d)) return d
     }
     if (raw.value != null && raw.value !== '') {
-      const n = parseFloat(raw.value)
+      const n = parseFloat(String(raw.value).replace(/,/g, ''))
       if (Number.isFinite(n)) return n
     }
     return fallback
   }
-  const n = parseFloat(raw)
+  const n = parseFloat(String(raw).replace(/,/g, ''))
   return Number.isFinite(n) ? n : fallback
 }
 
@@ -420,7 +420,7 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
       deviceId: b1WapdaSlave?.deviceId,
       deviceName: b1WapdaSlave?.deviceName,
       buildingCode: 'B1',
-      units: b1WapdaSlave ? safeExtractNumber(b1WapdaSlave.latestMetrics?.['Units']) : Number((b1WapdaKw * 240.5).toFixed(1)),
+      units: b1WapdaSlave ? safeExtractNumber(getMetricFromSlave(b1WapdaSlave, ['Units', 'Active Energy', 'ActiveEnergy', 'Energy', 'Total Energy', 'TotalEnergy', 'kWh'])) : Number((b1WapdaKw * 240.5).toFixed(1)),
       variables24: b1WapdaSlave ? build24Variables(b1WapdaSlave, b1WapdaKw, 1000) : null,
     },
     {
@@ -438,7 +438,7 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
       deviceId: b1G1Slave?.deviceId,
       deviceName: b1G1Slave?.deviceName,
       buildingCode: 'B1',
-      units: b1G1Slave ? safeExtractNumber(b1G1Slave.latestMetrics?.['Units']) : Number((b1G1Kw * 240.5).toFixed(1)),
+      units: b1G1Slave ? safeExtractNumber(getMetricFromSlave(b1G1Slave, ['Units', 'Active Energy', 'ActiveEnergy', 'Energy', 'Total Energy', 'TotalEnergy', 'kWh'])) : Number((b1G1Kw * 240.5).toFixed(1)),
       variables24: b1G1Slave ? build24Variables(b1G1Slave, b1G1Kw, 800) : null,
     },
     {
@@ -456,7 +456,7 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
       deviceId: b1G2Slave?.deviceId,
       deviceName: b1G2Slave?.deviceName,
       buildingCode: 'B1',
-      units: b1G2Slave ? safeExtractNumber(b1G2Slave.latestMetrics?.['Units']) : Number((b1G2Kw * 240.5).toFixed(1)),
+      units: b1G2Slave ? safeExtractNumber(getMetricFromSlave(b1G2Slave, ['Units', 'Active Energy', 'ActiveEnergy', 'Energy', 'Total Energy', 'TotalEnergy', 'kWh'])) : Number((b1G2Kw * 240.5).toFixed(1)),
       variables24: b1G2Slave ? build24Variables(b1G2Slave, b1G2Kw, 800) : null,
     },
     {
@@ -474,7 +474,7 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
       deviceId: b1Solar1?.deviceId,
       deviceName: b1Solar1?.deviceName,
       buildingCode: 'B1',
-      units: b1Solar1 ? safeExtractNumber(b1Solar1.latestMetrics?.['Units']) : Number((b1SolarKw * 240.5).toFixed(1)),
+      units: b1Solar1 ? safeExtractNumber(getMetricFromSlave(b1Solar1, ['Units', 'Active Energy', 'ActiveEnergy', 'Energy', 'Total Energy', 'TotalEnergy', 'kWh'])) : Number((b1SolarKw * 240.5).toFixed(1)),
       variables24: b1Solar1 ? build24Variables(b1Solar1, b1SolarKw, 600) : null,
     },
   ]
@@ -568,7 +568,7 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
       deviceId: b2SolarSlave?.deviceId,
       deviceName: b2SolarSlave?.deviceName,
       buildingCode: 'B2',
-      units: b2SolarSlave ? safeExtractNumber(b2SolarSlave.latestMetrics?.['Units']) : Number((b2SolarKw * 240.5).toFixed(1)),
+      units: b2SolarSlave ? safeExtractNumber(getMetricFromSlave(b2SolarSlave, ['Units', 'Active Energy', 'ActiveEnergy', 'Energy', 'Total Energy', 'TotalEnergy', 'kWh'])) : Number((b2SolarKw * 240.5).toFixed(1)),
       variables24: b2SolarSlave ? build24Variables(b2SolarSlave, b2SolarKw, 400) : null,
     },
     {
@@ -586,7 +586,7 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
       deviceId: b2G3Slave?.deviceId,
       deviceName: b2G3Slave?.deviceName,
       buildingCode: 'B2',
-      units: b2G3Slave ? safeExtractNumber(b2G3Slave.latestMetrics?.['Units']) : Number((b2G3Kw * 240.5).toFixed(1)),
+      units: b2G3Slave ? safeExtractNumber(getMetricFromSlave(b2G3Slave, ['Units', 'Active Energy', 'ActiveEnergy', 'Energy', 'Total Energy', 'TotalEnergy', 'kWh'])) : Number((b2G3Kw * 240.5).toFixed(1)),
       variables24: b2G3Slave ? build24Variables(b2G3Slave, b2G3Kw, 500) : null,
     },
     {
@@ -604,7 +604,7 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
       deviceId: b2WapdaSlave?.deviceId,
       deviceName: b2WapdaSlave?.deviceName,
       buildingCode: 'B2',
-      units: b2WapdaSlave ? safeExtractNumber(b2WapdaSlave.latestMetrics?.['Units']) : Number((b2WapdaKw * 240.5).toFixed(1)),
+      units: b2WapdaSlave ? safeExtractNumber(getMetricFromSlave(b2WapdaSlave, ['Units', 'Active Energy', 'ActiveEnergy', 'Energy', 'Total Energy', 'TotalEnergy', 'kWh'])) : Number((b2WapdaKw * 240.5).toFixed(1)),
       variables24: b2WapdaSlave ? build24Variables(b2WapdaSlave, b2WapdaKw, 600) : null,
     },
   ]
