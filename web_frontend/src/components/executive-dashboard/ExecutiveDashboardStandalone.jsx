@@ -1669,9 +1669,9 @@ function EnergyFlowOverview({ data, onSelectNode }) {
           className="w-full text-center text-[7.5px] sm:text-[8px] font-bold tracking-tight leading-[1.15] line-clamp-2 px-0.5 text-slate-800 dark:text-slate-100 flex items-center justify-center gap-0.5"
           title={name}
         >
-          {isGenerating && <Sun size={8.5} className="text-amber-500 shrink-0" />}
-          {(b.type === 'genset' || /^(g1|g2|g3|genset)/i.test(name)) && <Fuel size={8.5} className="text-purple-500 shrink-0" />}
-          {/wapda/i.test(name) && <Zap size={8.5} className="text-blue-500 shrink-0" />}
+          {isGenerating && <Sun size={11} className="text-amber-500 shrink-0" />}
+          {(b.type === 'genset' || /^(g1|g2|g3|genset)/i.test(name)) && <Fuel size={11} className="text-purple-500 shrink-0" />}
+          {/wapda/i.test(name) && <Zap size={11} className="text-blue-500 shrink-0" />}
           <span className="truncate">{name}</span>
         </div>
         <div className="flex items-center justify-between w-full pt-1 px-0.5">
@@ -1705,8 +1705,8 @@ function EnergyFlowOverview({ data, onSelectNode }) {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-1.5 w-full max-w-2xl">
           {/* Total WAPDA */}
           <div className="py-0.5 px-2 rounded-lg border-2 border-blue-500 bg-white dark:bg-slate-900 text-center shadow-2xs">
-            <div className="flex items-center justify-center gap-1">
-              <Zap size={11} className="text-blue-600 dark:text-blue-400 shrink-0" />
+            <div className="flex items-center justify-center gap-1.5">
+              <Zap size={14} className="text-blue-600 dark:text-blue-400 shrink-0" />
               <span className="text-[8px] sm:text-[8.5px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 block truncate">
                 Total WAPDA
               </span>
@@ -1721,8 +1721,8 @@ function EnergyFlowOverview({ data, onSelectNode }) {
 
           {/* Total Running Load B1 + B2 */}
           <div className="py-0.5 px-2 rounded-lg border-2 border-blue-600 bg-white dark:bg-slate-900 text-center shadow-2xs ring-1 ring-blue-500/30">
-            <div className="flex items-center justify-center gap-1">
-              <Activity size={11} className="text-blue-600 dark:text-blue-400 shrink-0" />
+            <div className="flex items-center justify-center gap-1.5">
+              <Activity size={14} className="text-blue-600 dark:text-blue-400 shrink-0" />
               <span className="text-[8px] sm:text-[8.5px] font-black uppercase tracking-wider text-blue-600 dark:text-blue-400 block truncate">
                 Total Running Load B1 + B2
               </span>
@@ -1737,8 +1737,8 @@ function EnergyFlowOverview({ data, onSelectNode }) {
 
           {/* Solar Total */}
           <div className="py-0.5 px-2 rounded-lg border-2 border-amber-500 bg-white dark:bg-slate-900 text-center shadow-2xs">
-            <div className="flex items-center justify-center gap-1">
-              <Sun size={11} className="text-amber-600 dark:text-amber-400 shrink-0" />
+            <div className="flex items-center justify-center gap-1.5">
+              <Sun size={14} className="text-amber-600 dark:text-amber-400 shrink-0" />
               <span className="text-[8px] sm:text-[8.5px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 block truncate">
                 Solar Total (All 7 Inverters B1+B2)
               </span>
@@ -1753,8 +1753,8 @@ function EnergyFlowOverview({ data, onSelectNode }) {
 
           {/* Total Genset */}
           <div className="py-0.5 px-2 rounded-lg border-2 border-purple-500 bg-white dark:bg-slate-900 text-center shadow-2xs">
-            <div className="flex items-center justify-center gap-1">
-              <Fuel size={11} className="text-purple-600 dark:text-purple-400 shrink-0" />
+            <div className="flex items-center justify-center gap-1.5">
+              <Fuel size={14} className="text-purple-600 dark:text-purple-400 shrink-0" />
               <span className="text-[8px] sm:text-[8.5px] font-bold uppercase tracking-wider text-purple-600 dark:text-purple-400 block truncate">
                 Total Genset
               </span>
@@ -1829,9 +1829,9 @@ function EnergyFlowOverview({ data, onSelectNode }) {
                   title={`${src.name} - ${srcKw.toFixed(1)} kW (Click to view live telemetry & historical graph)`}
                 >
                   <div className="flex items-center justify-center gap-1 px-0.5 mb-0.5">
-                    {isWapda && <Zap size={10} className="text-blue-500 shrink-0" />}
-                    {isSolar && <Sun size={10} className="text-amber-500 shrink-0" />}
-                    {isGenset && <Fuel size={10} className="text-purple-500 shrink-0" />}
+                    {isWapda && <Zap size={13} className="text-blue-500 shrink-0" />}
+                    {isSolar && <Sun size={13} className="text-amber-500 shrink-0" />}
+                    {isGenset && <Fuel size={13} className="text-purple-500 shrink-0" />}
                     <span className="text-[7px] sm:text-[7.5px] font-bold text-slate-800 dark:text-slate-200 block truncate leading-tight group-hover:text-primary-600 dark:group-hover:text-primary-400 transition" title={src.name}>
                       {src.name}
                     </span>
@@ -1922,9 +1922,9 @@ function EnergyFlowOverview({ data, onSelectNode }) {
                   title={`${src.name} - ${srcKw.toFixed(1)} kW (Click to view live telemetry & historical graph)`}
                 >
                   <div className="flex items-center justify-center gap-1 px-0.5 mb-0.5">
-                    {isWapda && <Zap size={10} className="text-blue-500 shrink-0" />}
-                    {isSolar && <Sun size={10} className="text-amber-500 shrink-0" />}
-                    {isGenset && <Fuel size={10} className="text-purple-500 shrink-0" />}
+                    {isWapda && <Zap size={13} className="text-blue-500 shrink-0" />}
+                    {isSolar && <Sun size={13} className="text-amber-500 shrink-0" />}
+                    {isGenset && <Fuel size={13} className="text-purple-500 shrink-0" />}
                     <span className="text-[7px] sm:text-[7.5px] font-bold text-slate-800 dark:text-slate-200 block truncate leading-tight group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition" title={src.name}>
                       {src.name}
                     </span>
