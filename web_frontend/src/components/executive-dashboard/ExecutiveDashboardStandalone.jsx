@@ -1175,8 +1175,9 @@ function EnergyFlowOverview({ data, onSelectNode }) {
     const isTripped = b.status === 'tripped' || (loadKwVal >= critLimit && isConsumer)
     const isHeavy = !isTripped && (b.status === 'heavy' || (loadKwVal >= warnLimit && isConsumer))
 
-    let cardStyle = 'bg-white dark:bg-slate-900 border-slate-200/90 dark:border-slate-800 border-t-[3px] border-t-emerald-500 hover:border-slate-400'
-    let dotClass = 'bg-emerald-500'
+    // All normal/remaining breakers: clean white card with white/light neutral border, NO color at all
+    let cardStyle = 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-slate-300'
+    let dotClass = 'bg-slate-300 dark:bg-slate-600'
     let valueClass = 'text-slate-900 dark:text-slate-100'
 
     if (isTripped) {
@@ -1187,25 +1188,9 @@ function EnergyFlowOverview({ data, onSelectNode }) {
       cardStyle = 'bg-amber-50/80 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700/80 border-t-[3px] border-t-amber-500 ring-1 ring-amber-400/30 hover:border-amber-500'
       dotClass = 'bg-amber-500 ring-2 ring-amber-300 animate-pulse'
       valueClass = 'text-amber-800 dark:text-amber-300 font-black'
-    } else if (isGridIncomer) {
-      cardStyle = 'bg-blue-50/40 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800/80 border-t-[3px] border-t-blue-600 hover:border-blue-400'
-      dotClass = 'bg-blue-600 ring-1 ring-blue-300'
-      valueClass = 'text-blue-700 dark:text-blue-400 font-black'
-    } else if (isGenset) {
-      cardStyle = 'bg-purple-50/40 dark:bg-purple-950/20 border-purple-200 dark:border-purple-800/80 border-t-[3px] border-t-purple-600 hover:border-purple-400'
-      dotClass = 'bg-purple-600 ring-1 ring-purple-300'
-      valueClass = 'text-purple-700 dark:text-purple-400 font-black'
-    } else if (isGenerating) {
-      cardStyle = 'bg-emerald-50/40 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800/80 border-t-[3px] border-t-emerald-600 hover:border-emerald-400'
-      dotClass = 'bg-emerald-500 ring-1 ring-emerald-300'
-      valueClass = 'text-emerald-700 dark:text-emerald-400 font-black'
-    } else if (isTieLine) {
-      cardStyle = 'bg-indigo-50/40 dark:bg-indigo-950/20 border-indigo-200 dark:border-indigo-800/80 border-t-[3px] border-t-indigo-600 hover:border-indigo-400'
-      dotClass = 'bg-indigo-500 animate-pulse'
-      valueClass = 'text-indigo-700 dark:text-indigo-400 font-black'
     } else if (isSpare) {
-      cardStyle = 'bg-slate-50/50 dark:bg-slate-900/40 border-dashed border-slate-300 dark:border-slate-700 text-slate-400 opacity-60'
-      dotClass = 'bg-slate-400'
+      cardStyle = 'bg-white dark:bg-slate-900 border border-dashed border-slate-200 dark:border-slate-800 text-slate-400 opacity-60'
+      dotClass = 'bg-slate-200 dark:bg-slate-700'
       valueClass = 'text-slate-400 dark:text-slate-500'
     }
 
