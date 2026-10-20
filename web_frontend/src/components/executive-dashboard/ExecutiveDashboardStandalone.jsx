@@ -1158,10 +1158,10 @@ function EnergyFlowOverview({ data, onSelectNode }) {
   const renderBreakerBox = (b, buildingCode) => {
     if (!b) return null
     const name = b.name || ''
+    const loadKwVal = Number.isFinite(Number(b.loadKw)) ? Number(b.loadKw) : 0
     const isSpare = (b.status === 'spare' || name.toLowerCase().includes('spare')) && loadKwVal === 0
     const isGenerating = b.status === 'generating' || name.toLowerCase().includes('solar')
     const isTieLine = b.status === 'tie-line' || name.toLowerCase().includes('ambition')
-    const loadKwVal = Number.isFinite(Number(b.loadKw)) ? Number(b.loadKw) : 0
 
     // Threshold evaluation: checks slave override, then global default, falling back to 70 / 100
     const slaveThresh = b.slaveId ? slaveThresholds[b.slaveId] : null
