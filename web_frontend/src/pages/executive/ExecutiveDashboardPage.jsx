@@ -190,6 +190,7 @@ function makeBreakerNode(id, fallbackName, defaultRatedA, slaveObj, buildingCode
   const ratedA = defaultRatedA || 100
   const maxKw = Math.round((ratedA * 400 * Math.sqrt(3) * 0.95) / 1000)
   const isSolar = /solar/i.test(displayName) || /solar/i.test(fallbackName)
+  const isGenset = /genset|gen\s*afl|genafl|\bg[1-3]\b/i.test(displayName) || /genset|gen\s*afl|genafl|\bg[1-3]\b/i.test(fallbackName)
   const isTieLine = /tie/i.test(displayName) || /tie/i.test(fallbackName)
 
   let status = 'normal'
@@ -197,6 +198,7 @@ function makeBreakerNode(id, fallbackName, defaultRatedA, slaveObj, buildingCode
   else if (isSpare) status = 'spare'
   else if (!slaveObj || !isOnline) status = 'offline'
   else if (isSolar) status = 'generating'
+  else if (isGenset && loadKw === 0) status = 'standby'
   else if (loadKw >= 100) status = 'critical'
   else if (loadKw >= 70) status = 'heavy'
   else if (loadKw > maxKw * 0.8) status = 'heavy'

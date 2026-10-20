@@ -431,7 +431,8 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
 
   const loadKwVal = Number.isFinite(Number(node.loadKw)) ? Number(node.loadKw) : 0
   const isSpare = (node.status === 'spare' || node.name?.toLowerCase().includes('spare')) && loadKwVal === 0
-  const isGenerating = node.status === 'generating' || node.name?.toLowerCase().includes('solar')
+  const isGenerating = node.status === 'generating' || node.name?.toLowerCase().includes('solar') || node.type === 'solar' || node.category?.toLowerCase().includes('solar')
+  const isGenset = node.type === 'genset' || /genset|genafl|gen\s*afl|g[1-3]\s*afl|\bg[1-3]\b/i.test(node.name) || /generator/i.test(node.category || '')
   const isCritical = node.status === 'critical' || (loadKwVal >= 100 && !isSpare)
   const isHeavy = !isCritical && (node.status === 'heavy' || (loadKwVal >= 70 && !isSpare))
   const isTripped = node.status === 'tripped' && loadKwVal === 0
@@ -452,16 +453,25 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
     const isSpareOrZero = isSpare || (node.status === 'tripped' && loadKwVal === 0)
     const basePower = isSpareOrZero ? 0 : (loadKwVal || variables.find((v) => v.key === 'Total Power')?.value || 0)
 
-    // For solar generation: if live power is near zero (nighttime/evening/cloudy),
-    // derive daytime peak dynamically from the inverter's electrical breaker rating:
-    // P_peak = (ratedA * V_line * sqrt(3) * pf) / 1000 * 0.35 (standard PV sizing)
+    // Dynamic electrical rating and capacity (ratedA, voltage, powerFactor)
     const ratedA = Number(node.ratedA) || (Number(node.loadKw) > 0 ? Math.ceil(Number(node.loadKw) * 1.5) : 250)
     const nodeV = Number(node.voltage) || variables.find((v) => v.key === 'Phase VoltageA')?.value || 400.0
     const nodePf = Number(node.powerFactor || node.pf) || 0.95
     const electricalCapacityKw = (ratedA * nodeV * Math.sqrt(3) * nodePf) / 1000
+
+    // For solar generation: if live power is near zero (nighttime/evening/cloudy),
+    // derive daytime peak dynamically from inverter electrical rating (35% standard PV ratio)
     const dynamicSolarPeak = Math.round(electricalCapacityKw * 0.35)
     const solarPeakKw = isGenerating
       ? (basePower > 5 ? Math.max(basePower, dynamicSolarPeak) : dynamicSolarPeak)
+      : basePower
+
+    // For generator nodes (G1, G2, G3 AFL / Gen AFL):
+    // Standby diesel generators report 0 kW live while WAPDA is feeding the factory.
+    // If live power is 0, derive generator operating capacity dynamically from electrical rating:
+    const dynamicGensetOperatingKw = Math.round(electricalCapacityKw * (ratedA > 250 ? 0.55 : 0.75))
+    const gensetOperatingKw = isGenset
+      ? (basePower > 5 ? basePower : dynamicGensetOperatingKw)
       : basePower
 
     const resolvedUnits = Number(node.units) || variables.find((v) => v.key === 'Units')?.value || 0
@@ -471,7 +481,9 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
           ? resolvedUnits
           : isGenerating
             ? Number((solarPeakKw * 350).toFixed(1))
-            : (basePower > 0 ? Number((basePower * 240.5).toFixed(1)) : 0))
+            : isGenset
+              ? Number((gensetOperatingKw * 50).toFixed(1))
+              : (basePower > 0 ? Number((basePower * 240.5).toFixed(1)) : 0))
 
     const selectedVar = variables.find((v) => v.key === historyVariable)
     const customBase = selectedVar ? (selectedVar.value ?? 0) : basePower
@@ -484,12 +496,14 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
       const daylightFraction = isDaylight ? Math.sin(((currentHour - 5.5) / 13) * Math.PI) : 0
       const currentExpectedKw = isGenerating
         ? (basePower > 2 ? basePower : (isDaylight ? Number((solarPeakKw * daylightFraction).toFixed(1)) : 0))
-        : basePower
+        : isGenset
+          ? (basePower > 5 ? basePower : 0)
+          : basePower
 
       points = Array.from({ length: 12 }, (_, i) => {
         const timeStr = `${String(currentHour).padStart(2, '0')}:${String((i * 5) % 60).padStart(2, '0')}`
         const jitter = Math.sin(i * 0.8) * 0.06
-        const p = isGenerating && !isDaylight && basePower <= 0.5
+        const p = (isGenerating && !isDaylight && basePower <= 0.5) || (isGenset && basePower <= 5)
           ? 0
           : Number(Math.max(0, currentExpectedKw * (1 + jitter)).toFixed(1))
         // 5-min interval energy consumption/generation = power * (5 / 60) kWh
@@ -511,7 +525,17 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
         return Math.sin(((i - 5.5) / 13) * Math.PI)
       })
       const totalWeight = solarProfileWeights.reduce((a, b) => a + b, 0) || 1
-      let rollingCumulative = Math.max(0, baseUnits - dailySolarYieldKwh)
+
+      // Genset run profile: In an industrial plant, standby diesel generators operate during outages
+      // typically ~2 hours during the day (e.g. 16:00 - 18:00)
+      const gensetRunHours = [16, 17]
+      const dailyGensetRunKwh = isGenset ? Number((gensetOperatingKw * gensetRunHours.length * 0.95).toFixed(1)) : 0
+
+      let rollingCumulative = isGenerating
+        ? Math.max(0, baseUnits - dailySolarYieldKwh)
+        : isGenset
+          ? Math.max(0, baseUnits - dailyGensetRunKwh)
+          : baseUnits
 
       points = Array.from({ length: 24 }, (_, i) => {
         const hour = `${String(i).padStart(2, '0')}:00`
@@ -529,6 +553,18 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
             intervalUnits = 0
           }
           rollingCumulative = Number((rollingCumulative + intervalUnits).toFixed(1))
+        } else if (isGenset) {
+          if (basePower > 5) {
+            p = Number(Math.max(0, basePower * (1 + jitter)).toFixed(1))
+            intervalUnits = Number((p * 1).toFixed(1))
+          } else if (gensetRunHours.includes(i)) {
+            p = Number(Math.max(0, gensetOperatingKw * (1 + jitter)).toFixed(1))
+            intervalUnits = Number((p * 1).toFixed(1))
+          } else {
+            p = 0
+            intervalUnits = 0
+          }
+          rollingCumulative = Number((rollingCumulative + intervalUnits).toFixed(1))
         } else {
           // Daily industrial shift profile: low at night, peak during day shift
           const shiftFactor = (i >= 8 && i <= 18) ? 1.15 : (i >= 19 && i <= 23) ? 0.95 : 0.65
@@ -536,7 +572,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
           intervalUnits = Number((p * 1).toFixed(1))
         }
 
-        const cumulativeUnits = isGenerating
+        const cumulativeUnits = (isGenerating || isGenset)
           ? Math.min(baseUnits, rollingCumulative)
           : Number(Math.max(0, baseUnits - ((23 - i) * (basePower * ((i >= 8 && i <= 18) ? 1.15 : (i >= 19 && i <= 23) ? 0.95 : 0.65)))).toFixed(1))
 
@@ -552,6 +588,9 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
     } else if (historyRange === '7d') {
       const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
       const dailySolarYieldKwh = isGenerating ? Number((solarPeakKw * 5.2).toFixed(1)) : 0
+      const gensetRunDays = [0, 2, 4, 5]
+      const totalGensetWeeklyKwh = isGenset ? Number((gensetOperatingKw * 1.8 * gensetRunDays.length).toFixed(1)) : 0
+      let rollingWeeklyGensetCum = isGenset ? Math.max(0, baseUnits - totalGensetWeeklyKwh) : baseUnits
 
       points = days.map((day, i) => {
         const weatherFactor = 0.92 + Math.sin(i * 1.3) * 0.08
@@ -563,6 +602,19 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
         if (isGenerating) {
           intervalUnits = Number((dailySolarYieldKwh * weatherFactor).toFixed(1))
           p = Number((intervalUnits / 24).toFixed(1))
+        } else if (isGenset) {
+          if (basePower > 5) {
+            p = Number(Math.max(0, basePower * (1 + jitter)).toFixed(1))
+            intervalUnits = Number((p * 24).toFixed(1))
+          } else if (gensetRunDays.includes(i)) {
+            const runHours = 1.5 + (i % 2) * 0.5
+            intervalUnits = Number((gensetOperatingKw * runHours * (0.95 + Math.sin(i) * 0.05)).toFixed(1))
+            p = Number((intervalUnits / 24).toFixed(1))
+          } else {
+            p = 0
+            intervalUnits = 0
+          }
+          rollingWeeklyGensetCum = Number((rollingWeeklyGensetCum + intervalUnits).toFixed(1))
         } else {
           p = Number(Math.max(0, basePower * weekendFactor * (1 + jitter)).toFixed(1))
           intervalUnits = Number((p * 24).toFixed(1))
@@ -570,7 +622,9 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
 
         const cumulativeUnits = isGenerating
           ? Number(Math.max(0, baseUnits - ((6 - i) * dailySolarYieldKwh)).toFixed(1))
-          : Number(Math.max(0, baseUnits - ((6 - i) * (basePower * weekendFactor * 24))).toFixed(1))
+          : isGenset
+            ? Math.min(baseUnits, rollingWeeklyGensetCum)
+            : Number(Math.max(0, baseUnits - ((6 - i) * (basePower * weekendFactor * 24))).toFixed(1))
 
         const val = selectedVar ? Number((customBase * (1 + jitter)).toFixed(1)) : p
         return {
@@ -584,6 +638,8 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
     } else {
       // 30 Days
       const dailySolarYieldKwh = isGenerating ? Number((solarPeakKw * 5.2).toFixed(1)) : 0
+      const totalGensetMonthKwh = isGenset ? Number((gensetOperatingKw * 1.8 * 12).toFixed(1)) : 0
+      let rollingMonthlyGensetCum = isGenset ? Math.max(0, baseUnits - totalGensetMonthKwh) : baseUnits
 
       points = Array.from({ length: 30 }, (_, i) => {
         const dayStr = `${i + 1} Oct`
@@ -595,6 +651,20 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
         if (isGenerating) {
           intervalUnits = Number((dailySolarYieldKwh * weatherFactor).toFixed(1))
           p = Number((intervalUnits / 24).toFixed(1))
+        } else if (isGenset) {
+          const isRunDay = (i % 3 === 0 || i % 7 === 2)
+          if (basePower > 5) {
+            p = Number(Math.max(0, basePower * (1 + jitter)).toFixed(1))
+            intervalUnits = Number((p * 24).toFixed(1))
+          } else if (isRunDay) {
+            const runHours = 1.5 + (i % 2) * 0.5
+            intervalUnits = Number((gensetOperatingKw * runHours * (0.92 + Math.sin(i * 0.5) * 0.08)).toFixed(1))
+            p = Number((intervalUnits / 24).toFixed(1))
+          } else {
+            p = 0
+            intervalUnits = 0
+          }
+          rollingMonthlyGensetCum = Number((rollingMonthlyGensetCum + intervalUnits).toFixed(1))
         } else {
           p = Number(Math.max(0, basePower * (1 + jitter)).toFixed(1))
           intervalUnits = Number((p * 24).toFixed(1))
@@ -602,7 +672,9 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
 
         const cumulativeUnits = isGenerating
           ? Number(Math.max(0, baseUnits - ((29 - i) * dailySolarYieldKwh)).toFixed(1))
-          : Number(Math.max(0, baseUnits - ((29 - i) * (basePower * (1 + jitter) * 24))).toFixed(1))
+          : isGenset
+            ? Math.min(baseUnits, rollingMonthlyGensetCum)
+            : Number(Math.max(0, baseUnits - ((29 - i) * (basePower * (1 + jitter) * 24))).toFixed(1))
 
         const val = selectedVar ? Number((customBase * (1 + jitter)).toFixed(1)) : p
         return {
@@ -616,7 +688,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
     }
 
     return points
-  }, [historyRange, historyVariable, variables, node.loadKw, node.units, node.status, node.ratedA, node.voltage, node.powerFactor, isGenerating])
+  }, [historyRange, historyVariable, variables, node.loadKw, node.units, node.status, node.ratedA, node.voltage, node.powerFactor, isGenerating, isGenset])
 
   // Chart KPI stats for both Power and Units
   const chartStats = useMemo(() => {
