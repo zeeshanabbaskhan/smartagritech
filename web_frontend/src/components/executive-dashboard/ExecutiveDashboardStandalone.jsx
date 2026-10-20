@@ -18,7 +18,7 @@ import {
   Moon, Minus, Plus
 } from 'lucide-react'
 import {
-  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, Legend
+  ResponsiveContainer, BarChart, Bar, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, Legend
 } from 'recharts'
 
 
@@ -401,6 +401,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
   const [isMaximized, setIsMaximized] = useState(false)
   const [historyRange, setHistoryRange] = useState('24h') // '1h' | '24h' | '7d' | '30d'
   const [historyVariable, setHistoryVariable] = useState('both') // 'both' | 'Total Power' | 'Units' | any variable key
+  const [chartType, setChartType] = useState('bar') // 'bar' (default bar graph) | 'area'
 
   // CSV Export Date Range & Variable Selection
   const [dateFrom, setDateFrom] = useState('2026-10-02')
@@ -436,7 +437,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
   const handleSelectAll = () => setSelectedVarKeys(variables.map((v) => v.key))
   const handleDeselectAll = () => setSelectedVarKeys([])
 
-  // Generate historical data points for interactive graph (Power in kW and Units in kWh)
+  // Generate historical data points for interactive bar graph (Power in kW and Units in kWh)
   const chartData = useMemo(() => {
     const isSpareOrTripped = node.status === 'spare' || node.status === 'tripped'
     const basePower = isSpareOrTripped ? 0 : (Number(node.loadKw) || variables.find((v) => v.key === 'Total Power')?.value || 0)
@@ -451,14 +452,16 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
         const timeStr = `${String(13 + Math.floor(i / 12)).padStart(2, '0')}:${String((i * 5) % 60).padStart(2, '0')}`
         const jitter = Math.sin(i * 0.8) * 0.08
         const p = Number(Math.max(0, basePower * (1 + jitter)).toFixed(1))
-        // 5-min incremental consumption: power * (5 / 60) kWh
-        const u = Number(Math.max(0, baseUnits - ((11 - i) * (basePower * (5 / 60)))).toFixed(1))
+        // 5-min interval energy consumption = power * (5 / 60) kWh
+        const intervalUnits = Number((p * (5 / 60)).toFixed(2))
+        const cumulativeUnits = Number(Math.max(0, baseUnits - ((11 - i) * (basePower * (5 / 60)))).toFixed(1))
         const val = selectedVar ? Number((customBase * (1 + jitter)).toFixed(1)) : p
         return {
           timestamp: timeStr,
           power: p,
-          units: u,
-          value: historyVariable === 'Units' ? u : val,
+          units: intervalUnits,
+          cumulativeUnits,
+          value: historyVariable === 'Units' ? intervalUnits : val,
         }
       })
     } else if (historyRange === '24h') {
@@ -468,14 +471,16 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
         const shiftFactor = (i >= 8 && i <= 18) ? 1.15 : (i >= 19 && i <= 23) ? 0.95 : 0.65
         const jitter = Math.sin(i * 0.5) * 0.05
         const p = Number(Math.max(0, basePower * shiftFactor * (1 + jitter)).toFixed(1))
-        // Hourly cumulative consumption
-        const u = Number(Math.max(0, baseUnits - ((23 - i) * (basePower * shiftFactor))).toFixed(1))
+        // Hourly interval energy consumption = power * 1h kWh
+        const intervalUnits = Number((p * 1).toFixed(1))
+        const cumulativeUnits = Number(Math.max(0, baseUnits - ((23 - i) * (basePower * shiftFactor))).toFixed(1))
         const val = selectedVar ? Number((customBase * (1 + jitter)).toFixed(1)) : p
         return {
           timestamp: hour,
           power: p,
-          units: u,
-          value: historyVariable === 'Units' ? u : val,
+          units: intervalUnits,
+          cumulativeUnits,
+          value: historyVariable === 'Units' ? intervalUnits : val,
         }
       })
     } else if (historyRange === '7d') {
@@ -484,14 +489,16 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
         const weekendFactor = (i >= 5) ? 0.7 : 1.05
         const jitter = Math.sin(i * 0.06) * 0.06
         const p = Number(Math.max(0, basePower * weekendFactor * (1 + jitter)).toFixed(1))
-        const dailyKwh = basePower * weekendFactor * 24
-        const u = Number(Math.max(0, baseUnits - ((6 - i) * dailyKwh)).toFixed(1))
+        // Daily interval energy consumption = average power * 24h kWh
+        const intervalUnits = Number((p * 24).toFixed(1))
+        const cumulativeUnits = Number(Math.max(0, baseUnits - ((6 - i) * (basePower * weekendFactor * 24))).toFixed(1))
         const val = selectedVar ? Number((customBase * (1 + jitter)).toFixed(1)) : p
         return {
           timestamp: day,
           power: p,
-          units: u,
-          value: historyVariable === 'Units' ? u : val,
+          units: intervalUnits,
+          cumulativeUnits,
+          value: historyVariable === 'Units' ? intervalUnits : val,
         }
       })
     } else {
@@ -500,14 +507,16 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
         const dayStr = `${i + 1} Oct`
         const jitter = Math.sin(i * 0.4) * 0.1
         const p = Number(Math.max(0, basePower * (1 + jitter)).toFixed(1))
-        const dailyKwh = basePower * (1 + jitter) * 24
-        const u = Number(Math.max(0, baseUnits - ((29 - i) * dailyKwh)).toFixed(1))
+        // Daily interval energy consumption = average power * 24h kWh
+        const intervalUnits = Number((p * 24).toFixed(1))
+        const cumulativeUnits = Number(Math.max(0, baseUnits - ((29 - i) * (basePower * (1 + jitter) * 24))).toFixed(1))
         const val = selectedVar ? Number((customBase * (1 + jitter)).toFixed(1)) : p
         return {
           timestamp: dayStr,
           power: p,
-          units: u,
-          value: historyVariable === 'Units' ? u : val,
+          units: intervalUnits,
+          cumulativeUnits,
+          value: historyVariable === 'Units' ? intervalUnits : val,
         }
       })
     }
@@ -522,13 +531,13 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
     }
     const powerVals = chartData.map((d) => d.power)
     const unitVals = chartData.map((d) => d.units)
+    const cumVals = chartData.map((d) => d.cumulativeUnits)
     const peakPower = Math.max(...powerVals)
     const minPower = Math.min(...powerVals)
     const avgPower = powerVals.reduce((a, b) => a + b, 0) / powerVals.length
 
-    const curUnits = unitVals.length > 0 ? unitVals[unitVals.length - 1] : 0
-    const startUnits = unitVals.length > 0 ? unitVals[0] : 0
-    const periodUnits = Math.max(0, curUnits - startUnits)
+    const curUnits = cumVals.length > 0 ? cumVals[cumVals.length - 1] : 0
+    const periodUnits = unitVals.reduce((a, b) => a + b, 0)
 
     const generalVals = chartData.map((d) => d.value)
     const peak = Math.max(...generalVals)
@@ -961,6 +970,36 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                       </button>
                     ))}
                   </div>
+
+                  {/* Graph Format Toggle (Bar Graph by default) */}
+                  <div className="flex rounded-lg border border-surface-200 dark:border-surface-800 overflow-hidden text-xs bg-white dark:bg-surface-900">
+                    <button
+                      type="button"
+                      onClick={() => setChartType('bar')}
+                      className={`px-2 py-1 font-bold text-[10px] uppercase transition cursor-pointer flex items-center gap-1 ${
+                        chartType === 'bar'
+                          ? 'bg-primary-600 text-white'
+                          : 'text-surface-600 dark:text-surface-400 hover:bg-surface-100 dark:hover:bg-surface-800'
+                      }`}
+                      title="Bar Graph (Default)"
+                    >
+                      <BarChart2 className="w-3 h-3" />
+                      <span>Bar</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setChartType('area')}
+                      className={`px-2 py-1 font-bold text-[10px] uppercase transition cursor-pointer flex items-center gap-1 ${
+                        chartType === 'area'
+                          ? 'bg-primary-600 text-white'
+                          : 'text-surface-600 dark:text-surface-400 hover:bg-surface-100 dark:hover:bg-surface-800'
+                      }`}
+                      title="Area Graph"
+                    >
+                      <TrendingUp className="w-3 h-3" />
+                      <span>Area</span>
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -1000,142 +1039,263 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                 </div>
               </div>
 
-              {/* Interactive Recharts Graph */}
+              {/* Interactive Recharts Graph (Bar Graph Format by default) */}
               <div
                 className={`w-full p-2 bg-surface-50 dark:bg-surface-950/60 rounded-xl border border-surface-200 dark:border-surface-800 flex-1 min-h-[180px] ${
                   isMaximized ? 'h-[380px]' : 'h-[230px]'
                 }`}
               >
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={chartData} margin={{ top: 8, right: 12, left: -15, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="powerGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#2563EB" stopOpacity={0.35} />
-                        <stop offset="95%" stopColor="#2563EB" stopOpacity={0.0} />
-                      </linearGradient>
-                      <linearGradient id="unitsGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#10B981" stopOpacity={0.30} />
-                        <stop offset="95%" stopColor="#10B981" stopOpacity={0.0} />
-                      </linearGradient>
-                      <linearGradient id="historyGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.4} />
-                        <stop offset="95%" stopColor="#3B82F6" stopOpacity={0.0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-                    <XAxis dataKey="timestamp" tick={{ fontSize: 9 }} stroke="#94A3B8" />
+                  {chartType === 'bar' ? (
+                    <BarChart data={chartData} margin={{ top: 8, right: 12, left: -15, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+                      <XAxis dataKey="timestamp" tick={{ fontSize: 9 }} stroke="#94A3B8" />
 
-                    {/* Left YAxis: Power (kW) */}
-                    {(historyVariable === 'both' || historyVariable === 'Total Power') && (
-                      <YAxis
-                        yAxisId="powerAxis"
-                        orientation="left"
-                        tick={{ fontSize: 9 }}
-                        stroke="#2563EB"
-                        unit=" kW"
-                        width={48}
-                      />
-                    )}
+                      {/* Left YAxis: Power (kW) */}
+                      {(historyVariable === 'both' || historyVariable === 'Total Power') && (
+                        <YAxis
+                          yAxisId="powerAxis"
+                          orientation="left"
+                          tick={{ fontSize: 9 }}
+                          stroke="#2563EB"
+                          unit=" kW"
+                          width={48}
+                        />
+                      )}
 
-                    {/* Right YAxis: Units (kWh) */}
-                    {(historyVariable === 'both' || historyVariable === 'Units') && (
-                      <YAxis
-                        yAxisId="unitsAxis"
-                        orientation="right"
-                        tick={{ fontSize: 9 }}
-                        stroke="#10B981"
-                        unit=" kWh"
-                        width={58}
-                      />
-                    )}
+                      {/* Right YAxis: Units (kWh) */}
+                      {(historyVariable === 'both' || historyVariable === 'Units') && (
+                        <YAxis
+                          yAxisId="unitsAxis"
+                          orientation="right"
+                          tick={{ fontSize: 9 }}
+                          stroke="#10B981"
+                          unit=" kWh"
+                          width={58}
+                        />
+                      )}
 
-                    {/* Single custom variable YAxis */}
-                    {historyVariable !== 'both' && historyVariable !== 'Total Power' && historyVariable !== 'Units' && (
-                      <YAxis
-                        yAxisId="customAxis"
-                        orientation="left"
-                        tick={{ fontSize: 9 }}
-                        stroke="#3B82F6"
-                        width={45}
-                      />
-                    )}
+                      {/* Single custom variable YAxis */}
+                      {historyVariable !== 'both' && historyVariable !== 'Total Power' && historyVariable !== 'Units' && (
+                        <YAxis
+                          yAxisId="customAxis"
+                          orientation="left"
+                          tick={{ fontSize: 9 }}
+                          stroke="#3B82F6"
+                          width={45}
+                        />
+                      )}
 
-                    <Tooltip
-                      content={({ active, payload, label }) => {
-                        if (!active || !payload || !payload.length) return null
-                        return (
-                          <div className="bg-surface-900 border border-surface-700 p-2 rounded-lg shadow-xl text-xs space-y-1">
-                            <div className="font-bold text-surface-200 border-b border-surface-800 pb-1 flex items-center justify-between gap-3">
-                              <span>{label}</span>
-                              <span className="text-[10px] text-surface-400 font-normal">{node.name}</span>
-                            </div>
-                            {payload.map((entry, idx) => (
-                              <div key={idx} className="flex items-center justify-between gap-4 text-[11px]">
-                                <span className="flex items-center gap-1.5" style={{ color: entry.color }}>
-                                  <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: entry.color }} />
-                                  {entry.name}:
-                                </span>
-                                <span className="font-mono font-bold text-white">
-                                  {typeof entry.value === 'number' ? entry.value.toLocaleString() : entry.value}
-                                </span>
+                      <Tooltip
+                        content={({ active, payload, label }) => {
+                          if (!active || !payload || !payload.length) return null
+                          const point = chartData.find((d) => d.timestamp === label)
+                          return (
+                            <div className="bg-surface-900 border border-surface-700 p-2.5 rounded-lg shadow-xl text-xs space-y-1.5 min-w-[190px]">
+                              <div className="font-bold text-surface-200 border-b border-surface-800 pb-1 flex items-center justify-between gap-3">
+                                <span>{label}</span>
+                                <span className="text-[10px] text-surface-400 font-normal">{node.name}</span>
                               </div>
-                            ))}
-                          </div>
-                        )
-                      }}
-                    />
-
-                    {historyVariable === 'both' && (
-                      <Legend
-                        verticalAlign="top"
-                        align="right"
-                        iconType="circle"
-                        wrapperStyle={{ fontSize: '10px', paddingBottom: '4px' }}
+                              {payload.map((entry, idx) => (
+                                <div key={idx} className="flex items-center justify-between gap-4 text-[11px]">
+                                  <span className="flex items-center gap-1.5" style={{ color: entry.color }}>
+                                    <span className="w-2 h-2 rounded-xs inline-block" style={{ backgroundColor: entry.color }} />
+                                    {entry.name}:
+                                  </span>
+                                  <span className="font-mono font-bold text-white">
+                                    {typeof entry.value === 'number' ? entry.value.toLocaleString() : entry.value}
+                                  </span>
+                                </div>
+                              ))}
+                              {point?.cumulativeUnits != null && (historyVariable === 'both' || historyVariable === 'Units') && (
+                                <div className="pt-1 border-t border-surface-800 flex items-center justify-between text-[10px] text-surface-400">
+                                  <span>Total Meter Units:</span>
+                                  <span className="font-mono font-bold text-emerald-400">
+                                    {point.cumulativeUnits.toLocaleString()} kWh
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          )
+                        }}
                       />
-                    )}
 
-                    {/* Power Area */}
-                    {(historyVariable === 'both' || historyVariable === 'Total Power') && (
-                      <Area
-                        yAxisId="powerAxis"
-                        type="monotone"
-                        dataKey="power"
-                        name="Power (kW)"
-                        stroke="#2563EB"
-                        strokeWidth={2}
-                        fillOpacity={1}
-                        fill="url(#powerGrad)"
-                      />
-                    )}
+                      {historyVariable === 'both' && (
+                        <Legend
+                          verticalAlign="top"
+                          align="right"
+                          iconType="circle"
+                          wrapperStyle={{ fontSize: '10px', paddingBottom: '4px' }}
+                        />
+                      )}
 
-                    {/* Units Area */}
-                    {(historyVariable === 'both' || historyVariable === 'Units') && (
-                      <Area
-                        yAxisId="unitsAxis"
-                        type="monotone"
-                        dataKey="units"
-                        name="Units (kWh)"
-                        stroke="#10B981"
-                        strokeWidth={2}
-                        fillOpacity={1}
-                        fill="url(#unitsGrad)"
-                      />
-                    )}
+                      {/* Power Bar */}
+                      {(historyVariable === 'both' || historyVariable === 'Total Power') && (
+                        <Bar
+                          yAxisId="powerAxis"
+                          dataKey="power"
+                          name="Power (kW)"
+                          fill="#2563EB"
+                          radius={[3, 3, 0, 0]}
+                          maxBarSize={historyRange === '1h' ? 24 : historyRange === '24h' ? 14 : 20}
+                        />
+                      )}
 
-                    {/* Single custom variable Area */}
-                    {historyVariable !== 'both' && historyVariable !== 'Total Power' && historyVariable !== 'Units' && (
-                      <Area
-                        yAxisId="customAxis"
-                        type="monotone"
-                        dataKey="value"
-                        name={variables.find((v) => v.key === historyVariable)?.shortName || 'Value'}
-                        stroke="#3B82F6"
-                        strokeWidth={2}
-                        fillOpacity={1}
-                        fill="url(#historyGrad)"
+                      {/* Units Bar */}
+                      {(historyVariable === 'both' || historyVariable === 'Units') && (
+                        <Bar
+                          yAxisId="unitsAxis"
+                          dataKey="units"
+                          name="Units (kWh)"
+                          fill="#10B981"
+                          radius={[3, 3, 0, 0]}
+                          maxBarSize={historyRange === '1h' ? 24 : historyRange === '24h' ? 14 : 20}
+                        />
+                      )}
+
+                      {/* Single custom variable Bar */}
+                      {historyVariable !== 'both' && historyVariable !== 'Total Power' && historyVariable !== 'Units' && (
+                        <Bar
+                          yAxisId="customAxis"
+                          dataKey="value"
+                          name={variables.find((v) => v.key === historyVariable)?.shortName || 'Value'}
+                          fill="#3B82F6"
+                          radius={[3, 3, 0, 0]}
+                          maxBarSize={historyRange === '1h' ? 24 : historyRange === '24h' ? 14 : 20}
+                        />
+                      )}
+                    </BarChart>
+                  ) : (
+                    <AreaChart data={chartData} margin={{ top: 8, right: 12, left: -15, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="powerGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#2563EB" stopOpacity={0.35} />
+                          <stop offset="95%" stopColor="#2563EB" stopOpacity={0.0} />
+                        </linearGradient>
+                        <linearGradient id="unitsGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#10B981" stopOpacity={0.30} />
+                          <stop offset="95%" stopColor="#10B981" stopOpacity={0.0} />
+                        </linearGradient>
+                        <linearGradient id="historyGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.4} />
+                          <stop offset="95%" stopColor="#3B82F6" stopOpacity={0.0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+                      <XAxis dataKey="timestamp" tick={{ fontSize: 9 }} stroke="#94A3B8" />
+
+                      {/* Left YAxis: Power (kW) */}
+                      {(historyVariable === 'both' || historyVariable === 'Total Power') && (
+                        <YAxis
+                          yAxisId="powerAxis"
+                          orientation="left"
+                          tick={{ fontSize: 9 }}
+                          stroke="#2563EB"
+                          unit=" kW"
+                          width={48}
+                        />
+                      )}
+
+                      {/* Right YAxis: Units (kWh) */}
+                      {(historyVariable === 'both' || historyVariable === 'Units') && (
+                        <YAxis
+                          yAxisId="unitsAxis"
+                          orientation="right"
+                          tick={{ fontSize: 9 }}
+                          stroke="#10B981"
+                          unit=" kWh"
+                          width={58}
+                        />
+                      )}
+
+                      {/* Single custom variable YAxis */}
+                      {historyVariable !== 'both' && historyVariable !== 'Total Power' && historyVariable !== 'Units' && (
+                        <YAxis
+                          yAxisId="customAxis"
+                          orientation="left"
+                          tick={{ fontSize: 9 }}
+                          stroke="#3B82F6"
+                          width={45}
+                        />
+                      )}
+
+                      <Tooltip
+                        content={({ active, payload, label }) => {
+                          if (!active || !payload || !payload.length) return null
+                          return (
+                            <div className="bg-surface-900 border border-surface-700 p-2 rounded-lg shadow-xl text-xs space-y-1">
+                              <div className="font-bold text-surface-200 border-b border-surface-800 pb-1 flex items-center justify-between gap-3">
+                                <span>{label}</span>
+                                <span className="text-[10px] text-surface-400 font-normal">{node.name}</span>
+                              </div>
+                              {payload.map((entry, idx) => (
+                                <div key={idx} className="flex items-center justify-between gap-4 text-[11px]">
+                                  <span className="flex items-center gap-1.5" style={{ color: entry.color }}>
+                                    <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: entry.color }} />
+                                    {entry.name}:
+                                  </span>
+                                  <span className="font-mono font-bold text-white">
+                                    {typeof entry.value === 'number' ? entry.value.toLocaleString() : entry.value}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )
+                        }}
                       />
-                    )}
-                  </AreaChart>
+
+                      {historyVariable === 'both' && (
+                        <Legend
+                          verticalAlign="top"
+                          align="right"
+                          iconType="circle"
+                          wrapperStyle={{ fontSize: '10px', paddingBottom: '4px' }}
+                        />
+                      )}
+
+                      {/* Power Area */}
+                      {(historyVariable === 'both' || historyVariable === 'Total Power') && (
+                        <Area
+                          yAxisId="powerAxis"
+                          type="monotone"
+                          dataKey="power"
+                          name="Power (kW)"
+                          stroke="#2563EB"
+                          strokeWidth={2}
+                          fillOpacity={1}
+                          fill="url(#powerGrad)"
+                        />
+                      )}
+
+                      {/* Units Area */}
+                      {(historyVariable === 'both' || historyVariable === 'Units') && (
+                        <Area
+                          yAxisId="unitsAxis"
+                          type="monotone"
+                          dataKey="units"
+                          name="Units (kWh)"
+                          stroke="#10B981"
+                          strokeWidth={2}
+                          fillOpacity={1}
+                          fill="url(#unitsGrad)"
+                        />
+                      )}
+
+                      {/* Single custom variable Area */}
+                      {historyVariable !== 'both' && historyVariable !== 'Total Power' && historyVariable !== 'Units' && (
+                        <Area
+                          yAxisId="customAxis"
+                          type="monotone"
+                          dataKey="value"
+                          name={variables.find((v) => v.key === historyVariable)?.shortName || 'Value'}
+                          stroke="#3B82F6"
+                          strokeWidth={2}
+                          fillOpacity={1}
+                          fill="url(#historyGrad)"
+                        />
+                      )}
+                    </AreaChart>
+                  )}
                 </ResponsiveContainer>
               </div>
             </div>
@@ -1366,18 +1526,15 @@ function EnergyFlowOverview({ data, onSelectNode }) {
     const isSpare = (b.status === 'spare' || name.toLowerCase().includes('spare')) && loadKwVal === 0
     const isGenerating = b.status === 'generating' || name.toLowerCase().includes('solar')
     const isTieLine = b.status === 'tie-line' || name.toLowerCase().includes('ambition') || name.toLowerCase().includes('tie')
-    const isGridIncomer = /wapda/i.test(name) || /grid/i.test(b.type || '')
-    const isGenset = /genset|g1|g2|g3/i.test(name) || /genset/i.test(b.type || '')
 
     // Threshold evaluation: checks slave override, then global default, falling back to 70 / 100
     const slaveThresh = b.slaveId ? slaveThresholds[b.slaveId] : null
     const warnLimit = Number(slaveThresh?.warningValue || slaveDefault?.warningValue || 70)
     const critLimit = Number(slaveThresh?.criticalValue || slaveDefault?.criticalValue || 100)
 
-    // Incomers and generators are power sources, not consumers, so they don't trip on high load
-    const isConsumer = !isGenerating && !isSpare && !isTieLine && !isGridIncomer && !isGenset
-    const isTripped = b.status === 'tripped' || (loadKwVal >= critLimit && isConsumer)
-    const isHeavy = !isTripped && (b.status === 'heavy' || (loadKwVal >= warnLimit && isConsumer))
+    // Alert thresholds: >= 100 kW turns RED (critical/tripped), >= 70 kW turns YELLOW (warning/heavy)
+    const isTripped = b.status === 'tripped' || (loadKwVal >= critLimit && !isSpare)
+    const isHeavy = !isTripped && (b.status === 'heavy' || (loadKwVal >= warnLimit && !isSpare))
 
     // All normal/remaining breakers: clean white card with white/light neutral border, NO color at all
     let cardStyle = 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-slate-300'
