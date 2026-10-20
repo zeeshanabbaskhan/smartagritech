@@ -197,7 +197,7 @@ function makeBreakerNode(id, fallbackName, defaultRatedA, slaveObj, buildingCode
   else if (isSpare) status = 'spare'
   else if (!slaveObj || !isOnline) status = 'offline'
   else if (isSolar) status = 'generating'
-  else if (loadKw >= 100) status = 'tripped'
+  else if (loadKw >= 100) status = 'critical'
   else if (loadKw >= 70) status = 'heavy'
   else if (loadKw > maxKw * 0.8) status = 'heavy'
 

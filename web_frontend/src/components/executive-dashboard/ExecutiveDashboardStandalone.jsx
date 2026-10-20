@@ -167,7 +167,7 @@ export function getAllBreakers(building) {
  */
 export function generateBreakerDetails(breaker, buildingCode) {
   if (Array.isArray(breaker.variables24) && breaker.variables24.length > 0) {
-    const isTripped = breaker.status === 'tripped'
+    const isTripped = breaker.status === 'tripped' && Number(breaker.loadKw || 0) === 0
     const loadKw = isTripped ? 0 : (breaker.loadKw || 0)
     const sparkline = Array.from({ length: 12 }, (_, i) => {
       const jitter = loadKw > 0 ? (Math.random() * 2 - 1) : 0
@@ -188,7 +188,7 @@ export function generateBreakerDetails(breaker, buildingCode) {
     }
   }
 
-  const isTripped = breaker.status === 'tripped'
+  const isTripped = breaker.status === 'tripped' && Number(breaker.loadKw || 0) === 0
   const loadKw = isTripped ? 0 : (breaker.loadKw || 0)
   const vLine = 400 + (Math.random() * 4 - 2)
   const vPhase = +(vLine / Math.sqrt(3)).toFixed(1)
@@ -355,10 +355,11 @@ function getResolvedVariables(node) {
   if (Array.isArray(node?.variables24) && node.variables24.length > 0) {
     return node.variables24
   }
-  const loadKw = node?.status === 'tripped' ? 0 : (Number(node?.loadKw) || 45.0)
+  const isTripped = node?.status === 'tripped' && Number(node?.loadKw || 0) === 0
+  const loadKw = isTripped ? 0 : (Number(node?.loadKw) || 45.0)
   const vLine = Number(node?.voltage) || 400.0
   const vPhase = +(vLine / Math.sqrt(3)).toFixed(1)
-  const pf = node?.status === 'tripped' ? 0 : (Number(node?.powerFactor) || 0.96)
+  const pf = isTripped ? 0 : (Number(node?.powerFactor) || 0.96)
   const current = loadKw > 0 ? (loadKw * 1000) / (Math.sqrt(3) * vLine * (pf || 0.96)) : 0
   const kva = pf > 0 ? loadKw / pf : 0
   const kvar = Math.sqrt(Math.max(0, kva * kva - loadKw * loadKw))
@@ -421,10 +422,12 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
     }
   }, [variables])
 
-  const isSpare = node.status === 'spare'
-  const isGenerating = node.status === 'generating'
-  const isHeavy = node.status === 'heavy'
-  const isTripped = node.status === 'tripped'
+  const loadKwVal = Number.isFinite(Number(node.loadKw)) ? Number(node.loadKw) : 0
+  const isSpare = (node.status === 'spare' || node.name?.toLowerCase().includes('spare')) && loadKwVal === 0
+  const isGenerating = node.status === 'generating' || node.name?.toLowerCase().includes('solar')
+  const isCritical = node.status === 'critical' || (loadKwVal >= 100 && !isSpare)
+  const isHeavy = !isCritical && (node.status === 'heavy' || (loadKwVal >= 70 && !isSpare))
+  const isTripped = node.status === 'tripped' && loadKwVal === 0
 
   // Toggle single variable selection
   const toggleVar = (key) => {
@@ -439,9 +442,9 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
 
   // Generate historical data points for interactive bar graph (Power in kW and Units in kWh)
   const chartData = useMemo(() => {
-    const isSpareOrTripped = node.status === 'spare' || node.status === 'tripped'
-    const basePower = isSpareOrTripped ? 0 : (Number(node.loadKw) || variables.find((v) => v.key === 'Total Power')?.value || 0)
-    const baseUnits = isSpareOrTripped ? 0 : (Number(node.units) || variables.find((v) => v.key === 'Units')?.value || (basePower > 0 ? Number((basePower * 240.5).toFixed(1)) : 0))
+    const isSpareOrZero = isSpare || (node.status === 'tripped' && loadKwVal === 0)
+    const basePower = isSpareOrZero ? 0 : (loadKwVal || variables.find((v) => v.key === 'Total Power')?.value || 0)
+    const baseUnits = isSpareOrZero ? 0 : (Number(node.units) || variables.find((v) => v.key === 'Units')?.value || (basePower > 0 ? Number((basePower * 240.5).toFixed(1)) : 0))
     const selectedVar = variables.find((v) => v.key === historyVariable)
     const customBase = selectedVar ? (selectedVar.value ?? 0) : basePower
 
@@ -639,12 +642,14 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
           <div className="flex items-center gap-2.5">
             <div
               className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold shadow-2xs shrink-0 ${
-                isTripped
-                  ? 'bg-danger-600/20 text-danger-600 border border-danger-600/30'
+                isCritical
+                  ? 'bg-rose-600/20 text-rose-600 border border-rose-600/30'
                   : isGenerating
                   ? 'bg-amber-500/20 text-amber-500 border border-amber-500/30'
                   : isHeavy
                   ? 'bg-warning-600/20 text-warning-600 border border-warning-600/30'
+                  : isTripped
+                  ? 'bg-danger-600/20 text-danger-600 border border-danger-600/30'
                   : isSpare
                   ? 'bg-surface-500/20 text-surface-400 border border-surface-500/30'
                   : 'bg-primary-500/20 text-primary-500 border border-primary-500/30'
@@ -737,19 +742,21 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
           <div className="hidden sm:flex items-center gap-1.5 text-[11px] font-mono">
             <span
               className={`w-2 h-2 rounded-full ${
-                isTripped
-                  ? 'bg-danger-600 animate-ping'
+                isCritical
+                  ? 'bg-rose-600 animate-pulse'
                   : isHeavy
                   ? 'bg-warning-500 animate-pulse'
                   : isGenerating
                   ? 'bg-amber-500 animate-pulse'
+                  : isTripped
+                  ? 'bg-danger-600 animate-ping'
                   : isSpare
                   ? 'bg-surface-400'
                   : 'bg-emerald-500'
               }`}
             />
             <span className="font-bold text-surface-700 dark:text-surface-300">
-              {isTripped ? 'TRIPPED' : isSpare ? 'OFFLINE' : 'ONLINE'}
+              {isCritical ? 'CRITICAL' : isHeavy ? 'WARNING' : isTripped ? 'TRIPPED' : isSpare ? 'OFFLINE' : 'ONLINE'}
             </span>
           </div>
         </div>
@@ -766,22 +773,26 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                 <div className="flex items-center gap-2">
                   <span
                     className={`w-2 h-2 rounded-full shrink-0 ${
-                      isTripped
-                        ? 'bg-danger-600 animate-ping'
+                      isCritical
+                        ? 'bg-rose-600 animate-pulse'
                         : isHeavy
                         ? 'bg-warning-500 animate-pulse'
                         : isGenerating
                         ? 'bg-amber-500 animate-pulse'
+                        : isTripped
+                        ? 'bg-danger-600 animate-ping'
                         : isSpare
                         ? 'bg-surface-400'
                         : 'bg-emerald-500'
                     }`}
                   />
                   <span className="text-[10px] sm:text-[10.5px] font-black uppercase tracking-wider text-surface-800 dark:text-surface-200">
-                    {isTripped
-                      ? 'CIRCUIT TRIPPED (ALARM)'
+                    {isCritical
+                      ? 'CRITICAL LOAD (HIGH USAGE ALERT)'
                       : isHeavy
                       ? 'HEAVY LOAD WARNING'
+                      : isTripped
+                      ? 'CIRCUIT TRIPPED (ALARM)'
                       : isGenerating
                       ? 'ACTIVE SOLAR GENERATION'
                       : isSpare
@@ -1532,16 +1543,17 @@ function EnergyFlowOverview({ data, onSelectNode }) {
     const warnLimit = Number(slaveThresh?.warningValue || slaveDefault?.warningValue || 70)
     const critLimit = Number(slaveThresh?.criticalValue || slaveDefault?.criticalValue || 100)
 
-    // Alert thresholds: >= 100 kW turns RED (critical/tripped), >= 70 kW turns YELLOW (warning/heavy)
-    const isTripped = b.status === 'tripped' || (loadKwVal >= critLimit && !isSpare)
-    const isHeavy = !isTripped && (b.status === 'heavy' || (loadKwVal >= warnLimit && !isSpare))
+    // Alert thresholds: >= 100 kW turns RED (critical load), >= 70 kW turns YELLOW (warning/heavy load)
+    const isCritical = b.status === 'critical' || (loadKwVal >= critLimit && !isSpare)
+    const isHeavy = !isCritical && (b.status === 'heavy' || (loadKwVal >= warnLimit && !isSpare))
+    const isTripped = b.status === 'tripped' && loadKwVal === 0
 
     // All normal/remaining breakers: clean white card with white/light neutral border, NO color at all
     let cardStyle = 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-slate-300'
     let dotClass = 'bg-slate-300 dark:bg-slate-600'
     let valueClass = 'text-slate-900 dark:text-slate-100'
 
-    if (isTripped) {
+    if (isCritical) {
       cardStyle = 'bg-rose-50/80 dark:bg-rose-950/30 border-rose-300 dark:border-rose-700/80 border-t-[3px] border-t-rose-600 ring-1 ring-rose-400/30 hover:border-rose-500'
       dotClass = 'bg-rose-600 ring-2 ring-rose-300 animate-pulse'
       valueClass = 'text-rose-700 dark:text-rose-400 font-black'
@@ -1560,7 +1572,7 @@ function EnergyFlowOverview({ data, onSelectNode }) {
         key={b.id || `${buildingCode}-${name}`}
         onClick={() => onSelectNode?.(b, buildingCode)}
         className={`group relative p-1 sm:p-1.5 rounded-lg border text-center transition-all duration-150 cursor-pointer select-none flex flex-col justify-between min-h-[44px] sm:min-h-[46px] shadow-2xs ${cardStyle}`}
-        title={`${name} - ${loadKwVal.toFixed(1)} kW ${isTripped ? `(CRITICAL >= ${critLimit} kW)` : isHeavy ? `(WARNING >= ${warnLimit} kW)` : '(NORMAL)'}`}
+        title={`${name} - ${loadKwVal.toFixed(1)} kW ${isCritical ? `(CRITICAL >= ${critLimit} kW)` : isHeavy ? `(WARNING >= ${warnLimit} kW)` : isTripped ? '(TRIPPED)' : '(NORMAL)'}`}
       >
         <div
           className="w-full text-center text-[7.5px] sm:text-[8px] font-bold tracking-tight leading-[1.15] line-clamp-2 px-0.5 text-slate-800 dark:text-slate-100"
