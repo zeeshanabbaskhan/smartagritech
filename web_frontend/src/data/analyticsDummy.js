@@ -221,7 +221,7 @@ export function getOrgAnalyticsDummy(type) {
 }
 
 /** Merge live org analytics result with dummy when chart/rows are empty. */
-export function withOrgAnalyticsFallback(type, live) {
+export function withOrgAnalyticsFallback(type, live, hasDeviceSelected = false) {
   const dummy = getOrgAnalyticsDummy(type)
   if (!live) return { ...dummy, _demo: true }
   const hasChart = !isEmptyArray(live.chartData)
@@ -230,6 +230,16 @@ export function withOrgAnalyticsFallback(type, live) {
     return {
       ...live,
       chartData: live.chartData,
+      rows: live.rows || [],
+      dailyData: live.dailyData || [],
+      meta: { ...(dummy.meta || {}), ...(live.meta || {}) },
+      _demo: false,
+    }
+  }
+  if (hasDeviceSelected || live.current || live.meta?.current) {
+    return {
+      ...live,
+      chartData: live.chartData || [],
       rows: live.rows || [],
       dailyData: live.dailyData || [],
       meta: { ...(dummy.meta || {}), ...(live.meta || {}) },

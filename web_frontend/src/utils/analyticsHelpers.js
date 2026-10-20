@@ -7,7 +7,11 @@ export const PERIOD_TO_RANGE = {
   Custom: '30d',
 }
 
-export const RANGE_LABELS = { '24h': 'Today', '7d': 'Last 7 days', '30d': 'This Month' }
+export const RANGE_LABELS = {
+  '24h': 'Today',
+  '7d': 'Last 7 days',
+  '30d': 'This Month',
+}
 
 export function timeRangeFromDates(from, to) {
   if (!from || !to) return '7d'
@@ -25,6 +29,22 @@ export function formatTs(ts) {
   const d = new Date(ts)
   if (Number.isNaN(d.getTime())) return String(ts).slice(0, 16)
   return d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+export function formatChartTime(timestamp, timeRange) {
+  if (!timestamp) return '—'
+  const d = new Date(timestamp)
+  if (Number.isNaN(d.getTime())) return String(timestamp).slice(0, 16)
+  if (timeRange === '24h') {
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  } else if (timeRange === '7d') {
+    return d.toLocaleDateString([], { weekday: 'short' })
+  } else if (timeRange === '30d') {
+    return d.toLocaleDateString([], { month: 'short', day: 'numeric' })
+  } else if (timeRange === '365d' || timeRange === '1y') {
+    return d.toLocaleDateString([], { month: 'short' })
+  }
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
 export function alarmStatus(alarm) {
@@ -73,12 +93,10 @@ export function imbalanceEventsFromSeries({
   return events
 }
 
-export function energyFromAiResponse(data, { deviceName = 'Device' } = {}) {
+export function energyFromAiResponse(data, { deviceName = 'Device', timeRange = '7d' } = {}) {
   const points = data?.chartData ?? []
   const chartData = points.map((p) => ({
-    time: p.timestamp
-      ? new Date(p.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      : '—',
+    time: formatChartTime(p.timestamp, timeRange),
     timestamp: p.timestamp,
     power: Number(p.value) || 0,
   }))
@@ -88,20 +106,22 @@ export function energyFromAiResponse(data, { deviceName = 'Device' } = {}) {
     ? chartData.reduce((sum, p) => sum + p.power, 0) / chartData.length
     : 0
 
+  const bucketMs = data?.bucketMs || (chartData.length >= 2 && chartData[1].timestamp && chartData[0].timestamp ? Math.abs(new Date(chartData[1].timestamp) - new Date(chartData[0].timestamp)) : 3600000)
+
   const step = Math.max(1, Math.floor(chartData.length / 12))
   const dailyData = chartData
     .filter((_, i) => i % step === 0)
-    .map((p) => ({ day: p.time, kW: +p.power.toFixed(2), kWh: Math.round(p.power * 2) }))
+    .map((p) => ({ day: p.time, kW: +p.power.toFixed(2), kWh: Math.round(p.power * (bucketMs / 3600000)) }))
 
   const rows = chartData.map((p, i) => ({
     id: i,
     date: formatTs(p.timestamp) !== '—' ? formatTs(p.timestamp) : p.time,
     power: `${p.power.toFixed(1)} kW`,
-    kWh: Math.round(p.power * 2),
+    kWh: Math.round(p.power * (bucketMs / 3600000)),
   }))
 
   const hasLive = chartData.length > 0
-  const totalVal = Number.isFinite(total) ? total : (hasLive ? chartData.reduce((s, p) => s + p.power * 2, 0) : null)
+  const totalVal = Number.isFinite(total) && total > 0 ? total : (hasLive ? chartData.reduce((s, p) => s + p.power * (bucketMs / 3600000), 0) : null)
 
   const statCards = [
     { label: 'Total kWh', value: totalVal != null ? Math.round(totalVal).toLocaleString() : '—', unit: totalVal != null ? 'kWh' : '', iconKey: 'zap', color: 'primary' },

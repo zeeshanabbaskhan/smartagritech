@@ -326,12 +326,57 @@ const bucketManyCombined = async (prisma, { deviceId, slaveId, startDate, endDat
       ORDER BY bucket_ms ASC
     `
 
-    if (Array.isArray(rows)) {
+    if (Array.isArray(rows) && rows.length > 0) {
       const metricBucketMap = {}
       for (const name of metricNames) metricBucketMap[name] = new Map()
 
       for (const r of rows) {
         const metric = candidateToMetric.get(r.variableName)
+        if (metric && metricBucketMap[metric]) {
+          const bMs = Number(r.bucket_ms)
+          if (!metricBucketMap[metric].has(bMs)) {
+            metricBucketMap[metric].set(bMs, parseFloat(Number(r.avg_val).toFixed(4)))
+          }
+        }
+      }
+
+      for (const name of metricNames) {
+        const map = metricBucketMap[name]
+        result[name] = Array.from(map.entries())
+          .sort((a, b) => a[0] - b[0])
+          .map(([ts, val]) => ({ timestamp: new Date(ts), value: val }))
+      }
+      return result
+    }
+  } catch (_) {}
+
+  try {
+    const endClauseSr = endDate ? Prisma.sql`AND sr."timestamp" <= ${endDate}` : Prisma.empty
+    const devClauseSr = deviceId ? Prisma.sql`AND sr."deviceId" = ${deviceId}` : Prisma.empty
+    const srRows = await db.$queryRaw`
+      SELECT
+        elem->>'variableName' AS var_name,
+        (floor(extract(epoch from sr."timestamp") * 1000 / ${bucketMs}) * ${bucketMs})::bigint AS bucket_ms,
+        AVG((elem->>'value')::double precision) AS avg_val
+      FROM "sensor_readings" sr,
+           jsonb_array_elements(sr.readings::jsonb) AS elem
+      WHERE sr."timestamp" >= ${startDate}
+        ${devClauseSr}
+        ${slaveClause(slaveId)}
+        ${endClauseSr}
+        AND elem->>'variableName' IN (${Prisma.join(candidateList)})
+        AND (elem->>'value')::double precision > -10000000
+        AND (elem->>'value')::double precision < 10000000
+      GROUP BY var_name, bucket_ms
+      ORDER BY bucket_ms ASC
+    `
+
+    if (Array.isArray(srRows) && srRows.length > 0) {
+      const metricBucketMap = {}
+      for (const name of metricNames) metricBucketMap[name] = new Map()
+
+      for (const r of srRows) {
+        const metric = candidateToMetric.get(r.var_name)
         if (metric && metricBucketMap[metric]) {
           const bMs = Number(r.bucket_ms)
           if (!metricBucketMap[metric].has(bMs)) {
@@ -543,6 +588,51 @@ const periodEnergyKwh = async (prisma, opts) => {
       if (firstRow?.[0] && lastRow?.[0]) {
         const first = Number(firstRow[0].val)
         const last = Number(lastRow[0].val)
+        if (Number.isFinite(first) && Number.isFinite(last) && last >= first && (last - first) > 0) {
+          return parseFloat((last - first).toFixed(4))
+        }
+      }
+    } catch (_) {}
+  }
+
+  for (const varName of ['Units', 'Energy', 'TotalEnergy', 'ImportEnergy', 'ActiveEnergy', 'kWh']) {
+    try {
+      const endClauseSr = endDate ? Prisma.sql`AND sr."timestamp" < ${endDate}` : Prisma.empty
+      const devClauseSr = deviceId ? Prisma.sql`AND sr."deviceId" = ${deviceId}` : Prisma.empty
+      const rawNames = getRawCandidateNames(varName)
+      const [firstSr, lastSr] = await Promise.all([
+        db.$queryRaw`
+          SELECT (elem->>'value')::double precision AS val
+          FROM "sensor_readings" sr,
+               jsonb_array_elements(sr.readings::jsonb) AS elem
+          WHERE sr."timestamp" >= ${startDate}
+            ${devClauseSr}
+            ${slaveClause(slaveId)}
+            ${endClauseSr}
+            AND elem->>'variableName' IN (${Prisma.join(rawNames)})
+            AND (elem->>'value')::double precision > -10000000
+            AND (elem->>'value')::double precision < 10000000
+          ORDER BY sr."timestamp" ASC
+          LIMIT 1
+        `,
+        db.$queryRaw`
+          SELECT (elem->>'value')::double precision AS val
+          FROM "sensor_readings" sr,
+               jsonb_array_elements(sr.readings::jsonb) AS elem
+          WHERE sr."timestamp" >= ${startDate}
+            ${devClauseSr}
+            ${slaveClause(slaveId)}
+            ${endClauseSr}
+            AND elem->>'variableName' IN (${Prisma.join(rawNames)})
+            AND (elem->>'value')::double precision > -10000000
+            AND (elem->>'value')::double precision < 10000000
+          ORDER BY sr."timestamp" DESC
+          LIMIT 1
+        `,
+      ])
+      if (firstSr?.[0] && lastSr?.[0]) {
+        const first = Number(firstSr[0].val)
+        const last = Number(lastSr[0].val)
         if (Number.isFinite(first) && Number.isFinite(last) && last >= first && (last - first) > 0) {
           return parseFloat((last - first).toFixed(4))
         }

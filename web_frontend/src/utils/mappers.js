@@ -1,6 +1,7 @@
 /** Map API entities to UI table/card shapes used across pages */
 import { apiRoleToLabel } from './roles'
 import { themeDisplayName, DEFAULT_PRIMARY_COLOR } from './branding'
+import { formatChartTime } from './analyticsHelpers'
 
 const fmtDate = (d) => {
   if (!d) return '—'
@@ -601,24 +602,24 @@ export const dashboardChartSeries = (summary, key) =>
     value: p.value,
   }))
 
-export const aiPointsToChart = (points, key = 'value') =>
+export const aiPointsToChart = (points, key = 'value', timeRange = '24h') =>
   (points ?? []).map((p) => ({
-    time: new Date(p.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    time: formatChartTime(p.timestamp, timeRange),
     [key]: p.value,
     value: p.value,
   }))
 
-export const mergeVoltageChart = (chartData) => {
+export const mergeVoltageChart = (chartData, timeRange = '24h') => {
   const len = chartData?.voltageA?.length ?? 0
   return Array.from({ length: len }, (_, i) => ({
-    time: new Date(chartData.voltageA[i].timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    time: formatChartTime(chartData.voltageA[i]?.timestamp, timeRange),
     voltageA: chartData.voltageA[i]?.value,
     voltageB: chartData.voltageB?.[i]?.value,
     voltageC: chartData.voltageC?.[i]?.value,
   }))
 }
 
-export const mergeCurrentChart = (chartData) => {
+export const mergeCurrentChart = (chartData, timeRange = '24h') => {
   const len = Math.max(
     chartData?.currentA?.length ?? 0,
     chartData?.currentB?.length ?? 0,
@@ -629,7 +630,7 @@ export const mergeCurrentChart = (chartData) => {
       : chartData?.currentC
   return Array.from({ length: len }, (_, i) => ({
     time: src?.[i]?.timestamp
-      ? new Date(src[i].timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      ? formatChartTime(src[i].timestamp, timeRange)
       : String(i),
     currentA: chartData.currentA?.[i]?.value,
     currentB: chartData.currentB?.[i]?.value,

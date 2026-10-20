@@ -120,7 +120,7 @@ const getVoltageAnalysis = async (req, res, next) => {
     if (slaveId) await assertSlaveAccess(deviceId, slaveId, req.user)
 
     const cacheKey = `ai:voltage:${deviceId}:${slaveId || 'all'}:${timeRange}`
-    const data = await cached(cacheKey, 60, () => buildVoltageAnalysis(deviceId, slaveId, timeRange))
+    const data = await cached(cacheKey, 300, () => buildVoltageAnalysis(deviceId, slaveId, timeRange))
     res.json({ success: true, data })
   } catch (err) { next(err) }
 }
@@ -167,7 +167,7 @@ const getCurrentAnalysis = async (req, res, next) => {
     if (slaveId) await assertSlaveAccess(deviceId, slaveId, req.user)
 
     const cacheKey = `ai:current:${deviceId}:${slaveId || 'all'}:${timeRange}`
-    const data = await cached(cacheKey, 60, () => buildCurrentAnalysis(deviceId, slaveId, timeRange))
+    const data = await cached(cacheKey, 300, () => buildCurrentAnalysis(deviceId, slaveId, timeRange))
     res.json({ success: true, data })
   } catch (err) { next(err) }
 }
@@ -209,7 +209,7 @@ const getPowerFactorAnalysis = async (req, res, next) => {
     if (slaveId) await assertSlaveAccess(deviceId, slaveId, req.user)
 
     const cacheKey = `ai:pf:${deviceId}:${slaveId || 'all'}:${timeRange}`
-    const data = await cached(cacheKey, 60, () => buildPowerFactorAnalysis(deviceId, slaveId, timeRange))
+    const data = await cached(cacheKey, 300, () => buildPowerFactorAnalysis(deviceId, slaveId, timeRange))
     res.json({ success: true, data })
   } catch (err) { next(err) }
 }
@@ -252,7 +252,7 @@ const buildEnergyAnalysis = async (deviceId, slaveId, timeRange) => {
   ])
 
   const chartData = charts.PowerConsumption?.length ? charts.PowerConsumption : (charts.ActivePower || [])
-  const totalConsumption = energyDelta > 0 ? energyDelta : (chartData || []).reduce((acc, p) => acc + (Number(p.value) || 0), 0)
+  const totalConsumption = energyDelta > 0 ? energyDelta : (chartData || []).reduce((acc, p) => acc + (Number(p.value) || 0) * (bucketMs / 3600000), 0)
 
   return {
     current:          Object.fromEntries(currentVars.map((v) => [v.name, v.currentValue])),
@@ -273,7 +273,7 @@ const getEnergyAnalysis = async (req, res, next) => {
     if (slaveId) await assertSlaveAccess(deviceId, slaveId, req.user)
 
     const cacheKey = `ai:energy:${deviceId}:${slaveId || 'all'}:${timeRange}`
-    const data = await cached(cacheKey, 60, () => buildEnergyAnalysis(deviceId, slaveId, timeRange))
+    const data = await cached(cacheKey, 300, () => buildEnergyAnalysis(deviceId, slaveId, timeRange))
     res.json({ success: true, data })
   } catch (err) { next(err) }
 }

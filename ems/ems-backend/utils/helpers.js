@@ -75,6 +75,7 @@ const TIME_RANGE_MS = {
   '7d':   604_800_000,
   '30d':  2_592_000_000,
   '365d': 31_536_000_000, // ~365 days for year widgets
+  '1y':   31_536_000_000,
 }
 
 /**
@@ -86,7 +87,8 @@ const BUCKET_MS = {
   '24h':  3_600_000,    // 1-hr buckets   → 24 pts
   '7d':   86_400_000,   // 1-day buckets  → 7  pts
   '30d':  86_400_000,   // 1-day buckets  → 30 pts
-  '365d': 604_800_000,  // 1-week buckets → ~52 pts
+  '365d': 2_592_000_000, // 30-day (1-month) buckets → 12 pts
+  '1y':   2_592_000_000,
 }
 
 /**

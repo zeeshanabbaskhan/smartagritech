@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Legend, Line, LineChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -180,7 +180,7 @@ async function loadAnalytics({ type, deviceId, deviceName, slaveId, slaveName, a
     const d = res?.data ?? {}
 
     if (type === 'voltage') {
-      const chartData = mergeVoltageChart(d.chartData ?? {})
+      const chartData = mergeVoltageChart(d.chartData ?? {}, timeRange)
       const imbSeries = d.chartData?.voltageImbalance ?? []
       const imb = imbSeries.map((p) => p.value).filter((v) => v != null)
       const alarmRows = (d.alarms ?? []).map((a, i) => ({
@@ -194,32 +194,38 @@ async function loadAnalytics({ type, deviceId, deviceName, slaveId, slaveName, a
         status: alarmStatus(a),
       }))
       const seriesRows = imbalanceEventsFromSeries({ imbalance: imbSeries, chartRows: chartData, chartKeys: ['voltageA', 'voltageB', 'voltageC'], unit: 'V' })
+      const liveCurrentImb = d.current?.VoltageImbalance != null ? Number(d.current.VoltageImbalance) : null
       return {
         chartData,
         rows: alarmRows.length ? alarmRows : seriesRows,
+        current: d.current,
         meta: {
-          maxImb: imb.length ? Math.max(...imb) : null,
-          avgImb: imb.length ? imb.reduce((a, b) => a + b, 0) / imb.length : null,
+          maxImb: imb.length ? Math.max(...imb) : liveCurrentImb,
+          avgImb: imb.length ? imb.reduce((a, b) => a + b, 0) / imb.length : liveCurrentImb,
+          current: d.current,
         },
       }
     }
 
     if (type === 'current') {
-      const chartData = mergeCurrentChart(d.chartData ?? {})
+      const chartData = mergeCurrentChart(d.chartData ?? {}, timeRange)
       const imbSeries = d.chartData?.currentImbalance ?? []
       const imb = imbSeries.map((p) => p.value).filter((v) => v != null)
+      const liveCurrentImb = d.current?.CurrentImbalance != null ? Number(d.current.CurrentImbalance) : null
       return {
         chartData,
         rows: imbalanceEventsFromSeries({ imbalance: imbSeries, chartRows: chartData, chartKeys: ['currentA', 'currentB', 'currentC'], unit: 'A' }),
+        current: d.current,
         meta: {
-          maxImb: imb.length ? Math.max(...imb) : null,
-          avgImb: imb.length ? imb.reduce((a, b) => a + b, 0) / imb.length : null,
+          maxImb: imb.length ? Math.max(...imb) : liveCurrentImb,
+          avgImb: imb.length ? imb.reduce((a, b) => a + b, 0) / imb.length : liveCurrentImb,
+          current: d.current,
         },
       }
     }
 
     if (type === 'powerFactor') {
-      const chartData = aiPointsToChart(d.chartData ?? [], 'pf')
+      const chartData = aiPointsToChart(d.chartData ?? [], 'pf', timeRange)
       const vals = chartData.map((p) => p.pf ?? p.value).filter((v) => v != null)
       const rawCurrent = d.current ?? (vals.length ? vals[vals.length - 1] : null)
       const currentPf = rawCurrent != null ? Number(rawCurrent) : null
@@ -242,7 +248,7 @@ async function loadAnalytics({ type, deviceId, deviceName, slaveId, slaveName, a
       }
     }
 
-    return energyFromAiResponse(d)
+    return energyFromAiResponse(d, { deviceName, timeRange })
   } catch {
     return type === 'energy' ? energyFromAiResponse({}) : EMPTY_RESULT
   }
@@ -259,6 +265,8 @@ export default function OrganizationAnalyticsPage({ type }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [devicesLoading, setDevicesLoading] = useState(true)
+  /** Incremented per fetch so responses from superseded requests are dropped. */
+  const activeRequestIdRef = useRef(0)
 
   useEffect(() => {
     let alive = true
@@ -266,7 +274,13 @@ export default function OrganizationAnalyticsPage({ type }) {
       if (!alive) return
       const mapped = list(res).map(mapDevice)
       setDevices(mapped)
-      setDeviceId((prev) => prev || mapped[0]?.id || '')
+      if (mapped.length > 0) {
+        const firstDev = mapped[0]
+        setDeviceId((prev) => prev || firstDev.id)
+        const slaves = firstDev.slaves || firstDev.configSlaves || []
+        const slvId = defaultSlaveId(slaves)
+        setSlaveId((prev) => prev || slvId)
+      }
     }).catch(() => {
       if (alive) setDevices([])
     }).finally(() => {
@@ -286,22 +300,24 @@ export default function OrganizationAnalyticsPage({ type }) {
    * that is actually reporting; the other pages keep their plain first-meter default.
    */
   const defaultSlaveId = (slaves) => {
-    if (!slaves.length) return ''
-    if (type === 'anomalies') {
-      const active = slaves.find((s) => s.statusRaw === 'ONLINE' || s.status === 'Online')
-      if (active) return active.id
-    }
+    if (!slaves || !slaves.length) return ''
+    const wapdaOrMain = slaves.find((s) => /wapda|main|grid/i.test(s.name || ''))
+    if (wapdaOrMain) return wapdaOrMain.id
+    const active = slaves.find((s) => s.statusRaw === 'ONLINE' || s.status === 'Online')
+    if (active) return active.id
     return slaves[0].id
   }
 
-  /** Switching device also switches to that device's first meter so the chart follows. */
+  /**
+   * Switching device also switches to that device's first meter so the chart follows.
+   * Both state updates batch into one render, so the reload effect fires exactly once.
+   */
   const handleDeviceChange = (nextDeviceId) => {
+    setLoading(true)
     setDeviceId(nextDeviceId)
     const next = devices.find((d) => d.id === nextDeviceId)
     const nextSlaves = next?.slaves || next?.configSlaves || []
-    const nextSlaveId = defaultSlaveId(nextSlaves)
-    setSlaveId(nextSlaveId)
-    reload(nextSlaveId, nextDeviceId)
+    setSlaveId(defaultSlaveId(nextSlaves))
   }
 
   useEffect(() => {
@@ -317,8 +333,8 @@ export default function OrganizationAnalyticsPage({ type }) {
   const selectedSlave = availableSlaves.find((s) => s.id === slaveId)
 
   /**
-   * `overrideSlaveId` / `overrideDeviceId` let the dropdowns fetch with the newly
-   * picked value immediately, instead of waiting for the state-driven re-render.
+   * `overrideSlaveId` / `overrideDeviceId` fetch with explicit values instead of
+   * current state. Only the latest request may update data or clear loading.
    */
   const reload = async (overrideSlaveId, overrideDeviceId) => {
     const effDeviceId = overrideDeviceId ?? deviceId
@@ -326,6 +342,7 @@ export default function OrganizationAnalyticsPage({ type }) {
     const effDevice = devices.find((d) => d.id === effDeviceId)
     const effSlaves = effDevice?.slaves || effDevice?.configSlaves || []
     const effSlave = effSlaves.find((s) => s.id === effSlaveId)
+    const reqId = ++activeRequestIdRef.current
     setLoading(true)
     try {
       const result = await loadAnalytics({
@@ -337,9 +354,12 @@ export default function OrganizationAnalyticsPage({ type }) {
         availableSlaves: effSlaves,
         timeRange,
       })
-      setData(type === 'anomalies' ? (result || EMPTY_RESULT) : withOrgAnalyticsFallback(type, result))
+      if (reqId !== activeRequestIdRef.current) return
+      setData(type === 'anomalies' ? (result || EMPTY_RESULT) : withOrgAnalyticsFallback(type, result, Boolean(effDeviceId)))
     } finally {
-      setLoading(false)
+      if (reqId === activeRequestIdRef.current) {
+        setLoading(false)
+      }
     }
   }
 
@@ -460,7 +480,7 @@ export default function OrganizationAnalyticsPage({ type }) {
             <select
               className="select"
               value={slaveId}
-              onChange={(e) => { const newId = e.target.value; setSlaveId(newId); reload(newId) }}
+              onChange={(e) => { setLoading(true); setSlaveId(e.target.value) }}
             >
               {devicesLoading && <option value="">Loading meters...</option>}
               {!devicesLoading && availableSlaves.length === 0 && (
@@ -493,7 +513,13 @@ export default function OrganizationAnalyticsPage({ type }) {
       <div className={`space-y-6 ${loading ? 'opacity-70' : ''}`}>
         {type === 'powerFactor' && <Gauge value={pfValue} scope={scopeLabel} />}
 
-        <div className="card p-5">
+        <div className="card p-5 relative">
+          {loading && (
+            <div className="absolute inset-0 bg-white/70 dark:bg-surface-900/70 backdrop-blur-[1px] flex flex-col items-center justify-center z-20 rounded-lg">
+              <Loader2 size={32} className="animate-spin text-primary-600 mb-2" />
+              <span className="text-xs font-medium text-surface-600 dark:text-surface-300">Updating meter telemetry...</span>
+            </div>
+          )}
           <div className="flex items-start justify-between gap-3 mb-4">
             <div>
               <h3 className="text-sm font-semibold text-surface-800 mb-1">{config.chartTitle} — {scopeLabel}</h3>
