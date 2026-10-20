@@ -7,7 +7,7 @@ import { onSocketEvent } from '../../services/socketService'
 import { useAuth } from '../../context/AuthContext'
 
 const AMBITION_ORG_ID = 'b99129f8-85f2-44c2-81ca-cc2d876092ea'
-const CACHE_KEY = 'ems_exec_ambition_v7'
+const CACHE_KEY = 'ems_exec_ambition_v8'
 
 /**
  * Safely parse any metric value (number, string, or { value, displayValue, unit } object).
@@ -144,8 +144,7 @@ function build24Variables(slave, loadKw, ratedA = 100) {
  */
 function makeBreakerNode(id, fallbackName, defaultRatedA, slaveObj, buildingCode = 'B1') {
   // 1. Dynamic Real-Name Propagation:
-  // Prioritize live name from PostgreSQL / telemetry so any name changes made in the dashboard
-  // dynamically update on the Executive Dashboard.
+  // Exact slave name matching device telemetry / database
   const rawLiveName = slaveObj?.name?.trim()
   const rawFallback = fallbackName?.trim()
   let displayName = rawLiveName || rawFallback || 'Feeder'
@@ -154,12 +153,15 @@ function makeBreakerNode(id, fallbackName, defaultRatedA, slaveObj, buildingCode
     displayName.toLowerCase() === 's hall 1' ||
     /^sewing[-_\s]*(1f|if)[-_\s]*amb$/i.test(displayName)
   ) {
-    displayName = 'sewing-if-amb'
+    displayName = 'Sewing-1F-AMB'
   }
+
+  // Designated spares (Spare-1, Spare-2, Spare, etc.)
+  const isNamedSpare = /spare/i.test(displayName) || /spare/i.test(fallbackName)
 
   // 2. Direct Power extraction from latestMetrics / currentKw / readDeviceMetric
   let metricKw = 0
-  if (slaveObj) {
+  if (slaveObj && !isNamedSpare) {
     const metrics = slaveObj.latestMetrics || {}
     const tpRaw = metrics['Total Power'] ?? metrics['ActivePower'] ?? metrics['Power'] ?? metrics['TotalPower']
     if (tpRaw != null) {
@@ -177,20 +179,15 @@ function makeBreakerNode(id, fallbackName, defaultRatedA, slaveObj, buildingCode
   metricKw = Math.abs(Number.isFinite(metricKw) ? metricKw : 0)
 
   // 3. Active status: If slave reports positive power or metrics, it is actively online!
-  const hasLiveReading = slaveObj && (metricKw > 0 || Object.keys(slaveObj.latestMetrics || {}).length > 0)
+  const isSpare = isNamedSpare
+  const hasLiveReading = slaveObj && !isSpare && (metricKw > 0 || Object.keys(slaveObj.latestMetrics || {}).length > 0)
   const isOnline = slaveObj ? (slaveObj.status === 'Online' || slaveObj.statusRaw === 'ONLINE' || hasLiveReading) : false
-  const loadKw = isOnline ? +metricKw.toFixed(1) : 0.0
+  const loadKw = (isOnline && !isSpare) ? +metricKw.toFixed(1) : 0.0
 
   const ratedA = defaultRatedA || 100
   const maxKw = Math.round((ratedA * 400 * Math.sqrt(3) * 0.95) / 1000)
   const isSolar = /solar/i.test(displayName) || /solar/i.test(fallbackName)
   const isTieLine = /tie/i.test(displayName) || /tie/i.test(fallbackName)
-
-  // 4. CRITICAL FIX FOR SPARE-2:
-  // A breaker is only a 'spare' if it has NO load (loadKw === 0) and is called spare!
-  // If a breaker named Spare-2 draws active load (e.g. 135.1 kW), it is an active working feeder!
-  const isNamedSpare = /spare/i.test(displayName) || /spare/i.test(fallbackName)
-  const isSpare = isNamedSpare && loadKw === 0
 
   let status = 'normal'
   if (isTieLine) status = 'tie-line'
@@ -322,7 +319,7 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
     makeBreakerNode('b1-r1-4', 'Finshing AMB', 250, findSlave(['Finshing AMB', 'Finishing AMB', 'fhall', 'f hall']), 'B1'),
     makeBreakerNode('b1-r1-5', 'Boiler', 350, findSlave('Boiler'), 'B1'),
     makeBreakerNode('b1-r1-6', 'SEWING-3F-AMB', 200, findSlave(['SEWING-3F-AMB', 'sewing-3f-amb', 'sh3', 'sewing 3f amb']), 'B1'),
-    makeBreakerNode('b1-r1-7', 'sewing-if-amb', 160, findSlave(['fb1c7f18-bde4-4d6c-8efc-48a1d63334e8', 'Sewing-1F-AMB', 'sewing-if-amb', 'shall1', 'SHall1', 's hall 1', 'shall 1']), 'B1'),
+    makeBreakerNode('b1-r1-7', 'Sewing-1F-AMB', 160, findSlave(['fb1c7f18-bde4-4d6c-8efc-48a1d63334e8', 'Sewing-1F-AMB', 'sewing-1f-amb', 'sewing-if-amb', 'shall1', 'SHall1', 's hall 1', 'shall 1']), 'B1'),
   ]
 
   const b1Row2 = [
@@ -342,7 +339,7 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
     makeBreakerNode('b1-r3-4', 'Dryer Hall', 350, findSlave(['Dryer Hall', 'dryer hall', 'dryerhall']), 'B1'),
     makeBreakerNode('b1-r3-5', 'WashingLTPanel', 400, findSlave(['WashingLTPanel', 'washing lt panel', 'washingltpanel']), 'B1'),
     makeBreakerNode('b1-r3-6', 'Spare-1', 100, findSlave(['Spare-1', 'spare-1', 'rm']), 'B1'),
-    makeBreakerNode('b1-r3-7', 'Spare-2', 250, findSlave(['4c5934e4-469d-45e4-bd79-1c069edbd287', 'Spare-2', 'spare-2']), 'B1'),
+    makeBreakerNode('b1-r3-7', 'Spare-2', 100, findSlave(['4c5934e4-469d-45e4-bd79-1c069edbd287', 'Spare-2', 'spare-2']), 'B1'),
   ]
 
   const b1Row4 = [
