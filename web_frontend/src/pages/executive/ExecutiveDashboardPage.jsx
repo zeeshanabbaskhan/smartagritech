@@ -111,10 +111,10 @@ function build24Variables(slave, loadKw, ratedA = 100) {
   const units = safeExtractNumber(metrics['Units'], 0.0)
 
   return [
-    { key: 'Total Power', name: 'Total Power', shortName: 'Total Power', value: +pTotal.toFixed(1), unit: 'kWh', group: 'power' },
-    { key: 'PowerA', name: 'PowerA', shortName: 'PowerA', value: +pA.toFixed(1), unit: 'kWh', group: 'power' },
-    { key: 'PowerB', name: 'PowerB', shortName: 'PowerB', value: +pB.toFixed(1), unit: 'kWh', group: 'power' },
-    { key: 'PowerC', name: 'PowerC', shortName: 'PowerC', value: +pC.toFixed(1), unit: 'kWh', group: 'power' },
+    { key: 'Total Power', name: 'Total Power', shortName: 'Total Power', value: +pTotal.toFixed(1), unit: 'kW', group: 'power' },
+    { key: 'PowerA', name: 'PowerA', shortName: 'PowerA', value: +pA.toFixed(1), unit: 'kW', group: 'power' },
+    { key: 'PowerB', name: 'PowerB', shortName: 'PowerB', value: +pB.toFixed(1), unit: 'kW', group: 'power' },
+    { key: 'PowerC', name: 'PowerC', shortName: 'PowerC', value: +pC.toFixed(1), unit: 'kW', group: 'power' },
     { key: 'Phase VoltageA', name: 'Phase VoltageA', shortName: 'Phase VoltageA', value: +vLineA.toFixed(1), unit: 'V', group: 'voltage' },
     { key: 'Phase VoltageB', name: 'Phase VoltageB', shortName: 'Phase VoltageB', value: +vLineB.toFixed(1), unit: 'V', group: 'voltage' },
     { key: 'Phase VoltageC', name: 'Phase VoltageC', shortName: 'Phase VoltageC', value: +vLineC.toFixed(1), unit: 'V', group: 'voltage' },
@@ -142,7 +142,7 @@ function build24Variables(slave, loadKw, ratedA = 100) {
 /**
  * Creates a normalized breaker node from a real registered slave.
  */
-function makeBreakerNode(id, slaveName, defaultRatedA, slaveObj, buildingCode = 'B1') {
+function makeBreakerNode(id, fallbackName, defaultRatedA, slaveObj, buildingCode = 'B1') {
   const isOnline = slaveObj ? (slaveObj.status === 'Online' || slaveObj.statusRaw === 'ONLINE') : false
   let metricKw = slaveObj ? readDeviceMetric(slaveObj, 'power') : 0
   if (!Number.isFinite(metricKw) || metricKw === 0) {
@@ -157,9 +157,9 @@ function makeBreakerNode(id, slaveName, defaultRatedA, slaveObj, buildingCode = 
   const loadKw = isOnline ? +metricKw.toFixed(1) : 0.0
   const ratedA = defaultRatedA || 100
   const maxKw = Math.round((ratedA * 400 * Math.sqrt(3) * 0.95) / 1000)
-  const isSolar = /solar/i.test(slaveName)
-  const isSpare = /spare/i.test(slaveName)
-  const isTieLine = /tie/i.test(slaveName)
+  const isSolar = /solar/i.test(fallbackName) || /solar/i.test(slaveObj?.name || '')
+  const isSpare = /spare/i.test(fallbackName) || /spare/i.test(slaveObj?.name || '')
+  const isTieLine = /tie/i.test(fallbackName) || /tie/i.test(slaveObj?.name || '')
 
   let status = 'normal'
   if (isTieLine) status = 'tie-line'
@@ -170,9 +170,20 @@ function makeBreakerNode(id, slaveName, defaultRatedA, slaveObj, buildingCode = 
 
   const vars24 = slaveObj ? build24Variables(slaveObj, loadKw, ratedA) : null
 
+  // REAL DYNAMIC NAME PROPAGATION:
+  // 1. If slaveObj exists from live PostgreSQL / telemetry, use its real name!
+  //    Whenever anyone updates a slave name in the dashboard/backend, the Executive Dashboard automatically reflects and updates it immediately.
+  // 2. Specific alias check: if the name is 'SHall1' or 'shall1' or 's hall 1', resolve to 'Sewing-1F-AMB' matching the real dashboard name.
+  const rawLiveName = slaveObj?.name?.trim()
+  const rawFallback = fallbackName?.trim()
+  let displayName = rawLiveName || rawFallback || 'Feeder'
+  if (displayName.toLowerCase() === 'shall1' || displayName.toLowerCase() === 's hall 1') {
+    displayName = 'Sewing-1F-AMB'
+  }
+
   return {
     id,
-    name: slaveName,
+    name: displayName,
     ratedA,
     loadKw,
     status,
@@ -187,6 +198,39 @@ function makeBreakerNode(id, slaveName, defaultRatedA, slaveObj, buildingCode = 
   }
 }
 
+const normSlaveStr = (s) => {
+  if (!s) return ''
+  return String(s)
+    .toLowerCase()
+    .replace(/[\s_\-]+/g, '')
+    .replace(/if(?=(amb|$))/g, '1f') // Map 'if' to '1f' (e.g. sewing-if-amb -> sewing-1f-amb)
+    .replace(/floor/g, '')
+}
+
+const KNOWN_SLAVE_ALIASES = {
+  shall1: ['sewing-1f-amb', 'sewing-if-amb', 'shall1', 's hall 1', 'shall 1'],
+  'sewing-1f-amb': ['shall1', 'sewing-if-amb', 's hall 1', 'shall 1'],
+  'sewing-if-amb': ['shall1', 'sewing-1f-amb', 's hall 1', 'shall 1'],
+  sh3: ['sewing-3f-amb', 'sh3', 'sewing 3f amb'],
+  fhall: ['finshing amb', 'finishing amb', 'fhall', 'f hall'],
+  whall: ['washing hall', 'w hall', 'whall'],
+  chall: ['cutting hall', 'c hall', 'chall'],
+  lhall: ['laser hall', 'l hall', 'lhall'],
+  shall: ['sampling stitching', 's hall', 'shall'],
+  dac: ['3f-air-cooler', '3f air cooler', 'dac'],
+  ups: ['wash-random-ups', 'ups'],
+  sb1: ['solar-invt-4', 'sb1'],
+  sb2: ['solar-invt-5', 'sb2'],
+  incoming: ['office-amb', 'incoming'],
+  rm: ['spare-1', 'rm'],
+  genafl: ['g3 afl', 'gen afl', 'genafl'],
+  wafl: ['wapda-afl', 'w afl', 'wafl'],
+  '132kwcomp': ['comp-132kw', '132 kw comp', '132kwcomp'],
+  '1stpr': ['1f-main db-finishing', '1st floor pr', '1stfloorpr'],
+  '2nd': ['2f-main db-sewing', '2nd floor', '2ndfloor'],
+  '3rd': ['3f-main db-sewing', '3rd floor', '3rdfloor'],
+}
+
 /**
  * Master real-data mapper: binds all 46 real Ambition & AFL slaves into
  * the Executive Energy Flow topology, syncing with the Organization Dashboard
@@ -194,52 +238,97 @@ function makeBreakerNode(id, slaveName, defaultRatedA, slaveObj, buildingCode = 
  */
 function mapAmbitionRealTopology(liveDevices, powerFlow) {
   // Index all slaves across all devices
+  const allSlaves = []
   const slaveMap = new Map()
   for (const d of liveDevices) {
     const list = d.slaves || d.configSlaves || []
     for (const s of list) {
-      if (s.name) slaveMap.set(s.name.trim().toLowerCase(), s)
-      if (s.id) slaveMap.set(s.id, s)
+      if (!s) continue
+      allSlaves.push(s)
+      const rawName = s.name ? String(s.name).trim() : ''
+      if (rawName) {
+        slaveMap.set(rawName.toLowerCase(), s)
+        slaveMap.set(normSlaveStr(rawName), s)
+      }
+      if (s.id) {
+        slaveMap.set(s.id, s)
+        slaveMap.set(s.id.toLowerCase(), s)
+      }
     }
   }
 
-  const findSlave = (name) => slaveMap.get(name.trim().toLowerCase()) || null
+  const findSlave = (nameOrArray) => {
+    if (!nameOrArray) return null
+    const targets = Array.isArray(nameOrArray) ? nameOrArray : [nameOrArray]
+
+    for (const raw of targets) {
+      if (!raw) continue
+      const targetStr = String(raw).trim()
+      const lower = targetStr.toLowerCase()
+      const norm = normSlaveStr(targetStr)
+
+      // 1. Direct or normalized lookup
+      if (slaveMap.has(lower)) return slaveMap.get(lower)
+      if (slaveMap.has(norm)) return slaveMap.get(norm)
+
+      // 2. Check known aliases dictionary
+      const aliasList = KNOWN_SLAVE_ALIASES[norm] || KNOWN_SLAVE_ALIASES[lower] || []
+      for (const al of aliasList) {
+        const alLower = al.toLowerCase()
+        const alNorm = normSlaveStr(al)
+        if (slaveMap.has(alLower)) return slaveMap.get(alLower)
+        if (slaveMap.has(alNorm)) return slaveMap.get(alNorm)
+      }
+
+      // 3. Scan allSlaves for fuzzy match
+      const fuzzy = allSlaves.find((s) => {
+        if (!s?.name) return false
+        const sLower = s.name.trim().toLowerCase()
+        const sNorm = normSlaveStr(s.name)
+        if (sLower === lower || sNorm === norm) return true
+        if (sNorm.length >= 4 && norm.length >= 4 && (sNorm.includes(norm) || norm.includes(sNorm))) return true
+        return false
+      })
+      if (fuzzy) return fuzzy
+    }
+    return null
+  }
 
   // ─── BUILDING 1: 4 ROWS OF REAL REGISTERED SLAVES ───
   const b1Row1 = [
-    makeBreakerNode('b1-r1-1', 'Office-Amb', 100, findSlave('Office-Amb'), 'B1'),
-    makeBreakerNode('b1-r1-2', 'Sampling Stitching', 250, findSlave('Sampling Stitching'), 'B1'),
-    makeBreakerNode('b1-r1-3', 'Washing Hall', 400, findSlave('Washing Hall'), 'B1'),
-    makeBreakerNode('b1-r1-4', 'Finshing AMB', 250, findSlave('Finshing AMB'), 'B1'),
+    makeBreakerNode('b1-r1-1', 'Office-Amb', 100, findSlave(['Office-Amb', 'incoming', 'office amb']), 'B1'),
+    makeBreakerNode('b1-r1-2', 'Sampling Stitching', 250, findSlave(['Sampling Stitching', 'shall', 's hall']), 'B1'),
+    makeBreakerNode('b1-r1-3', 'Washing Hall', 400, findSlave(['Washing Hall', 'whall', 'w hall']), 'B1'),
+    makeBreakerNode('b1-r1-4', 'Finshing AMB', 250, findSlave(['Finshing AMB', 'Finishing AMB', 'fhall', 'f hall']), 'B1'),
     makeBreakerNode('b1-r1-5', 'Boiler', 350, findSlave('Boiler'), 'B1'),
-    makeBreakerNode('b1-r1-6', 'SEWING-3F-AMB', 200, findSlave('SEWING-3F-AMB'), 'B1'),
-    makeBreakerNode('b1-r1-7', 'SHall1', 160, findSlave('SHall1'), 'B1'),
+    makeBreakerNode('b1-r1-6', 'SEWING-3F-AMB', 200, findSlave(['SEWING-3F-AMB', 'sewing-3f-amb', 'sh3', 'sewing 3f amb']), 'B1'),
+    makeBreakerNode('b1-r1-7', 'Sewing-1F-AMB', 160, findSlave(['Sewing-1F-AMB', 'sewing-if-amb', 'shall1', 'SHall1', 's hall 1', 'shall 1']), 'B1'),
   ]
 
   const b1Row2 = [
-    makeBreakerNode('b1-r2-1', 'Cutting Hall', 300, findSlave('Cutting Hall'), 'B1'),
-    makeBreakerNode('b1-r2-2', 'Laser Hall', 100, findSlave('Laser Hall'), 'B1'),
-    makeBreakerNode('b1-r2-3', 'ETP-AMB', 200, findSlave('ETP-AMB'), 'B1'),
-    makeBreakerNode('b1-r2-4', 'LT Room', 125, findSlave('LT Room'), 'B1'),
-    makeBreakerNode('b1-r2-5', 'Comp-AMB', 200, findSlave('Comp-AMB'), 'B1'),
-    makeBreakerNode('b1-r2-6', '3F-AIR-Cooler', 150, findSlave('3F-AIR-Cooler'), 'B1'),
-    makeBreakerNode('b1-r2-7', 'Wash-Random-UPS', 200, findSlave('Wash-Random-UPS'), 'B1'),
+    makeBreakerNode('b1-r2-1', 'Cutting Hall', 300, findSlave(['Cutting Hall', 'chall', 'c hall']), 'B1'),
+    makeBreakerNode('b1-r2-2', 'Laser Hall', 100, findSlave(['Laser Hall', 'lhall', 'l hall']), 'B1'),
+    makeBreakerNode('b1-r2-3', 'ETP-AMB', 200, findSlave(['ETP-AMB', 'etp-amb', 'afl']), 'B1'),
+    makeBreakerNode('b1-r2-4', 'LT Room', 125, findSlave(['LT Room', 'lt room', 'lt']), 'B1'),
+    makeBreakerNode('b1-r2-5', 'Comp-AMB', 200, findSlave(['Comp-AMB', 'comp-amb', 'comp']), 'B1'),
+    makeBreakerNode('b1-r2-6', '3F-AIR-Cooler', 150, findSlave(['3F-AIR-Cooler', '3f-air-cooler', 'dac']), 'B1'),
+    makeBreakerNode('b1-r2-7', 'Wash-Random-UPS', 200, findSlave(['Wash-Random-UPS', 'wash-random-ups', 'ups']), 'B1'),
   ]
 
   const b1Row3 = [
-    makeBreakerNode('b1-r3-1', 'Solar-INVT-4', 160, findSlave('Solar-INVT-4'), 'B1'),
-    makeBreakerNode('b1-r3-2', 'Solar-INVT-5', 160, findSlave('Solar-INVT-5'), 'B1'),
-    makeBreakerNode('b1-r3-3', 'Solar AMB-1,2,3', 160, findSlave('Solar AMB-1,2,3'), 'B1'),
-    makeBreakerNode('b1-r3-4', 'Dryer Hall', 350, findSlave('Dryer Hall'), 'B1'),
-    makeBreakerNode('b1-r3-5', 'WashingLTPanel', 400, findSlave('WashingLTPanel'), 'B1'),
-    makeBreakerNode('b1-r3-6', 'Spare-1', 100, findSlave('Spare-1'), 'B1'),
-    makeBreakerNode('b1-r3-7', 'Spare-2', 100, findSlave('Spare-2'), 'B1'),
+    makeBreakerNode('b1-r3-1', 'Solar-INVT-4', 160, findSlave(['Solar-INVT-4', 'solar-invt-4', 'sb1']), 'B1'),
+    makeBreakerNode('b1-r3-2', 'Solar-INVT-5', 160, findSlave(['Solar-INVT-5', 'solar-invt-5', 'sb2']), 'B1'),
+    makeBreakerNode('b1-r3-3', 'Solar AMB-1,2,3', 160, findSlave(['Solar AMB-1,2,3', 'solar amb-1,2,3', 'solar amb']), 'B1'),
+    makeBreakerNode('b1-r3-4', 'Dryer Hall', 350, findSlave(['Dryer Hall', 'dryer hall', 'dryerhall']), 'B1'),
+    makeBreakerNode('b1-r3-5', 'WashingLTPanel', 400, findSlave(['WashingLTPanel', 'washing lt panel', 'washingltpanel']), 'B1'),
+    makeBreakerNode('b1-r3-6', 'Spare-1', 100, findSlave(['Spare-1', 'spare-1', 'rm']), 'B1'),
+    makeBreakerNode('b1-r3-7', 'Spare-2', 100, findSlave(['Spare-2', 'spare-2']), 'B1'),
   ]
 
   const b1Row4 = [
-    makeBreakerNode('b1-r4-1', 'G1', 100, findSlave('G1'), 'B1'),
-    makeBreakerNode('b1-r4-2', 'G2', 100, findSlave('G2'), 'B1'),
-    makeBreakerNode('b1-r4-3', 'WAPDA-AMB', 400, findSlave('WAPDA-AMB'), 'B1'),
+    makeBreakerNode('b1-r4-1', 'G1', 100, findSlave(['G1', 'g1', 'genset 01', 'genset 1']), 'B1'),
+    makeBreakerNode('b1-r4-2', 'G2', 100, findSlave(['G2', 'g2', 'genset 02', 'genset 2']), 'B1'),
+    makeBreakerNode('b1-r4-3', 'WAPDA-AMB', 400, findSlave(['WAPDA-AMB', 'wapda-amb', 'wapda']), 'B1'),
     makeBreakerNode('b1-r4-4', 'Tie-Feeder to AFL', 350, null, 'B1'),
   ]
 
@@ -251,12 +340,12 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
   ) || 710.8
 
   // ─── BUILDING 1: AMBITION SOURCES ───
-  const b1WapdaSlave = findSlave('WAPDA-AMB')
-  const b1G1Slave = findSlave('G1')
-  const b1G2Slave = findSlave('G2')
-  const b1Solar1 = findSlave('Solar AMB-1,2,3')
-  const b1Solar4 = findSlave('Solar-INVT-4')
-  const b1Solar5 = findSlave('Solar-INVT-5')
+  const b1WapdaSlave = findSlave(['WAPDA-AMB', 'wapda-amb', 'wapda'])
+  const b1G1Slave = findSlave(['G1', 'g1', 'genset 01', 'genset 1'])
+  const b1G2Slave = findSlave(['G2', 'g2', 'genset 02', 'genset 2'])
+  const b1Solar1 = findSlave(['Solar AMB-1,2,3', 'solar amb-1,2,3', 'solar amb'])
+  const b1Solar4 = findSlave(['Solar-INVT-4', 'solar-invt-4', 'sb1'])
+  const b1Solar5 = findSlave(['Solar-INVT-5', 'solar-invt-5', 'sb2'])
 
   const pfSources = Array.isArray(powerFlow?.sources) ? powerFlow.sources : []
   const findPfSrcKw = (typeOrId, siteId) => {
@@ -309,38 +398,38 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
 
   // ─── BUILDING 2: 4 ROWS OF REAL REGISTERED SLAVES ───
   const b2Row1 = [
-    makeBreakerNode('b2-r1-1', '1F-MAIN DB-FINISHING', 250, findSlave('1F-MAIN DB-FINISHING'), 'B2'),
-    makeBreakerNode('b2-r1-2', '2F-MAIN DB-SEWING', 200, findSlave('2F-MAIN DB-SEWING'), 'B2'),
-    makeBreakerNode('b2-r1-3', '3F-MAIN DB-SEWING', 160, findSlave('3F-MAIN DB-SEWING'), 'B2'),
-    makeBreakerNode('b2-r1-4', 'GF-Main-DB', 160, findSlave('GF-Main-DB'), 'B2'),
-    makeBreakerNode('b2-r1-5', 'Ground Floor B', 160, findSlave('Ground Floor B'), 'B2'),
-    makeBreakerNode('b2-r1-6', '1F Back Side DB', 100, findSlave('1F Back Side DB'), 'B2'),
-    makeBreakerNode('b2-r1-7', '2F-DB Back Side', 100, findSlave('2F-DB Back Side'), 'B2'),
+    makeBreakerNode('b2-r1-1', '1F-MAIN DB-FINISHING', 250, findSlave(['1F-MAIN DB-FINISHING', '1st floor pr', '1stfloorpr', '1stpr', '1f main db finishing']), 'B2'),
+    makeBreakerNode('b2-r1-2', '2F-MAIN DB-SEWING', 200, findSlave(['2F-MAIN DB-SEWING', '2nd floor', '2ndfloor', '2nd', '2f main db sewing']), 'B2'),
+    makeBreakerNode('b2-r1-3', '3F-MAIN DB-SEWING', 160, findSlave(['3F-MAIN DB-SEWING', '3rd floor', '3rdfloor', '3rd', 'pending']), 'B2'),
+    makeBreakerNode('b2-r1-4', 'GF-Main-DB', 160, findSlave(['GF-Main-DB', 'gf-main-db', 'gf panel', 'gfpanel', 'gf main db']), 'B2'),
+    makeBreakerNode('b2-r1-5', 'Ground Floor B', 160, findSlave(['Ground Floor B', 'ground floor b', 'ground b', 'groundb']), 'B2'),
+    makeBreakerNode('b2-r1-6', '1F Back Side DB', 100, findSlave(['1F Back Side DB', '1f back side db', '1f back', '1fback']), 'B2'),
+    makeBreakerNode('b2-r1-7', '2F-DB Back Side', 100, findSlave(['2F-DB Back Side', '2f-db back side', '2f back', '2fback']), 'B2'),
   ]
 
   const b2Row2 = [
-    makeBreakerNode('b2-r2-1', 'COMP-132KW', 300, findSlave('COMP-132KW'), 'B2'),
-    makeBreakerNode('b2-r2-2', '55KW Comp', 150, findSlave('55KW Comp'), 'B2'),
-    makeBreakerNode('b2-r2-3', 'Comp', 150, findSlave('Comp'), 'B2'),
-    makeBreakerNode('b2-r2-4', 'ETP-AFL', 200, findSlave('ETP-AFL'), 'B2'),
-    makeBreakerNode('b2-r2-5', 'Air Cooler 2nd Floor', 100, findSlave('Air Cooler 2nd Floor'), 'B2'),
-    makeBreakerNode('b2-r2-6', 'Solar AFL', 250, findSlave('Solar AFL'), 'B2'),
-    makeBreakerNode('b2-r2-7', 'Drain Pump', 125, findSlave('Drain Pump'), 'B2'),
+    makeBreakerNode('b2-r2-1', 'COMP-132KW', 300, findSlave(['COMP-132KW', 'comp-132kw', '132 kw comp', '132kwcomp']), 'B2'),
+    makeBreakerNode('b2-r2-2', '55KW Comp', 150, findSlave(['55KW Comp', '55kw comp', '55kwcomp']), 'B2'),
+    makeBreakerNode('b2-r2-3', 'Comp', 150, findSlave(['Comp', 'comp', 'comp-amb']), 'B2'),
+    makeBreakerNode('b2-r2-4', 'ETP-AFL', 200, findSlave(['ETP-AFL', 'etp-afl', 'etp dryer', 'etpdryer']), 'B2'),
+    makeBreakerNode('b2-r2-5', 'Air Cooler 2nd Floor', 100, findSlave(['Air Cooler 2nd Floor', 'air cooler 2nd floor', '2f cooler', '2fcooler']), 'B2'),
+    makeBreakerNode('b2-r2-6', 'Solar AFL', 250, findSlave(['Solar AFL', 'solar afl', 'solarafl']), 'B2'),
+    makeBreakerNode('b2-r2-7', 'Drain Pump', 125, findSlave(['Drain Pump', 'drain pump', 'd pump', 'dpump']), 'B2'),
   ]
 
   const b2Row3 = [
-    makeBreakerNode('b2-r3-1', 'Spray Booth 1', 125, findSlave('Spray Booth 1'), 'B2'),
-    makeBreakerNode('b2-r3-2', 'Spray Booth 2', 125, findSlave('Spray Booth 2'), 'B2'),
-    makeBreakerNode('b2-r3-3', 'Spray Booth 3', 125, findSlave('Spray Booth 3'), 'B2'),
-    makeBreakerNode('b2-r3-4', 'LT Panel Room-AFL', 160, findSlave('LT Panel Room-AFL'), 'B2'),
-    makeBreakerNode('b2-r3-5', 'Ozone UPS', 100, findSlave('Ozone UPS'), 'B2'),
-    makeBreakerNode('b2-r3-6', 'Spare', 100, findSlave('Spare'), 'B2'),
+    makeBreakerNode('b2-r3-1', 'Spray Booth 1', 125, findSlave(['Spray Booth 1', 'spray booth 1', 'spraybooth1']), 'B2'),
+    makeBreakerNode('b2-r3-2', 'Spray Booth 2', 125, findSlave(['Spray Booth 2', 'spray booth 2', 'spraybooth2']), 'B2'),
+    makeBreakerNode('b2-r3-3', 'Spray Booth 3', 125, findSlave(['Spray Booth 3', 'spray booth 3', 'spraybooth3']), 'B2'),
+    makeBreakerNode('b2-r3-4', 'LT Panel Room-AFL', 160, findSlave(['LT Panel Room-AFL', 'lt panel room-afl', 'lt panel room', 'lt']), 'B2'),
+    makeBreakerNode('b2-r3-5', 'Ozone UPS', 100, findSlave(['Ozone UPS', 'ozone ups', 'oups']), 'B2'),
+    makeBreakerNode('b2-r3-6', 'Spare', 100, findSlave(['Spare', 'spare']), 'B2'),
     makeBreakerNode('b2-r3-7', 'Spare Feeder 2', 100, null, 'B2'),
   ]
 
   const b2Row4 = [
-    makeBreakerNode('b2-r4-1', 'G3 AFL', 150, findSlave('G3 AFL'), 'B2'),
-    makeBreakerNode('b2-r4-2', 'WAPDA-AFL', 200, findSlave('WAPDA-AFL'), 'B2'),
+    makeBreakerNode('b2-r4-1', 'G3 AFL', 150, findSlave(['G3 AFL', 'g3 afl', 'genafl', 'gen afl']), 'B2'),
+    makeBreakerNode('b2-r4-2', 'WAPDA-AFL', 200, findSlave(['WAPDA-AFL', 'wapda-afl', 'wafl', 'w afl']), 'B2'),
     makeBreakerNode('b2-r4-3', 'From Ambition (Tie-Line)', 300, null, 'B2'),
   ]
 
@@ -352,9 +441,9 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
   ) || 171.7
 
   // ─── BUILDING 2: AFL SOURCES ───
-  const b2WapdaSlave = findSlave('WAPDA-AFL')
-  const b2SolarSlave = findSlave('Solar AFL')
-  const b2G3Slave = findSlave('G3 AFL')
+  const b2WapdaSlave = findSlave(['WAPDA-AFL', 'wapda-afl', 'wafl'])
+  const b2SolarSlave = findSlave(['Solar AFL', 'solar afl', 'solarafl'])
+  const b2G3Slave = findSlave(['G3 AFL', 'g3 afl', 'genafl'])
 
   const b2WapdaKw = Number((findPfSrcKw('grid_1789549696226', 'site_1789548714275') ?? (b2WapdaSlave ? Math.abs(readDeviceMetric(b2WapdaSlave, 'power')) || b2WapdaSlave.currentKw || 112.7 : 112.7)).toFixed(1))
   const b2SolarKw = Number((findPfSrcKw('solar_1789556025522', 'site_1789548714275') ?? (b2SolarSlave ? Math.abs(readDeviceMetric(b2SolarSlave, 'power')) || b2SolarSlave.currentKw || 59.0 : 59.0)).toFixed(1))

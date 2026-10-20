@@ -83,7 +83,7 @@ export const INITIAL_FLOW_DATA = {
       { id: 'b1-r1-4', name: 'Finshing AMB', ratedA: 250, loadKw: 45.2, status: 'normal' },
       { id: 'b1-r1-5', name: 'Boiler', ratedA: 350, loadKw: 54.5, status: 'normal' },
       { id: 'b1-r1-6', name: 'SEWING-3F-AMB', ratedA: 200, loadKw: 8.5, status: 'normal' },
-      { id: 'b1-r1-7', name: 'SHall1', ratedA: 160, loadKw: 43.5, status: 'normal' },
+      { id: 'b1-r1-7', name: 'Sewing-1F-AMB', ratedA: 160, loadKw: 43.5, status: 'normal' },
     ],
     row2: [
       { id: 'b1-r2-1', name: 'Cutting Hall', ratedA: 300, loadKw: 2.8, status: 'normal' },
@@ -205,10 +205,10 @@ export function generateBreakerDetails(breaker, buildingCode) {
 
   // Exact 25 Organization Dashboard Telemetry Variables
   const variables24 = [
-    { key: 'Total Power', name: 'Total Power', shortName: 'Total Power', value: Number(loadKw.toFixed(1)), unit: 'kWh', group: 'power' },
-    { key: 'PowerA', name: 'PowerA', shortName: 'PowerA', value: Number(((loadKw / 3) * 0.98).toFixed(1)), unit: 'kWh', group: 'power' },
-    { key: 'PowerB', name: 'PowerB', shortName: 'PowerB', value: Number(((loadKw / 3) * 1.01).toFixed(1)), unit: 'kWh', group: 'power' },
-    { key: 'PowerC', name: 'PowerC', shortName: 'PowerC', value: Number(((loadKw / 3) * 1.01).toFixed(1)), unit: 'kWh', group: 'power' },
+    { key: 'Total Power', name: 'Total Power', shortName: 'Total Power', value: Number(loadKw.toFixed(1)), unit: 'kW', group: 'power' },
+    { key: 'PowerA', name: 'PowerA', shortName: 'PowerA', value: Number(((loadKw / 3) * 0.98).toFixed(1)), unit: 'kW', group: 'power' },
+    { key: 'PowerB', name: 'PowerB', shortName: 'PowerB', value: Number(((loadKw / 3) * 1.01).toFixed(1)), unit: 'kW', group: 'power' },
+    { key: 'PowerC', name: 'PowerC', shortName: 'PowerC', value: Number(((loadKw / 3) * 1.01).toFixed(1)), unit: 'kW', group: 'power' },
     { key: 'Phase VoltageA', name: 'Phase VoltageA', shortName: 'Phase VoltageA', value: Number((vLine + 0.8).toFixed(1)), unit: 'V', group: 'voltage' },
     { key: 'Phase VoltageB', name: 'Phase VoltageB', shortName: 'Phase VoltageB', value: Number((vLine - 0.7).toFixed(1)), unit: 'V', group: 'voltage' },
     { key: 'Phase VoltageC', name: 'Phase VoltageC', shortName: 'Phase VoltageC', value: Number((vLine - 0.1).toFixed(1)), unit: 'V', group: 'voltage' },
@@ -366,10 +366,10 @@ function getResolvedVariables(node) {
   const units = Number(node?.units) || 12540.5
 
   return [
-    { key: 'Total Power', name: 'Total Power', shortName: 'Total Power', value: Number(loadKw.toFixed(1)), unit: 'kWh', group: 'power' },
-    { key: 'PowerA', name: 'PowerA', shortName: 'PowerA', value: Number(((loadKw / 3) * 0.98).toFixed(1)), unit: 'kWh', group: 'power' },
-    { key: 'PowerB', name: 'PowerB', shortName: 'PowerB', value: Number(((loadKw / 3) * 1.01).toFixed(1)), unit: 'kWh', group: 'power' },
-    { key: 'PowerC', name: 'PowerC', shortName: 'PowerC', value: Number(((loadKw / 3) * 1.01).toFixed(1)), unit: 'kWh', group: 'power' },
+    { key: 'Total Power', name: 'Total Power', shortName: 'Total Power', value: Number(loadKw.toFixed(1)), unit: 'kW', group: 'power' },
+    { key: 'PowerA', name: 'PowerA', shortName: 'PowerA', value: Number(((loadKw / 3) * 0.98).toFixed(1)), unit: 'kW', group: 'power' },
+    { key: 'PowerB', name: 'PowerB', shortName: 'PowerB', value: Number(((loadKw / 3) * 1.01).toFixed(1)), unit: 'kW', group: 'power' },
+    { key: 'PowerC', name: 'PowerC', shortName: 'PowerC', value: Number(((loadKw / 3) * 1.01).toFixed(1)), unit: 'kW', group: 'power' },
     { key: 'Phase VoltageA', name: 'Phase VoltageA', shortName: 'Phase VoltageA', value: Number((vLine + 0.8).toFixed(1)), unit: 'V', group: 'voltage' },
     { key: 'Phase VoltageB', name: 'Phase VoltageB', shortName: 'Phase VoltageB', value: Number((vLine - 0.7).toFixed(1)), unit: 'V', group: 'voltage' },
     { key: 'Phase VoltageC', name: 'Phase VoltageC', shortName: 'Phase VoltageC', value: Number((vLine - 0.1).toFixed(1)), unit: 'V', group: 'voltage' },
@@ -1188,11 +1188,11 @@ function EnergyFlowOverview({ data, onSelectNode }) {
             ? 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-slate-400 opacity-60'
             : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:border-blue-500 hover:shadow-xs'
         }`}
-        title={`${name} - ${loadKwVal.toFixed(1)} kWh ${isTripped ? `(CRITICAL >= ${critLimit} kWh)` : isHeavy ? `(WARNING >= ${warnLimit} kWh)` : '(NORMAL)'}`}
+        title={`${name} - ${loadKwVal.toFixed(1)} kW ${isTripped ? `(CRITICAL >= ${critLimit} kW)` : isHeavy ? `(WARNING >= ${warnLimit} kW)` : '(NORMAL)'}`}
       >
-        <div className="flex items-start justify-between gap-0.5 leading-tight mb-0.5 w-full">
+        <div className="flex items-start justify-between gap-0.5 leading-[1.1] mb-0.5 w-full">
           <span
-            className={`text-[7px] sm:text-[7.5px] font-bold tracking-tight break-words line-clamp-2 text-left flex-1 ${
+            className={`text-[6.5px] sm:text-[7px] font-bold tracking-tight break-words line-clamp-2 text-left flex-1 ${
               isTripped ? 'text-white' : isHeavy ? 'text-amber-950' : 'text-slate-900 dark:text-slate-100'
             }`}
             title={name}
@@ -1216,7 +1216,7 @@ function EnergyFlowOverview({ data, onSelectNode }) {
           </span>
           <span className={`text-[6.5px] sm:text-[7px] font-sans ${
             isTripped ? 'text-red-100' : isHeavy ? 'text-amber-800' : 'text-slate-400'
-          }`}>kWh</span>
+          }`}>kW</span>
         </div>
       </div>
     )
@@ -1245,7 +1245,7 @@ function EnergyFlowOverview({ data, onSelectNode }) {
               <span className="text-sm sm:text-base font-black font-mono text-slate-900 dark:text-slate-100 leading-none">
                 {Number(metrics.totalWapda || 0).toFixed(1)}
               </span>
-              <span className="text-[8px] font-bold text-slate-400">kWh</span>
+              <span className="text-[8px] font-bold text-slate-400">kW</span>
             </div>
           </div>
 
@@ -1258,7 +1258,7 @@ function EnergyFlowOverview({ data, onSelectNode }) {
               <span className="text-sm sm:text-base font-black font-mono text-blue-600 dark:text-blue-400 leading-none">
                 {Number(metrics.totalRunningLoad || 0).toFixed(1)}
               </span>
-              <span className="text-[8px] font-bold text-slate-400">kWh</span>
+              <span className="text-[8px] font-bold text-slate-400">kW</span>
             </div>
           </div>
 
@@ -1271,7 +1271,7 @@ function EnergyFlowOverview({ data, onSelectNode }) {
               <span className="text-sm sm:text-base font-black font-mono text-slate-900 dark:text-slate-100 leading-none">
                 {Number(metrics.solarTotal || 0).toFixed(1)}
               </span>
-              <span className="text-[8px] font-bold text-slate-400">kWh</span>
+              <span className="text-[8px] font-bold text-slate-400">kW</span>
             </div>
           </div>
 
@@ -1284,7 +1284,7 @@ function EnergyFlowOverview({ data, onSelectNode }) {
               <span className="text-sm sm:text-base font-black font-mono text-slate-900 dark:text-slate-100 leading-none">
                 {Number(metrics.totalGenset || 0).toFixed(1)}
               </span>
-              <span className="text-[8px] font-bold text-slate-400">kWh</span>
+              <span className="text-[8px] font-bold text-slate-400">kW</span>
             </div>
           </div>
         </div>
@@ -1320,7 +1320,7 @@ function EnergyFlowOverview({ data, onSelectNode }) {
                 Total Running Load B1
               </span>
               <span className="text-sm font-black font-mono text-slate-900 dark:text-slate-100 leading-tight">
-                {Number(building1.runningLoad || 0).toFixed(1)} <span className="text-[8px] font-sans font-bold text-slate-400">kWh</span>
+                {Number(building1.runningLoad || 0).toFixed(1)} <span className="text-[8px] font-sans font-bold text-slate-400">kW</span>
               </span>
             </div>
             {/* Vertical connector line */}
@@ -1347,7 +1347,7 @@ function EnergyFlowOverview({ data, onSelectNode }) {
                     {src.name}
                   </span>
                   <span className="text-[9.5px] sm:text-[10px] font-black font-mono text-slate-900 dark:text-slate-100 leading-none">
-                    {srcKw.toFixed(1)} <span className="text-[7px] font-sans text-slate-400">kWh</span>
+                    {srcKw.toFixed(1)} <span className="text-[7px] font-sans text-slate-400">kW</span>
                   </span>
                 </div>
               )
@@ -1402,7 +1402,7 @@ function EnergyFlowOverview({ data, onSelectNode }) {
                 Total Running Load B2
               </span>
               <span className="text-sm font-black font-mono text-slate-900 dark:text-slate-100 leading-tight">
-                {Number(building2.runningLoad || 0).toFixed(1)} <span className="text-[8px] font-sans font-bold text-slate-400">kWh</span>
+                {Number(building2.runningLoad || 0).toFixed(1)} <span className="text-[8px] font-sans font-bold text-slate-400">kW</span>
               </span>
             </div>
             {/* Vertical connector line */}
@@ -1429,7 +1429,7 @@ function EnergyFlowOverview({ data, onSelectNode }) {
                     {src.name}
                   </span>
                   <span className="text-[9.5px] sm:text-[10px] font-black font-mono text-slate-900 dark:text-slate-100 leading-none">
-                    {srcKw.toFixed(1)} <span className="text-[7px] font-sans text-slate-400">kWh</span>
+                    {srcKw.toFixed(1)} <span className="text-[7px] font-sans text-slate-400">kW</span>
                   </span>
                 </div>
               )

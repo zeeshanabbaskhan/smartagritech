@@ -118,7 +118,7 @@ export default function ExecutiveLimitsConfig({
         metricKey: 'power',
         warningValue: w,
         criticalValue: c,
-        unit: 'kWh',
+        unit: 'kW',
         slaveName: slv.name,
         deviceName: slv.deviceName,
       }
@@ -130,12 +130,12 @@ export default function ExecutiveLimitsConfig({
         enabled: true,
         warningValue: w,
         criticalValue: c,
-        unit: 'kWh',
+        unit: 'kW',
       },
       slaveThresholds: next,
     })
 
-    setBatchAppliedMsg(`Configured all ${allSlaves.length} slaves to Yellow: ${w} kWh, Red: ${c} kWh! Click "Save Configuration" at the top to save.`)
+    setBatchAppliedMsg(`Configured all ${allSlaves.length} slaves to Yellow: ${w} kW, Red: ${c} kW! Click "Save Configuration" at the top to save.`)
     setTimeout(() => setBatchAppliedMsg(''), 6000)
   }
 
@@ -322,7 +322,7 @@ export default function ExecutiveLimitsConfig({
             <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
               <div className="sm:col-span-4">
                 <TextInput
-                  label="Yellow Warning Threshold (kWh)"
+                  label="Yellow Warning Threshold (kW)"
                   type="number"
                   value={batchWarning}
                   onChange={(e) => setBatchWarning(e.target.value)}
@@ -331,7 +331,7 @@ export default function ExecutiveLimitsConfig({
               </div>
               <div className="sm:col-span-4">
                 <TextInput
-                  label="Red Critical Threshold (kWh)"
+                  label="Red Critical Threshold (kW)"
                   type="number"
                   value={batchCritical}
                   onChange={(e) => setBatchCritical(e.target.value)}
