@@ -1161,62 +1161,77 @@ function EnergyFlowOverview({ data, onSelectNode }) {
     const loadKwVal = Number.isFinite(Number(b.loadKw)) ? Number(b.loadKw) : 0
     const isSpare = (b.status === 'spare' || name.toLowerCase().includes('spare')) && loadKwVal === 0
     const isGenerating = b.status === 'generating' || name.toLowerCase().includes('solar')
-    const isTieLine = b.status === 'tie-line' || name.toLowerCase().includes('ambition')
+    const isTieLine = b.status === 'tie-line' || name.toLowerCase().includes('ambition') || name.toLowerCase().includes('tie')
+    const isGridIncomer = /wapda/i.test(name) || /grid/i.test(b.type || '')
+    const isGenset = /genset|g1|g2|g3/i.test(name) || /genset/i.test(b.type || '')
 
     // Threshold evaluation: checks slave override, then global default, falling back to 70 / 100
     const slaveThresh = b.slaveId ? slaveThresholds[b.slaveId] : null
     const warnLimit = Number(slaveThresh?.warningValue || slaveDefault?.warningValue || 70)
     const critLimit = Number(slaveThresh?.criticalValue || slaveDefault?.criticalValue || 100)
 
-    const isTripped = b.status === 'tripped' || (loadKwVal >= critLimit && !isGenerating && !isSpare)
-    const isHeavy = !isTripped && (b.status === 'heavy' || (loadKwVal >= warnLimit && !isGenerating && !isSpare))
+    // Incomers and generators are power sources, not consumers, so they don't trip on high load
+    const isConsumer = !isGenerating && !isSpare && !isTieLine && !isGridIncomer && !isGenset
+    const isTripped = b.status === 'tripped' || (loadKwVal >= critLimit && isConsumer)
+    const isHeavy = !isTripped && (b.status === 'heavy' || (loadKwVal >= warnLimit && isConsumer))
+
+    let cardStyle = 'bg-white dark:bg-slate-900 border-slate-200/90 dark:border-slate-800 border-t-[3px] border-t-emerald-500 hover:border-slate-400'
+    let dotClass = 'bg-emerald-500'
+    let valueClass = 'text-slate-900 dark:text-slate-100'
+
+    if (isTripped) {
+      cardStyle = 'bg-rose-50/80 dark:bg-rose-950/30 border-rose-300 dark:border-rose-700/80 border-t-[3px] border-t-rose-600 ring-1 ring-rose-400/30 hover:border-rose-500'
+      dotClass = 'bg-rose-600 ring-2 ring-rose-300 animate-pulse'
+      valueClass = 'text-rose-700 dark:text-rose-400 font-black'
+    } else if (isHeavy) {
+      cardStyle = 'bg-amber-50/80 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700/80 border-t-[3px] border-t-amber-500 ring-1 ring-amber-400/30 hover:border-amber-500'
+      dotClass = 'bg-amber-500 ring-2 ring-amber-300 animate-pulse'
+      valueClass = 'text-amber-800 dark:text-amber-300 font-black'
+    } else if (isGridIncomer) {
+      cardStyle = 'bg-blue-50/40 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800/80 border-t-[3px] border-t-blue-600 hover:border-blue-400'
+      dotClass = 'bg-blue-600 ring-1 ring-blue-300'
+      valueClass = 'text-blue-700 dark:text-blue-400 font-black'
+    } else if (isGenset) {
+      cardStyle = 'bg-purple-50/40 dark:bg-purple-950/20 border-purple-200 dark:border-purple-800/80 border-t-[3px] border-t-purple-600 hover:border-purple-400'
+      dotClass = 'bg-purple-600 ring-1 ring-purple-300'
+      valueClass = 'text-purple-700 dark:text-purple-400 font-black'
+    } else if (isGenerating) {
+      cardStyle = 'bg-emerald-50/40 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800/80 border-t-[3px] border-t-emerald-600 hover:border-emerald-400'
+      dotClass = 'bg-emerald-500 ring-1 ring-emerald-300'
+      valueClass = 'text-emerald-700 dark:text-emerald-400 font-black'
+    } else if (isTieLine) {
+      cardStyle = 'bg-indigo-50/40 dark:bg-indigo-950/20 border-indigo-200 dark:border-indigo-800/80 border-t-[3px] border-t-indigo-600 hover:border-indigo-400'
+      dotClass = 'bg-indigo-500 animate-pulse'
+      valueClass = 'text-indigo-700 dark:text-indigo-400 font-black'
+    } else if (isSpare) {
+      cardStyle = 'bg-slate-50/50 dark:bg-slate-900/40 border-dashed border-slate-300 dark:border-slate-700 text-slate-400 opacity-60'
+      dotClass = 'bg-slate-400'
+      valueClass = 'text-slate-400 dark:text-slate-500'
+    }
 
     return (
       <div
         key={b.id || `${buildingCode}-${name}`}
         onClick={() => onSelectNode?.(b, buildingCode)}
-        className={`group relative p-0.5 sm:p-1 rounded-md border text-center transition-all duration-150 cursor-pointer select-none flex flex-col justify-between min-h-[38px] sm:min-h-[40px] ${
-          isTripped
-            ? 'bg-red-500 text-white border-red-600 ring-2 ring-red-400 font-bold shadow-md animate-pulse'
-            : isHeavy
-            ? 'bg-amber-300 text-amber-950 border-amber-400 ring-2 ring-amber-300 font-bold shadow-xs'
-            : isTieLine
-            ? 'bg-white dark:bg-slate-900 border-indigo-500/70 text-indigo-700 dark:text-indigo-300 ring-1 ring-indigo-500/30'
-            : isGenerating
-            ? 'bg-white dark:bg-slate-900 border-emerald-500 hover:border-emerald-600'
-            : isSpare
-            ? 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-slate-400 opacity-60'
-            : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:border-blue-500 hover:shadow-xs'
-        }`}
+        className={`group relative p-1 sm:p-1.5 rounded-lg border text-center transition-all duration-150 cursor-pointer select-none flex flex-col justify-between min-h-[44px] sm:min-h-[46px] shadow-2xs ${cardStyle}`}
         title={`${name} - ${loadKwVal.toFixed(1)} kW ${isTripped ? `(CRITICAL >= ${critLimit} kW)` : isHeavy ? `(WARNING >= ${warnLimit} kW)` : '(NORMAL)'}`}
       >
-        <div className="flex items-start justify-between gap-0.5 leading-[1.1] mb-0.5 w-full">
-          <span
-            className={`text-[6.5px] sm:text-[7px] font-bold tracking-tight break-words line-clamp-2 text-left flex-1 ${
-              isTripped ? 'text-white' : isHeavy ? 'text-amber-950' : 'text-slate-900 dark:text-slate-100'
-            }`}
-            title={name}
-          >
-            {name}
-          </span>
-          <span className={`w-1.5 h-1.5 rounded-full shrink-0 mt-0.5 ${
-            isTripped ? 'bg-white animate-ping' :
-            isHeavy ? 'bg-amber-700 animate-pulse' :
-            isGenerating ? 'bg-emerald-500' :
-            isSpare ? 'bg-slate-400' :
-            isTieLine ? 'bg-indigo-500 animate-pulse' :
-            'bg-emerald-500'
-          }`} />
+        <div
+          className="w-full text-center text-[7.5px] sm:text-[8px] font-bold tracking-tight leading-[1.15] line-clamp-2 px-0.5 text-slate-800 dark:text-slate-100"
+          title={name}
+        >
+          {name}
         </div>
-        <div className="flex items-baseline justify-center gap-0.5 font-mono leading-none">
-          <span className={`text-[9px] sm:text-[10px] font-black ${
-            isTripped ? 'text-white' : isHeavy ? 'text-amber-950' : 'text-slate-900 dark:text-slate-100'
-          }`}>
-            {loadKwVal.toFixed(1)}
-          </span>
-          <span className={`text-[6.5px] sm:text-[7px] font-sans ${
-            isTripped ? 'text-red-100' : isHeavy ? 'text-amber-800' : 'text-slate-400'
-          }`}>kW</span>
+        <div className="flex items-center justify-between w-full pt-1 px-0.5">
+          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotClass}`} />
+          <div className="flex items-baseline font-mono leading-none">
+            <span className={`text-[10px] sm:text-[11px] font-black tracking-tight ${valueClass}`}>
+              {loadKwVal.toFixed(1)}
+            </span>
+            <span className="text-[7px] font-sans font-semibold text-slate-400 ml-0.5">
+              kW
+            </span>
+          </div>
         </div>
       </div>
     )
@@ -1363,21 +1378,21 @@ function EnergyFlowOverview({ data, onSelectNode }) {
           </div>
 
           {/* 4 Rows of Breakers */}
-          <div className="space-y-0.5 mt-0.5">
+          <div className="space-y-1 mt-1">
             {/* Row 1 (7 boxes) */}
-            <div className="grid grid-cols-7 gap-0.5 sm:gap-1">
+            <div className="grid grid-cols-7 gap-1">
               {(building1.row1 || []).map((b) => renderBreakerBox(b, 'B1'))}
             </div>
             {/* Row 2 (7 boxes) */}
-            <div className="grid grid-cols-7 gap-0.5 sm:gap-1">
+            <div className="grid grid-cols-7 gap-1">
               {(building1.row2 || []).map((b) => renderBreakerBox(b, 'B1'))}
             </div>
             {/* Row 3 (7 boxes) */}
-            <div className="grid grid-cols-7 gap-0.5 sm:gap-1">
+            <div className="grid grid-cols-7 gap-1">
               {(building1.row3 || []).map((b) => renderBreakerBox(b, 'B1'))}
             </div>
             {/* Row 4 (4 boxes) */}
-            <div className="grid grid-cols-7 gap-0.5 sm:gap-1">
+            <div className="grid grid-cols-7 gap-1">
               {(building1.row4 || []).map((b) => renderBreakerBox(b, 'B1'))}
               {/* 3 blank fillers to align properly */}
               <div className="col-span-3" />
@@ -1445,21 +1460,21 @@ function EnergyFlowOverview({ data, onSelectNode }) {
           </div>
 
           {/* 4 Rows of Breakers */}
-          <div className="space-y-0.5 mt-0.5">
+          <div className="space-y-1 mt-1">
             {/* Row 1 (7 boxes) */}
-            <div className="grid grid-cols-7 gap-0.5 sm:gap-1">
+            <div className="grid grid-cols-7 gap-1">
               {(building2.row1 || []).map((b) => renderBreakerBox(b, 'B2'))}
             </div>
             {/* Row 2 (7 boxes) */}
-            <div className="grid grid-cols-7 gap-0.5 sm:gap-1">
+            <div className="grid grid-cols-7 gap-1">
               {(building2.row2 || []).map((b) => renderBreakerBox(b, 'B2'))}
             </div>
             {/* Row 3 (7 boxes) */}
-            <div className="grid grid-cols-7 gap-0.5 sm:gap-1">
+            <div className="grid grid-cols-7 gap-1">
               {(building2.row3 || []).map((b) => renderBreakerBox(b, 'B2'))}
             </div>
             {/* Row 4 (3 boxes) */}
-            <div className="grid grid-cols-7 gap-0.5 sm:gap-1">
+            <div className="grid grid-cols-7 gap-1">
               {(building2.row4 || []).map((b) => renderBreakerBox(b, 'B2'))}
               {/* 4 blank fillers to align properly */}
               <div className="col-span-4" />

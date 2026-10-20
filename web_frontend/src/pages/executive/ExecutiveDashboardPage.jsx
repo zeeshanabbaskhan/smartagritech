@@ -7,7 +7,7 @@ import { onSocketEvent } from '../../services/socketService'
 import { useAuth } from '../../context/AuthContext'
 
 const AMBITION_ORG_ID = 'b99129f8-85f2-44c2-81ca-cc2d876092ea'
-const CACHE_KEY = 'ems_exec_ambition_v5'
+const CACHE_KEY = 'ems_exec_ambition_v6'
 
 /**
  * Safely parse any metric value (number, string, or { value, displayValue, unit } object).
