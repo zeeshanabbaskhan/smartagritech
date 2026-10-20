@@ -189,19 +189,24 @@ export function generateBreakerDetails(breaker, buildingCode) {
   }
 
   const isTripped = breaker.status === 'tripped' && Number(breaker.loadKw || 0) === 0
-  const loadKw = isTripped ? 0 : (breaker.loadKw || 0)
-  const vLine = 400 + (Math.random() * 4 - 2)
+  const rawKw = breaker.loadKw != null ? breaker.loadKw : (breaker.runningLoad != null ? breaker.runningLoad : 0)
+  const loadKw = isTripped ? 0 : (Number(rawKw) || 0)
+  const vLine = Number(breaker.voltage) || (400 + (Math.random() * 4 - 2))
   const vPhase = +(vLine / Math.sqrt(3)).toFixed(1)
-  const pf = isTripped ? 0 : 0.94 + Math.random() * 0.04
-  const freq = 50.0 + (Math.random() * 0.08 - 0.04)
+  const pf = isTripped ? 0 : (Number(breaker.powerFactor || breaker.pf) || (0.94 + Math.random() * 0.04))
+  const freq = Number(breaker.frequency) || (50.0 + (Math.random() * 0.08 - 0.04))
   const current = loadKw > 0
-    ? (loadKw * 1000) / (Math.sqrt(3) * vLine * pf)
+    ? (loadKw * 1000) / (Math.sqrt(3) * vLine * (pf || 0.96))
     : 0
   const kva = pf > 0 ? loadKw / pf : 0
   const kvar = Math.sqrt(Math.max(0, kva * kva - loadKw * loadKw))
-  const utilization = breaker.ratedA > 0 ? Math.min(100, Math.round((current / breaker.ratedA) * 100)) : 0
+  const ratedA = breaker.ratedA || (loadKw > 0 ? Math.ceil(current * 1.25) : 400)
+  const utilization = ratedA > 0 ? Math.min(100, Math.round((current / ratedA) * 100)) : 0
+  const units = Number(breaker.units) || (loadKw > 0 ? Number((loadKw * 240.5).toFixed(1)) : 0.0)
 
-  const slaveIdHex = ('0x' + (Math.abs(breaker.id.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0) % 30) + 1).toString(16).padStart(2, '0')).toUpperCase()
+  const slaveIdHex = breaker.slaveId
+    ? (String(breaker.slaveId).length > 8 ? String(breaker.slaveId).slice(-6).toUpperCase() : breaker.slaveId)
+    : ('0x' + (Math.abs(String(breaker.id || 'b1').split('').reduce((acc, c) => acc + c.charCodeAt(0), 0) % 30) + 1).toString(16).padStart(2, '0')).toUpperCase()
 
   // Exact 25 Organization Dashboard Telemetry Variables
   const variables24 = [
@@ -229,7 +234,7 @@ export function generateBreakerDetails(breaker, buildingCode) {
     { key: 'Apparent Power C', name: 'Apparent Power C', shortName: 'Apparent C', value: Number(((kva / 3) * 1.01).toFixed(1)), unit: 'kVA', group: 'apparent' },
     { key: 'Power Factor', name: 'Power Factor', shortName: 'Power Factor', value: Number(pf.toFixed(3)), unit: 'PF', group: 'quality' },
     { key: 'Frequency', name: 'Frequency', shortName: 'Frequency', value: Number(freq.toFixed(2)), unit: 'Hz', group: 'quality' },
-    { key: 'Units', name: 'Units', shortName: 'Units (kWh)', value: Number((loadKw * 240.5).toFixed(1)), unit: 'kWh', group: 'energy' },
+    { key: 'Units', name: 'Units', shortName: 'Units (kWh)', value: Number(units.toFixed(1)), unit: 'kWh', group: 'energy' },
   ]
 
   const sparkline = Array.from({ length: 12 }, (_, i) => {
@@ -243,15 +248,17 @@ export function generateBreakerDetails(breaker, buildingCode) {
   return {
     ...breaker,
     loadKw,
+    ratedA,
     buildingCode,
     slaveId: slaveIdHex,
-    slaveName: `${breaker.name} Meter (${slaveIdHex})`,
-    gateway: `EMS-GW-${buildingCode || 'B1'}-01`,
+    slaveName: breaker.name || `Source (${slaveIdHex})`,
+    gateway: breaker.deviceName || `EMS-GW-${buildingCode || 'B1'}-01`,
     busChannel: 'RS485 Ch-1 (9600 8-N-1)',
-    voltage: Number(voltage.toFixed(1)),
+    voltage: Number(vLine.toFixed(1)),
     current: Number(current.toFixed(1)),
     powerFactor: Number(pf.toFixed(2)),
     frequency: Number(freq.toFixed(2)),
+    units: Number(units.toFixed(1)),
     kvar: Number(kvar.toFixed(1)),
     kva: Number(kva.toFixed(1)),
     utilizationPercent: utilization,
@@ -1686,8 +1693,9 @@ function EnergyFlowOverview({ data, onSelectNode }) {
               B1 (Ambition)
             </span>
             <div
-              onClick={() => onSelectNode?.({ ...building1, category: 'Main Substation' }, 'B1')}
+              onClick={() => onSelectNode?.({ ...building1, name: 'Total Running Load B1 (AMB)', category: 'Main Substation', loadKw: building1.runningLoad }, 'B1')}
               className="px-3 py-0.5 rounded-lg border-2 border-blue-500 bg-white dark:bg-slate-900 text-center cursor-pointer hover:scale-[1.01] transition shadow-2xs"
+              title="Click to view total plant B1 inflow telemetry & history"
             >
               <span className="text-[8px] sm:text-[8.5px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 block leading-none">
                 Total Running Load B1
@@ -1708,15 +1716,16 @@ function EnergyFlowOverview({ data, onSelectNode }) {
                 <div
                   key={src.id}
                   onClick={() => onSelectNode?.(src, 'B1')}
-                  className={`py-0.5 px-1 rounded-md border text-center cursor-pointer hover:border-primary-500 transition shadow-2xs bg-white dark:bg-slate-900 ${
+                  className={`group py-0.5 px-1 rounded-md border text-center cursor-pointer hover:border-primary-500 hover:shadow-xs transition shadow-2xs bg-white dark:bg-slate-900 ${
                     src.id === 'b1-wapda'
                       ? 'border-blue-500'
                       : src.type === 'solar'
                       ? 'border-amber-500'
                       : 'border-purple-500'
                   }`}
+                  title={`${src.name} - ${srcKw.toFixed(1)} kW (Click to view live telemetry & historical graph)`}
                 >
-                  <span className="text-[7px] sm:text-[7.5px] font-bold text-slate-800 dark:text-slate-200 block break-words line-clamp-2 leading-tight" title={src.name}>
+                  <span className="text-[7px] sm:text-[7.5px] font-bold text-slate-800 dark:text-slate-200 block break-words line-clamp-2 leading-tight group-hover:text-primary-600 dark:group-hover:text-primary-400 transition" title={src.name}>
                     {src.name}
                   </span>
                   <span className="text-[9.5px] sm:text-[10px] font-black font-mono text-slate-900 dark:text-slate-100 leading-none">
@@ -1768,8 +1777,9 @@ function EnergyFlowOverview({ data, onSelectNode }) {
               Building 2 (AFL)
             </span>
             <div
-              onClick={() => onSelectNode?.({ ...building2, category: 'Main Substation' }, 'B2')}
+              onClick={() => onSelectNode?.({ ...building2, name: 'Total Running Load B2 (AFL)', category: 'Main Substation', loadKw: building2.runningLoad }, 'B2')}
               className="px-3 py-0.5 rounded-lg border-2 border-emerald-500 bg-white dark:bg-slate-900 text-center cursor-pointer hover:scale-[1.01] transition shadow-2xs"
+              title="Click to view total plant B2 inflow telemetry & history"
             >
               <span className="text-[8px] sm:text-[8.5px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 block leading-none">
                 Total Running Load B2
@@ -1790,15 +1800,16 @@ function EnergyFlowOverview({ data, onSelectNode }) {
                 <div
                   key={src.id}
                   onClick={() => onSelectNode?.(src, 'B2')}
-                  className={`py-0.5 px-1 rounded-md border text-center cursor-pointer hover:border-emerald-500 transition shadow-2xs bg-white dark:bg-slate-900 ${
+                  className={`group py-0.5 px-1 rounded-md border text-center cursor-pointer hover:border-emerald-500 hover:shadow-xs transition shadow-2xs bg-white dark:bg-slate-900 ${
                     src.id === 'b2-wapda'
                       ? 'border-blue-500'
                       : src.type === 'solar'
                       ? 'border-amber-500'
                       : 'border-purple-500'
                   }`}
+                  title={`${src.name} - ${srcKw.toFixed(1)} kW (Click to view live telemetry & historical graph)`}
                 >
-                  <span className="text-[7px] sm:text-[7.5px] font-bold text-slate-800 dark:text-slate-200 block break-words line-clamp-2 leading-tight" title={src.name}>
+                  <span className="text-[7px] sm:text-[7.5px] font-bold text-slate-800 dark:text-slate-200 block break-words line-clamp-2 leading-tight group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition" title={src.name}>
                     {src.name}
                   </span>
                   <span className="text-[9.5px] sm:text-[10px] font-black font-mono text-slate-900 dark:text-slate-100 leading-none">
