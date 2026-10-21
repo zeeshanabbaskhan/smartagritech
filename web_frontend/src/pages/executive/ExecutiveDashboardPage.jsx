@@ -483,6 +483,7 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
       units: b1Solar1 ? safeExtractNumber(getMetricFromSlave(b1Solar1, ['Units', 'Active Energy', 'ActiveEnergy', 'Energy', 'Total Energy', 'TotalEnergy', 'kWh'])) : Number((b1SolarKw * 240.5).toFixed(1)),
       variables24: b1Solar1 ? build24Variables(b1Solar1, b1SolarKw, 600) : null,
       createdAt: b1Solar1?.createdAt || '2026-09-18T00:00:00.000Z',
+      contributingSlaves: [b1Solar1, b1Solar4, b1Solar5].filter(Boolean).map(s => ({ deviceId: s.deviceId, slaveId: s.id, name: s.name })),
     },
   ]
 
@@ -654,6 +655,12 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
       gridFrequency: freqAvg,
       co2AvoidedKg: co2Avoided,
       tariffRatePkr: tariffRate,
+      contributingSlaves: {
+        wapda: [b1WapdaSlave, b2WapdaSlave].filter(Boolean).map(s => ({ deviceId: s.deviceId, slaveId: s.id, name: s.name })),
+        solar: [b1Solar1, b1Solar4, b1Solar5, b2SolarSlave].filter(Boolean).map(s => ({ deviceId: s.deviceId, slaveId: s.id, name: s.name })),
+        genset: [b1G1Slave, b1G2Slave, b2G3Slave].filter(Boolean).map(s => ({ deviceId: s.deviceId, slaveId: s.id, name: s.name })),
+        runningLoad: [b1WapdaSlave, b2WapdaSlave, b1Solar1, b1Solar4, b1Solar5, b2SolarSlave, b1G1Slave, b1G2Slave, b2G3Slave].filter(Boolean).map(s => ({ deviceId: s.deviceId, slaveId: s.id, name: s.name })),
+      },
     },
     building1: {
       id: 'b1',
