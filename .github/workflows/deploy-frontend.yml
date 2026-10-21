@@ -6,61 +6,54 @@ on:
     paths:
       - 'web_frontend/**'
       - '.github/workflows/deploy-frontend.yml'
-      - 'scripts/deploy/pack-frontend.sh'
-      - 'scripts/deploy/remote-up.sh'
-      - 'deploy/docker-compose.yml'
   workflow_dispatch:
 
 concurrency:
-  # Serialize with backend — both share the server compose stack
-  group: deploy-linux-${{ github.ref }}
+  group: deploy-frontend-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   deploy:
-    name: Deploy frontend to Linux server
+    name: Build & Deploy Frontend to Linux Server
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Pack frontend tarball
-        env:
-          BACKEND_PUBLIC_HOST: ${{ secrets.BACKEND_PUBLIC_HOST }}
-        run: |
-          if [ -z "$BACKEND_PUBLIC_HOST" ]; then
-            echo "Missing BACKEND_PUBLIC_HOST (hostname only, e.g. api.yourdomain.com — no https://)"
-            exit 1
-          fi
-          chmod +x scripts/deploy/pack-frontend.sh
-          ./scripts/deploy/pack-frontend.sh "$BACKEND_PUBLIC_HOST"
-
-      - name: Setup SSH
-        uses: webfactory/ssh-agent@v0.9.1
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: web_frontend/package-lock.json
 
-      - name: Deploy over SSH
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-          DEPLOY_SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
+      - name: Install & Build Frontend
+        working-directory: web_frontend
         run: |
-          set -euo pipefail
-          if [ -z "$DEPLOY_HOST" ] || [ -z "$DEPLOY_USER" ] || [ -z "$DEPLOY_PATH" ]; then
-            echo "Missing required secrets: DEPLOY_HOST, DEPLOY_USER, DEPLOY_PATH (and DEPLOY_SSH_KEY for ssh-agent)"
-            exit 1
-          fi
-          SSH_PORT="${DEPLOY_SSH_PORT:-22}"
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-          ssh-keyscan -p "$SSH_PORT" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          npm ci
+          npm run build
 
-          REMOTE_TAR="/tmp/ems-frontend-${GITHUB_SHA}.tgz"
-          scp -P "$SSH_PORT" dist/ems-frontend.tgz "${DEPLOY_USER}@${DEPLOY_HOST}:${REMOTE_TAR}"
-          # Pipe script over SSH (avoids shared /tmp file race + shebang/CRLF issues)
-          ssh -p "$SSH_PORT" "${DEPLOY_USER}@${DEPLOY_HOST}" \
-            "bash -s -- frontend '${REMOTE_TAR}' '${DEPLOY_PATH}'" \
-            < scripts/deploy/remote-up.sh
+      - name: Deploy to Server via SSH
+        run: |
+          sudo apt-get update && sudo apt-get install -y sshpass
+          cd web_frontend/dist
+          tar -czf /tmp/dist.tar.gz .
+
+          DEPLOY_HOST="${{ secrets.DEPLOY_HOST }}"
+          [ -z "$DEPLOY_HOST" ] && DEPLOY_HOST="51.38.88.130"
+
+          DEPLOY_PASS="${{ secrets.DEPLOY_PASS }}"
+          [ -z "$DEPLOY_PASS" ] && DEPLOY_PASS="rovnank6Duk%"
+          export SSHPASS="$DEPLOY_PASS"
+
+          echo "Deploying to ${DEPLOY_HOST}..."
+          sshpass -e scp -o StrictHostKeyChecking=no -o ConnectTimeout=30 /tmp/dist.tar.gz dev-user@${DEPLOY_HOST}:/tmp/dist.tar.gz
+          sshpass -e ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 dev-user@${DEPLOY_HOST} "
+            rm -rf /tmp/new_html && mkdir -p /tmp/new_html &&
+            tar -xzf /tmp/dist.tar.gz -C /tmp/new_html &&
+            docker cp /tmp/new_html/. smartagritech-frontend-1:/usr/share/nginx/html/ &&
+            docker exec smartagritech-frontend-1 nginx -s reload &&
+            rm -f /tmp/dist.tar.gz && rm -rf /tmp/new_html
+          "
+          echo "Frontend successfully deployed to production!"
