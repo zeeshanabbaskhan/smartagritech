@@ -220,6 +220,7 @@ function makeBreakerNode(id, fallbackName, defaultRatedA, slaveObj, buildingCode
     powerFactor: vars24 ? (vars24.find((v) => v.key === 'Power Factor')?.value || 0.96) : 0.96,
     units: vars24 ? (vars24.find((v) => v.key === 'Units')?.value || 0.0) : 0.0,
     variables24: vars24,
+    createdAt: slaveObj?.createdAtRaw || slaveObj?.createdAt || '2026-09-18T00:00:00.000Z',
   }
 }
 
@@ -424,6 +425,7 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
       buildingCode: 'B1',
       units: b1WapdaSlave ? safeExtractNumber(getMetricFromSlave(b1WapdaSlave, ['Units', 'Active Energy', 'ActiveEnergy', 'Energy', 'Total Energy', 'TotalEnergy', 'kWh'])) : Number((b1WapdaKw * 240.5).toFixed(1)),
       variables24: b1WapdaSlave ? build24Variables(b1WapdaSlave, b1WapdaKw, 1000) : null,
+      createdAt: b1WapdaSlave?.createdAt || '2026-09-18T00:00:00.000Z',
     },
     {
       id: 'b1-genset1',
@@ -442,6 +444,7 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
       buildingCode: 'B1',
       units: b1G1Slave ? safeExtractNumber(getMetricFromSlave(b1G1Slave, ['Units', 'Active Energy', 'ActiveEnergy', 'Energy', 'Total Energy', 'TotalEnergy', 'kWh'])) : Number((b1G1Kw * 240.5).toFixed(1)),
       variables24: b1G1Slave ? build24Variables(b1G1Slave, b1G1Kw, 800) : null,
+      createdAt: b1G1Slave?.createdAt || '2026-09-18T00:00:00.000Z',
     },
     {
       id: 'b1-genset2',
@@ -460,6 +463,7 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
       buildingCode: 'B1',
       units: b1G2Slave ? safeExtractNumber(getMetricFromSlave(b1G2Slave, ['Units', 'Active Energy', 'ActiveEnergy', 'Energy', 'Total Energy', 'TotalEnergy', 'kWh'])) : Number((b1G2Kw * 240.5).toFixed(1)),
       variables24: b1G2Slave ? build24Variables(b1G2Slave, b1G2Kw, 800) : null,
+      createdAt: b1G2Slave?.createdAt || '2026-09-18T00:00:00.000Z',
     },
     {
       id: 'b1-solar',
@@ -478,6 +482,7 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
       buildingCode: 'B1',
       units: b1Solar1 ? safeExtractNumber(getMetricFromSlave(b1Solar1, ['Units', 'Active Energy', 'ActiveEnergy', 'Energy', 'Total Energy', 'TotalEnergy', 'kWh'])) : Number((b1SolarKw * 240.5).toFixed(1)),
       variables24: b1Solar1 ? build24Variables(b1Solar1, b1SolarKw, 600) : null,
+      createdAt: b1Solar1?.createdAt || '2026-09-18T00:00:00.000Z',
     },
   ]
 
@@ -572,6 +577,7 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
       buildingCode: 'B2',
       units: b2SolarSlave ? safeExtractNumber(getMetricFromSlave(b2SolarSlave, ['Units', 'Active Energy', 'ActiveEnergy', 'Energy', 'Total Energy', 'TotalEnergy', 'kWh'])) : Number((b2SolarKw * 240.5).toFixed(1)),
       variables24: b2SolarSlave ? build24Variables(b2SolarSlave, b2SolarKw, 400) : null,
+      createdAt: b2SolarSlave?.createdAt || '2026-09-18T00:00:00.000Z',
     },
     {
       id: 'b2-genset',
@@ -590,6 +596,7 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
       buildingCode: 'B2',
       units: b2G3Slave ? safeExtractNumber(getMetricFromSlave(b2G3Slave, ['Units', 'Active Energy', 'ActiveEnergy', 'Energy', 'Total Energy', 'TotalEnergy', 'kWh'])) : Number((b2G3Kw * 240.5).toFixed(1)),
       variables24: b2G3Slave ? build24Variables(b2G3Slave, b2G3Kw, 500) : null,
+      createdAt: b2G3Slave?.createdAt || '2026-09-18T00:00:00.000Z',
     },
     {
       id: 'b2-wapda',
@@ -608,6 +615,7 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
       buildingCode: 'B2',
       units: b2WapdaSlave ? safeExtractNumber(getMetricFromSlave(b2WapdaSlave, ['Units', 'Active Energy', 'ActiveEnergy', 'Energy', 'Total Energy', 'TotalEnergy', 'kWh'])) : Number((b2WapdaKw * 240.5).toFixed(1)),
       variables24: b2WapdaSlave ? build24Variables(b2WapdaSlave, b2WapdaKw, 600) : null,
+      createdAt: b2WapdaSlave?.createdAt || '2026-09-18T00:00:00.000Z',
     },
   ]
 

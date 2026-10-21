@@ -772,11 +772,22 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
       })
     } else {
       // 1y (Yearly): 12 rolling months ending at current month
+      // Commissioning-aware telemetry: devices registered on September 18, 2026.
+      // Months strictly prior to device registration are 0 kW and 0 kWh (no fake readings for non-existent meters).
       const currentYear = now.getFullYear()
       const currentMonth = now.getMonth()
       const daysInCurrentMonth = new Date(currentYear, currentMonth + 1, 0).getDate()
       const elapsedDaysThisMonth = Math.max(0.1, Number(((now.getDate() - 1) + (now.getHours() + now.getMinutes() / 60) / 24).toFixed(2)))
       const currentMonthFraction = elapsedDaysThisMonth / daysInCurrentMonth
+
+      // Dynamic device commissioning / registration date:
+      const rawComm = node.createdAt || node.registeredAt || "2026-09-18T00:00:00.000Z"
+      const parsedComm = new Date(rawComm)
+      const commissionDate = isNaN(parsedComm.getTime()) ? new Date(2026, 8, 18) : parsedComm
+      const commissionYear = commissionDate.getFullYear()
+      const commissionMonth = commissionDate.getMonth() // 8 for September
+      const commissionDay = commissionDate.getDate() // 18
+      const commissionDateLabel = commissionDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
 
       // Pre-calculate current month's partial units so far:
       let currentMonthUnits = 0
@@ -803,12 +814,34 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
       points = Array.from({ length: 12 }, (_, i) => {
         const isCurrentMonth = i === 11
         const pt = new Date(currentYear, currentMonth - (11 - i), 1)
+        const mYear = pt.getFullYear()
         const m = pt.getMonth()
-        const mShort = pt.toLocaleDateString('en-US', { month: 'short' })
-        const yShort = String(pt.getFullYear()).slice(-2)
+        const mShort = pt.toLocaleDateString("en-US", { month: "short" })
+        const yShort = String(mYear).slice(-2)
         const monthLabel = `${mShort} '${yShort}`
-        const daysInMonth = new Date(pt.getFullYear(), pt.getMonth() + 1, 0).getDate()
-        const effectiveDays = isCurrentMonth ? elapsedDaysThisMonth : daysInMonth
+        const daysInMonth = new Date(mYear, m + 1, 0).getDate()
+
+        // Check if this month is strictly prior to device registration:
+        const isPreCommission = (mYear < commissionYear) || (mYear === commissionYear && m < commissionMonth)
+        const isCommissionMonth = mYear === commissionYear && m === commissionMonth
+
+        if (isPreCommission) {
+          // Device did not exist yet: strictly 0 kW, 0 kWh
+          return {
+            timestamp: monthLabel,
+            power: 0,
+            units: 0,
+            cumulativeUnits: 0,
+            value: 0,
+            isCurrentMonth: false,
+            isPreCommission: true,
+            isCommissionMonth: false,
+            commissionDateLabel,
+            activeDays: 0,
+            elapsedDays: 0,
+            daysInMonth,
+          }
+        }
 
         // Industrial seasonality: May-Aug higher chilling/AC load, Dec-Feb lower
         const industrialSeason = (m >= 4 && m <= 8) ? 1.15 : (m === 11 || m <= 1) ? 0.88 : 1.0
@@ -818,37 +851,57 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
 
         let p = 0
         let intervalUnits = 0
+        let activeDays = daysInMonth
 
         if (isCurrentMonth) {
           p = currentMonthPower
           intervalUnits = currentMonthUnits
-        } else if (isGenerating) {
-          const fullMonthSolar = Number((solarPeakKw * 5.2 * daysInMonth * solarSeason * (1 + jitter)).toFixed(1))
-          intervalUnits = fullMonthSolar
-          p = Number((intervalUnits / (daysInMonth * 24)).toFixed(1))
-        } else if (isGenset) {
-          if (basePower > 5) {
-            p = Number(Math.max(0, basePower * (1 + jitter)).toFixed(1))
-            intervalUnits = Number((p * daysInMonth * 24).toFixed(1))
+          activeDays = elapsedDaysThisMonth
+        } else if (isCommissionMonth) {
+          // Month of registration (e.g. September 2026): active only from registration day to month end
+          activeDays = Math.max(1, daysInMonth - commissionDay + 1)
+          if (isGenerating) {
+            intervalUnits = Number((solarPeakKw * 5.2 * activeDays * solarSeason * (1 + jitter)).toFixed(1))
+            p = Number((intervalUnits / (activeDays * 24)).toFixed(1))
+          } else if (isGenset) {
+            if (basePower > 5) {
+              p = Number(Math.max(0, basePower * (1 + jitter)).toFixed(1))
+              intervalUnits = Number((p * activeDays * 24).toFixed(1))
+            } else {
+              const runHours = Math.max(1, Math.round(((m >= 4 && m <= 8) ? 14 : 9) * (activeDays / daysInMonth)))
+              intervalUnits = Number((gensetOperatingKw * runHours * (1 + jitter)).toFixed(1))
+              p = Number((intervalUnits / (activeDays * 24)).toFixed(1))
+            }
           } else {
-            const runHours = (m >= 4 && m <= 8) ? 14 : 9
-            intervalUnits = Number((gensetOperatingKw * runHours * (1 + jitter)).toFixed(1))
-            p = Number((intervalUnits / (daysInMonth * 24)).toFixed(1))
+            p = Number(Math.max(0, basePower * industrialSeason * (1 + jitter)).toFixed(1))
+            intervalUnits = Number((p * activeDays * 24).toFixed(1))
           }
         } else {
-          p = Number(Math.max(0, basePower * industrialSeason * (1 + jitter)).toFixed(1))
-          intervalUnits = Number((p * daysInMonth * 24).toFixed(1))
+          // Fully active post-commissioning month:
+          activeDays = daysInMonth
+          if (isGenerating) {
+            intervalUnits = Number((solarPeakKw * 5.2 * daysInMonth * solarSeason * (1 + jitter)).toFixed(1))
+            p = Number((intervalUnits / (daysInMonth * 24)).toFixed(1))
+          } else if (isGenset) {
+            if (basePower > 5) {
+              p = Number(Math.max(0, basePower * (1 + jitter)).toFixed(1))
+              intervalUnits = Number((p * daysInMonth * 24).toFixed(1))
+            } else {
+              const runHours = (m >= 4 && m <= 8) ? 14 : 9
+              intervalUnits = Number((gensetOperatingKw * runHours * (1 + jitter)).toFixed(1))
+              p = Number((intervalUnits / (daysInMonth * 24)).toFixed(1))
+            }
+          } else {
+            p = Number(Math.max(0, basePower * industrialSeason * (1 + jitter)).toFixed(1))
+            intervalUnits = Number((p * daysInMonth * 24).toFixed(1))
+          }
         }
-
-        const pastMonthFullUnits = isGenerating
-          ? Number((solarPeakKw * 5.2 * daysInMonth * solarSeason).toFixed(1))
-          : isGenset
-            ? (gensetOperatingKw * ((m >= 4 && m <= 8) ? 14 : 9))
-            : Number((basePower * industrialSeason * daysInMonth * 24).toFixed(1))
 
         const cumulativeUnits = isCurrentMonth
           ? baseUnits
-          : Number(Math.max(0, baseUnits - currentMonthUnits - ((10 - i) * pastMonthFullUnits)).toFixed(1))
+          : isCommissionMonth
+          ? intervalUnits
+          : Number(Math.max(0, baseUnits - currentMonthUnits).toFixed(1))
 
         const val = selectedVar ? Number((customBase * (isCurrentMonth ? 1 : 1 + jitter)).toFixed(1)) : p
         return {
@@ -856,8 +909,12 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
           power: p,
           units: intervalUnits,
           cumulativeUnits,
-          value: historyVariable === 'Units' ? intervalUnits : val,
+          value: historyVariable === "Units" ? intervalUnits : val,
           isCurrentMonth,
+          isPreCommission: false,
+          isCommissionMonth,
+          commissionDateLabel,
+          activeDays,
           elapsedDays: elapsedDaysThisMonth,
           daysInMonth,
         }
@@ -865,14 +922,17 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
     }
 
     return points
-  }, [historyRange, historyVariable, variables, node.loadKw, node.units, node.status, node.ratedA, node.voltage, node.powerFactor, isGenerating, isGenset])
+  }, [historyRange, historyVariable, variables, node.loadKw, node.units, node.status, node.ratedA, node.voltage, node.powerFactor, node.createdAt, node.registeredAt, isGenerating, isGenset])
 
   // Chart KPI stats for both Power and Units
   const chartStats = useMemo(() => {
     if (!chartData || chartData.length === 0) {
       return { peakPower: 0, avgPower: 0, minPower: 0, totalUnits: 0, periodUnits: 0, peak: 0, avg: 0, min: 0 }
     }
-    const powerVals = chartData.map((d) => d.power)
+    const activePoints = chartData.filter((d) => !d.isPreCommission)
+    const pointsToUse = activePoints.length > 0 ? activePoints : chartData
+
+    const powerVals = pointsToUse.map((d) => d.power)
     const unitVals = chartData.map((d) => d.units)
     const cumVals = chartData.map((d) => d.cumulativeUnits)
     const peakPower = Math.max(...powerVals)
@@ -882,7 +942,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
     const curUnits = cumVals.length > 0 ? cumVals[cumVals.length - 1] : 0
     const periodUnits = unitVals.reduce((a, b) => a + b, 0)
 
-    const generalVals = chartData.map((d) => d.value)
+    const generalVals = pointsToUse.map((d) => d.value)
     const peak = Math.max(...generalVals)
     const min = Math.min(...generalVals)
     const avg = generalVals.reduce((a, b) => a + b, 0) / generalVals.length
@@ -1444,12 +1504,22 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                           return (
                             <div className="bg-surface-900 border border-surface-700 p-2.5 rounded-lg shadow-xl text-xs space-y-1.5 min-w-[200px]">
                               <div className="font-bold text-surface-200 border-b border-surface-800 pb-1 flex items-center justify-between gap-3">
-                                <span>{label}{point?.isToday ? ' (Today - In Progress)' : point?.isCurrentMonth ? ' (Current Month - In Progress)' : ''}</span>
+                                <span>{label}{point?.isToday ? ' (Today - In Progress)' : point?.isCurrentMonth ? ' (Current Month - In Progress)' : point?.isCommissionMonth ? ` (Commissioned ${point.commissionDateLabel})` : point?.isPreCommission ? ' (Pre-Commissioning)' : ''}</span>
                                 <span className="text-[10px] text-surface-400 font-normal">{node.name}</span>
                               </div>
                               {point?.isToday && (historyRange === '7d' || historyRange === '30d') && (
                                 <div className="text-[10px] text-amber-400 font-medium">
                                   Today so far ({point.elapsedHours}h of 24h elapsed)
+                                </div>
+                              )}
+                              {point?.isPreCommission && historyRange === '1y' && (
+                                <div className="text-[10px] text-slate-400 italic">
+                                  Device not yet registered (Commissioned {point.commissionDateLabel})
+                                </div>
+                              )}
+                              {point?.isCommissionMonth && historyRange === '1y' && (
+                                <div className="text-[10px] text-emerald-400 font-medium">
+                                  Commissioned {point.commissionDateLabel} ({point.activeDays} days metered)
                                 </div>
                               )}
                               {point?.isCurrentMonth && historyRange === '1y' && (
@@ -1587,12 +1657,22 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                           return (
                             <div className="bg-surface-900 border border-surface-700 p-2 rounded-lg shadow-xl text-xs space-y-1 min-w-[190px]">
                               <div className="font-bold text-surface-200 border-b border-surface-800 pb-1 flex items-center justify-between gap-3">
-                                <span>{label}{point?.isToday ? ' (Today - In Progress)' : point?.isCurrentMonth ? ' (Current Month - In Progress)' : ''}</span>
+                                <span>{label}{point?.isToday ? ' (Today - In Progress)' : point?.isCurrentMonth ? ' (Current Month - In Progress)' : point?.isCommissionMonth ? ` (Commissioned ${point.commissionDateLabel})` : point?.isPreCommission ? ' (Pre-Commissioning)' : ''}</span>
                                 <span className="text-[10px] text-surface-400 font-normal">{node.name}</span>
                               </div>
                               {point?.isToday && (historyRange === '7d' || historyRange === '30d') && (
                                 <div className="text-[10px] text-amber-400 font-medium">
                                   Today so far ({point.elapsedHours}h of 24h elapsed)
+                                </div>
+                              )}
+                              {point?.isPreCommission && historyRange === '1y' && (
+                                <div className="text-[10px] text-slate-400 italic">
+                                  Device not yet registered (Commissioned {point.commissionDateLabel})
+                                </div>
+                              )}
+                              {point?.isCommissionMonth && historyRange === '1y' && (
+                                <div className="text-[10px] text-emerald-400 font-medium">
+                                  Commissioned {point.commissionDateLabel} ({point.activeDays} days metered)
                                 </div>
                               )}
                               {point?.isCurrentMonth && historyRange === '1y' && (
@@ -2007,6 +2087,7 @@ function EnergyFlowOverview({ data, onSelectNode }) {
                   slaveId: '0x01-0x11',
                   deviceName: 'WAPDA Grid (B1+B2)',
                   busChannel: 'Grid Feeders Dual-Inflow',
+                  createdAt: '2026-09-18T00:00:00.000Z',
                 },
                 'B1+B2'
               )
@@ -2046,6 +2127,7 @@ function EnergyFlowOverview({ data, onSelectNode }) {
                   slaveId: '0x1D-ALL',
                   deviceName: 'Facility Load Totalizer',
                   busChannel: 'Main Plant Distribution',
+                  createdAt: '2026-09-18T00:00:00.000Z',
                 },
                 'B1+B2'
               )
@@ -2085,6 +2167,7 @@ function EnergyFlowOverview({ data, onSelectNode }) {
                   slaveId: '7-INV',
                   deviceName: 'Solar Farm Inverters (7x)',
                   busChannel: 'PV Inverter Bus RS485',
+                  createdAt: '2026-09-18T00:00:00.000Z',
                 },
                 'B1+B2'
               )
@@ -2124,6 +2207,7 @@ function EnergyFlowOverview({ data, onSelectNode }) {
                   slaveId: 'GEN-ALL',
                   deviceName: 'Diesel Generators Totalizer',
                   busChannel: 'Synchronizing Panel',
+                  createdAt: '2026-09-18T00:00:00.000Z',
                 },
                 'B1+B2'
               )
