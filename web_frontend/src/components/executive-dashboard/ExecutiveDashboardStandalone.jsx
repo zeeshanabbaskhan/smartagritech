@@ -407,7 +407,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
 
   const [activeTab, setActiveTab] = useState('telemetry') // 'telemetry' | 'history' | 'export'
   const [isMaximized, setIsMaximized] = useState(false)
-  const [historyRange, setHistoryRange] = useState('24h') // '1h' | '24h' | '7d' | '30d'
+  const [historyRange, setHistoryRange] = useState('24h') // '1h' | '24h' | '7d' | '30d' | '1y'
   const [historyVariable, setHistoryVariable] = useState('both') // 'both' | 'Total Power' | 'Units' | any variable key
   const [chartType, setChartType] = useState('bar') // 'bar' (default bar graph) | 'area'
 
@@ -690,7 +690,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
           elapsedHours: elapsedHoursToday,
         }
       })
-    } else {
+    } else if (historyRange === '30d') {
       // 30 Days: dynamically compute the past 30 days rolling backwards from today
       const dailySolarYieldKwh = isGenerating ? Number((solarPeakKw * 5.2).toFixed(1)) : 0
       const totalGensetMonthKwh = isGenset ? Number((gensetOperatingKw * 1.8 * 12).toFixed(1)) : 0
@@ -768,6 +768,98 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
           value: historyVariable === 'Units' ? intervalUnits : val,
           isToday,
           elapsedHours: elapsedHoursToday,
+        }
+      })
+    } else {
+      // 1y (Yearly): 12 rolling months ending at current month
+      const currentYear = now.getFullYear()
+      const currentMonth = now.getMonth()
+      const daysInCurrentMonth = new Date(currentYear, currentMonth + 1, 0).getDate()
+      const elapsedDaysThisMonth = Math.max(0.1, Number(((now.getDate() - 1) + (now.getHours() + now.getMinutes() / 60) / 24).toFixed(2)))
+      const currentMonthFraction = elapsedDaysThisMonth / daysInCurrentMonth
+
+      // Pre-calculate current month's partial units so far:
+      let currentMonthUnits = 0
+      let currentMonthPower = 0
+      if (isGenerating) {
+        const currentMonthSeason = (currentMonth >= 4 && currentMonth <= 8) ? 1.22 : (currentMonth === 11 || currentMonth <= 1) ? 0.78 : 1.02
+        const fullCurrentMonthSolar = Number((solarPeakKw * 5.2 * daysInCurrentMonth * currentMonthSeason).toFixed(1))
+        currentMonthUnits = Number((fullCurrentMonthSolar * currentMonthFraction).toFixed(1))
+        currentMonthPower = basePower
+      } else if (isGenset) {
+        if (basePower > 5) {
+          currentMonthUnits = Number((basePower * elapsedDaysThisMonth * 24).toFixed(1))
+          currentMonthPower = basePower
+        } else {
+          const runsThisMonth = Math.floor((now.getDate() / 31) * 12)
+          currentMonthUnits = Number((gensetOperatingKw * 1.8 * runsThisMonth).toFixed(1))
+          currentMonthPower = 0
+        }
+      } else {
+        currentMonthPower = Number(basePower.toFixed(1))
+        currentMonthUnits = Number((basePower * elapsedDaysThisMonth * 24).toFixed(1))
+      }
+
+      points = Array.from({ length: 12 }, (_, i) => {
+        const isCurrentMonth = i === 11
+        const pt = new Date(currentYear, currentMonth - (11 - i), 1)
+        const m = pt.getMonth()
+        const mShort = pt.toLocaleDateString('en-US', { month: 'short' })
+        const yShort = String(pt.getFullYear()).slice(-2)
+        const monthLabel = `${mShort} '${yShort}`
+        const daysInMonth = new Date(pt.getFullYear(), pt.getMonth() + 1, 0).getDate()
+        const effectiveDays = isCurrentMonth ? elapsedDaysThisMonth : daysInMonth
+
+        // Industrial seasonality: May-Aug higher chilling/AC load, Dec-Feb lower
+        const industrialSeason = (m >= 4 && m <= 8) ? 1.15 : (m === 11 || m <= 1) ? 0.88 : 1.0
+        // Solar seasonality: longer daylight in summer (~1.25), shorter in winter (~0.76)
+        const solarSeason = (m >= 4 && m <= 8) ? 1.25 : (m === 11 || m <= 1) ? 0.76 : 1.02
+        const jitter = Math.sin(i * 0.7) * 0.05
+
+        let p = 0
+        let intervalUnits = 0
+
+        if (isCurrentMonth) {
+          p = currentMonthPower
+          intervalUnits = currentMonthUnits
+        } else if (isGenerating) {
+          const fullMonthSolar = Number((solarPeakKw * 5.2 * daysInMonth * solarSeason * (1 + jitter)).toFixed(1))
+          intervalUnits = fullMonthSolar
+          p = Number((intervalUnits / (daysInMonth * 24)).toFixed(1))
+        } else if (isGenset) {
+          if (basePower > 5) {
+            p = Number(Math.max(0, basePower * (1 + jitter)).toFixed(1))
+            intervalUnits = Number((p * daysInMonth * 24).toFixed(1))
+          } else {
+            const runHours = (m >= 4 && m <= 8) ? 14 : 9
+            intervalUnits = Number((gensetOperatingKw * runHours * (1 + jitter)).toFixed(1))
+            p = Number((intervalUnits / (daysInMonth * 24)).toFixed(1))
+          }
+        } else {
+          p = Number(Math.max(0, basePower * industrialSeason * (1 + jitter)).toFixed(1))
+          intervalUnits = Number((p * daysInMonth * 24).toFixed(1))
+        }
+
+        const pastMonthFullUnits = isGenerating
+          ? Number((solarPeakKw * 5.2 * daysInMonth * solarSeason).toFixed(1))
+          : isGenset
+            ? (gensetOperatingKw * ((m >= 4 && m <= 8) ? 14 : 9))
+            : Number((basePower * industrialSeason * daysInMonth * 24).toFixed(1))
+
+        const cumulativeUnits = isCurrentMonth
+          ? baseUnits
+          : Number(Math.max(0, baseUnits - currentMonthUnits - ((10 - i) * pastMonthFullUnits)).toFixed(1))
+
+        const val = selectedVar ? Number((customBase * (isCurrentMonth ? 1 : 1 + jitter)).toFixed(1)) : p
+        return {
+          timestamp: monthLabel,
+          power: p,
+          units: intervalUnits,
+          cumulativeUnits,
+          value: historyVariable === 'Units' ? intervalUnits : val,
+          isCurrentMonth,
+          elapsedDays: elapsedDaysThisMonth,
+          daysInMonth,
         }
       })
     }
@@ -1214,7 +1306,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
 
                   {/* Range Presets */}
                   <div className="flex rounded-lg border border-surface-200 dark:border-surface-800 overflow-hidden text-xs bg-white dark:bg-surface-900">
-                    {['1h', '24h', '7d', '30d'].map((range) => (
+                    {['1h', '24h', '7d', '30d', '1y'].map((range) => (
                       <button
                         key={range}
                         type="button"
@@ -1352,7 +1444,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                           return (
                             <div className="bg-surface-900 border border-surface-700 p-2.5 rounded-lg shadow-xl text-xs space-y-1.5 min-w-[200px]">
                               <div className="font-bold text-surface-200 border-b border-surface-800 pb-1 flex items-center justify-between gap-3">
-                                <span>{label}{point?.isToday ? ' (Today - In Progress)' : ''}</span>
+                                <span>{label}{point?.isToday ? ' (Today - In Progress)' : point?.isCurrentMonth ? ' (Current Month - In Progress)' : ''}</span>
                                 <span className="text-[10px] text-surface-400 font-normal">{node.name}</span>
                               </div>
                               {point?.isToday && (historyRange === '7d' || historyRange === '30d') && (
@@ -1360,11 +1452,16 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                                   Today so far ({point.elapsedHours}h of 24h elapsed)
                                 </div>
                               )}
+                              {point?.isCurrentMonth && historyRange === '1y' && (
+                                <div className="text-[10px] text-amber-400 font-medium">
+                                  Current month so far ({point.elapsedDays} of {point.daysInMonth} days elapsed)
+                                </div>
+                              )}
                               {payload.map((entry, idx) => (
                                 <div key={idx} className="flex items-center justify-between gap-4 text-[11px]">
                                   <span className="flex items-center gap-1.5" style={{ color: entry.color }}>
                                     <span className="w-2 h-2 rounded-xs inline-block" style={{ backgroundColor: entry.color }} />
-                                    {entry.name}{point?.isToday && entry.name === 'Units' ? ' (So Far)' : ''}:
+                                    {entry.name}{(point?.isToday || point?.isCurrentMonth) && (entry.name === 'Units' || entry.name.startsWith('Units')) ? ' (So Far)' : ''}:
                                   </span>
                                   <span className="font-mono font-bold text-white">
                                     {typeof entry.value === 'number' ? entry.value.toLocaleString() : entry.value}
@@ -1401,7 +1498,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                           name="Power (kW)"
                           fill="#2563EB"
                           radius={[3, 3, 0, 0]}
-                          maxBarSize={historyRange === '1h' ? 24 : historyRange === '24h' ? 14 : 20}
+                          maxBarSize={historyRange === '1h' ? 24 : historyRange === '24h' ? 14 : historyRange === '1y' ? 22 : 20}
                         />
                       )}
 
@@ -1413,7 +1510,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                           name="Units (kWh)"
                           fill="#10B981"
                           radius={[3, 3, 0, 0]}
-                          maxBarSize={historyRange === '1h' ? 24 : historyRange === '24h' ? 14 : 20}
+                          maxBarSize={historyRange === '1h' ? 24 : historyRange === '24h' ? 14 : historyRange === '1y' ? 22 : 20}
                         />
                       )}
 
@@ -1425,7 +1522,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                           name={variables.find((v) => v.key === historyVariable)?.shortName || 'Value'}
                           fill="#3B82F6"
                           radius={[3, 3, 0, 0]}
-                          maxBarSize={historyRange === '1h' ? 24 : historyRange === '24h' ? 14 : 20}
+                          maxBarSize={historyRange === '1h' ? 24 : historyRange === '24h' ? 14 : historyRange === '1y' ? 22 : 20}
                         />
                       )}
                     </BarChart>
@@ -1490,7 +1587,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                           return (
                             <div className="bg-surface-900 border border-surface-700 p-2 rounded-lg shadow-xl text-xs space-y-1 min-w-[190px]">
                               <div className="font-bold text-surface-200 border-b border-surface-800 pb-1 flex items-center justify-between gap-3">
-                                <span>{label}{point?.isToday ? ' (Today - In Progress)' : ''}</span>
+                                <span>{label}{point?.isToday ? ' (Today - In Progress)' : point?.isCurrentMonth ? ' (Current Month - In Progress)' : ''}</span>
                                 <span className="text-[10px] text-surface-400 font-normal">{node.name}</span>
                               </div>
                               {point?.isToday && (historyRange === '7d' || historyRange === '30d') && (
@@ -1498,11 +1595,16 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                                   Today so far ({point.elapsedHours}h of 24h elapsed)
                                 </div>
                               )}
+                              {point?.isCurrentMonth && historyRange === '1y' && (
+                                <div className="text-[10px] text-amber-400 font-medium">
+                                  Current month so far ({point.elapsedDays} of {point.daysInMonth} days elapsed)
+                                </div>
+                              )}
                               {payload.map((entry, idx) => (
                                 <div key={idx} className="flex items-center justify-between gap-4 text-[11px]">
                                   <span className="flex items-center gap-1.5" style={{ color: entry.color }}>
                                     <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: entry.color }} />
-                                    {entry.name}{point?.isToday && entry.name === 'Units' ? ' (So Far)' : ''}:
+                                    {entry.name}{(point?.isToday || point?.isCurrentMonth) && (entry.name === 'Units' || entry.name.startsWith('Units')) ? ' (So Far)' : ''}:
                                   </span>
                                   <span className="font-mono font-bold text-white">
                                     {typeof entry.value === 'number' ? entry.value.toLocaleString() : entry.value}
@@ -1789,6 +1891,22 @@ function EnergyFlowOverview({ data, onSelectNode }) {
   const slaveThresholds = executiveLimits.slaveThresholds || {}
   const slaveDefault = executiveLimits.slaveDefault || {}
 
+  // Aggregate cumulative units for top plant overview cards
+  const b1WapdaUnits = Number(building1.sources?.find((s) => s.id === 'b1-wapda')?.units || (building1.sources?.find((s) => s.id === 'b1-wapda')?.loadKw ? Number(building1.sources.find((s) => s.id === 'b1-wapda').loadKw) * 240.5 : 0))
+  const b2WapdaUnits = Number(building2.sources?.find((s) => s.id === 'b2-wapda')?.units || (building2.sources?.find((s) => s.id === 'b2-wapda')?.loadKw ? Number(building2.sources.find((s) => s.id === 'b2-wapda').loadKw) * 240.5 : 0))
+  const totalWapdaUnits = Number((b1WapdaUnits + b2WapdaUnits || (Number(metrics.totalWapda || 0) * 240.5)).toFixed(1))
+
+  const totalRunningUnits = Number(((Number(building1.runningLoad || 0) + Number(building2.runningLoad || 0)) * 240.5 || Number(metrics.totalRunningLoad || 0) * 240.5).toFixed(1))
+
+  const b1SolarUnits = Number(building1.sources?.find((s) => s.type === 'solar')?.units || (building1.sources?.find((s) => s.type === 'solar')?.loadKw ? Number(building1.sources.find((s) => s.type === 'solar').loadKw) * 180.2 : 0))
+  const b2SolarUnits = Number(building2.sources?.find((s) => s.type === 'solar')?.units || (building2.sources?.find((s) => s.type === 'solar')?.loadKw ? Number(building2.sources.find((s) => s.type === 'solar').loadKw) * 180.2 : 0))
+  const totalSolarUnits = Number((b1SolarUnits + b2SolarUnits || (Number(metrics.solarTotal || 0) * 180.2)).toFixed(1))
+
+  const b1Gen1Units = Number(building1.sources?.find((s) => s.id === 'b1-genset1')?.units || 0)
+  const b1Gen2Units = Number(building1.sources?.find((s) => s.id === 'b1-genset2')?.units || 0)
+  const b2GenUnits = Number(building2.sources?.find((s) => s.type === 'genset')?.units || 0)
+  const totalGensetUnits = Number((b1Gen1Units + b1Gen2Units + b2GenUnits || (Number(metrics.totalGenset || 0) > 0 ? Number(metrics.totalGenset) * 120.0 : 4520.0)).toFixed(1))
+
   const renderBreakerBox = (b, buildingCode) => {
     if (!b) return null
     const name = b.name || ''
@@ -1872,7 +1990,30 @@ function EnergyFlowOverview({ data, onSelectNode }) {
       <div className="flex justify-center mb-0.5">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-1.5 w-full max-w-2xl">
           {/* Total WAPDA */}
-          <div className="py-0.5 px-2 rounded-lg border-2 border-blue-500 bg-white dark:bg-slate-900 text-center shadow-2xs">
+          <div
+            onClick={() =>
+              onSelectNode?.(
+                {
+                  id: 'total-wapda-plant',
+                  name: 'Total WAPDA',
+                  category: 'Grid Inflow (Dual-Building B1 + B2)',
+                  loadKw: Number(metrics.totalWapda || 0),
+                  units: totalWapdaUnits,
+                  type: 'wapda',
+                  status: Number(metrics.totalWapda || 0) > 0 ? 'active' : 'idle',
+                  ratedA: 2500,
+                  voltage: 400.0,
+                  powerFactor: 0.94,
+                  slaveId: '0x01-0x11',
+                  deviceName: 'WAPDA Grid (B1+B2)',
+                  busChannel: 'Grid Feeders Dual-Inflow',
+                },
+                'B1+B2'
+              )
+            }
+            className="py-0.5 px-2 rounded-lg border-2 border-blue-500 bg-white dark:bg-slate-900 text-center shadow-2xs cursor-pointer hover:scale-[1.02] hover:border-blue-600 transition"
+            title="Click to view Total WAPDA live telemetry, historical graph & export"
+          >
             <div className="flex items-center justify-center gap-1.5">
               <Zap size={14} className="text-blue-600 dark:text-blue-400 shrink-0" />
               <span className="text-[8px] sm:text-[8.5px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 block truncate">
@@ -1888,7 +2029,30 @@ function EnergyFlowOverview({ data, onSelectNode }) {
           </div>
 
           {/* Total Running Load B1 + B2 */}
-          <div className="py-0.5 px-2 rounded-lg border-2 border-blue-600 bg-white dark:bg-slate-900 text-center shadow-2xs ring-1 ring-blue-500/30">
+          <div
+            onClick={() =>
+              onSelectNode?.(
+                {
+                  id: 'total-running-load-plant',
+                  name: 'Total Running Load B1 + B2',
+                  category: 'Plant Dual-Facility Total Inflow',
+                  loadKw: Number(metrics.totalRunningLoad || 0),
+                  units: totalRunningUnits,
+                  type: 'load',
+                  status: 'active',
+                  ratedA: 3200,
+                  voltage: 400.0,
+                  powerFactor: 0.95,
+                  slaveId: '0x1D-ALL',
+                  deviceName: 'Facility Load Totalizer',
+                  busChannel: 'Main Plant Distribution',
+                },
+                'B1+B2'
+              )
+            }
+            className="py-0.5 px-2 rounded-lg border-2 border-blue-600 bg-white dark:bg-slate-900 text-center shadow-2xs ring-1 ring-blue-500/30 cursor-pointer hover:scale-[1.02] hover:border-blue-700 transition"
+            title="Click to view Total Running Load live telemetry, historical graph & export"
+          >
             <div className="flex items-center justify-center gap-1.5">
               <Activity size={14} className="text-blue-600 dark:text-blue-400 shrink-0" />
               <span className="text-[8px] sm:text-[8.5px] font-black uppercase tracking-wider text-blue-600 dark:text-blue-400 block truncate">
@@ -1904,7 +2068,30 @@ function EnergyFlowOverview({ data, onSelectNode }) {
           </div>
 
           {/* Solar Total */}
-          <div className="py-0.5 px-2 rounded-lg border-2 border-amber-500 bg-white dark:bg-slate-900 text-center shadow-2xs">
+          <div
+            onClick={() =>
+              onSelectNode?.(
+                {
+                  id: 'total-solar-plant',
+                  name: 'Solar Total (All 7 Inverters B1+B2)',
+                  category: 'Solar Generation (B1 5-Inv + B2 2-Inv)',
+                  loadKw: Number(metrics.solarTotal || 0),
+                  units: totalSolarUnits,
+                  type: 'solar',
+                  status: Number(metrics.solarTotal || 0) > 0 ? 'generating' : 'idle',
+                  ratedA: 1200,
+                  voltage: 400.0,
+                  powerFactor: 0.98,
+                  slaveId: '7-INV',
+                  deviceName: 'Solar Farm Inverters (7x)',
+                  busChannel: 'PV Inverter Bus RS485',
+                },
+                'B1+B2'
+              )
+            }
+            className="py-0.5 px-2 rounded-lg border-2 border-amber-500 bg-white dark:bg-slate-900 text-center shadow-2xs cursor-pointer hover:scale-[1.02] hover:border-amber-600 transition"
+            title="Click to view Solar Total live telemetry, historical graph & export"
+          >
             <div className="flex items-center justify-center gap-1.5">
               <Sun size={14} className="text-amber-600 dark:text-amber-400 shrink-0" />
               <span className="text-[8px] sm:text-[8.5px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 block truncate">
@@ -1920,7 +2107,30 @@ function EnergyFlowOverview({ data, onSelectNode }) {
           </div>
 
           {/* Total Genset */}
-          <div className="py-0.5 px-2 rounded-lg border-2 border-purple-500 bg-white dark:bg-slate-900 text-center shadow-2xs">
+          <div
+            onClick={() =>
+              onSelectNode?.(
+                {
+                  id: 'total-genset-plant',
+                  name: 'Total Genset',
+                  category: 'Diesel Generation (G1, G2 AMB + Gen AFL)',
+                  loadKw: Number(metrics.totalGenset || 0),
+                  units: totalGensetUnits,
+                  type: 'genset',
+                  status: Number(metrics.totalGenset || 0) > 5 ? 'active' : 'idle',
+                  ratedA: 2000,
+                  voltage: 400.0,
+                  powerFactor: 0.92,
+                  slaveId: 'GEN-ALL',
+                  deviceName: 'Diesel Generators Totalizer',
+                  busChannel: 'Synchronizing Panel',
+                },
+                'B1+B2'
+              )
+            }
+            className="py-0.5 px-2 rounded-lg border-2 border-purple-500 bg-white dark:bg-slate-900 text-center shadow-2xs cursor-pointer hover:scale-[1.02] hover:border-purple-600 transition"
+            title="Click to view Total Genset live telemetry, historical graph & export"
+          >
             <div className="flex items-center justify-center gap-1.5">
               <Fuel size={14} className="text-purple-600 dark:text-purple-400 shrink-0" />
               <span className="text-[8px] sm:text-[8.5px] font-bold uppercase tracking-wider text-purple-600 dark:text-purple-400 block truncate">
