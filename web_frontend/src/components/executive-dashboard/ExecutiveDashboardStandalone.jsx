@@ -69,12 +69,13 @@ export const INITIAL_FLOW_DATA = {
     name: 'B1 (Ambition Plant)',
     code: 'B1',
     runningLoad: 568.8,
+    units: 428798.0,
     maxCapacityKw: 2000,
     sources: [
-      { id: 'b1-wapda', name: 'WAPDA-AMB', type: 'grid', loadKw: 432.6, voltage: 402, current: 620, pf: 0.98, status: 'active' },
-      { id: 'b1-genset1', name: 'Genset 01 (G1)', type: 'genset', loadKw: 0.0, voltage: 400, current: 0, pf: 0.96, status: 'standby' },
-      { id: 'b1-genset2', name: 'Genset 02 (G2)', type: 'genset', loadKw: 0.0, voltage: 400, current: 0, pf: 0.95, status: 'standby' },
-      { id: 'b1-solar', name: 'Solar AMB (5 Inv)', type: 'solar', loadKw: 136.2, voltage: 405, current: 195, pf: 0.99, status: 'generating' },
+      { id: 'b1-wapda', name: 'WAPDA-AMB', type: 'grid', loadKw: 432.6, voltage: 402, current: 620, pf: 0.98, status: 'active', units: 369630.0, slaveId: '70fbfe31-667a-45cc-86e4-1c25bf4607dd', deviceId: '04fa70be-06e8-423b-bc22-fa76178a909f' },
+      { id: 'b1-genset1', name: 'Genset 01 (G1)', type: 'genset', loadKw: 0.0, voltage: 400, current: 0, pf: 0.96, status: 'standby', units: 0.0 },
+      { id: 'b1-genset2', name: 'Genset 02 (G2)', type: 'genset', loadKw: 0.0, voltage: 400, current: 0, pf: 0.95, status: 'standby', units: 0.0 },
+      { id: 'b1-solar', name: 'Solar AMB (5 Inv)', type: 'solar', loadKw: 136.2, voltage: 405, current: 195, pf: 0.99, status: 'generating', units: 59168.0, slaveId: '8910d746-2eb2-4293-9feb-53f51b8d932b', deviceId: 'b9e024c1-2fbb-4b53-bc2b-f1bab8fc7f12' },
     ],
     // 4 exact rows of real registered Ambition slaves:
     row1: [
@@ -96,9 +97,9 @@ export const INITIAL_FLOW_DATA = {
       { id: 'b1-r2-7', name: 'Wash-Random-UPS', ratedA: 200, loadKw: 2.6, status: 'normal' },
     ],
     row3: [
-      { id: 'b1-r3-1', name: 'Solar-INVT-4', ratedA: 160, loadKw: 35.0, status: 'generating' },
-      { id: 'b1-r3-2', name: 'Solar-INVT-5', ratedA: 160, loadKw: 32.2, status: 'generating' },
-      { id: 'b1-r3-3', name: 'Solar AMB-1,2,3', ratedA: 160, loadKw: 59.2, status: 'generating' },
+      { id: 'b1-r3-1', name: 'Solar-INVT-4', ratedA: 160, loadKw: 35.0, status: 'generating', units: 11684.5, slaveId: 'a05f0098-9046-4a20-8d78-9ce46d4f3535', deviceId: 'b9e024c1-2fbb-4b53-bc2b-f1bab8fc7f12' },
+      { id: 'b1-r3-2', name: 'Solar-INVT-5', ratedA: 160, loadKw: 32.2, status: 'generating', units: 14561.8, slaveId: '7683034e-bfc6-429a-b1c3-7aa559ad9442', deviceId: 'b9e024c1-2fbb-4b53-bc2b-f1bab8fc7f12' },
+      { id: 'b1-r3-3', name: 'Solar AMB-1,2,3', ratedA: 160, loadKw: 59.2, status: 'generating', units: 32921.7, slaveId: '8910d746-2eb2-4293-9feb-53f51b8d932b', deviceId: 'b9e024c1-2fbb-4b53-bc2b-f1bab8fc7f12' },
       { id: 'b1-r3-4', name: 'Dryer Hall', ratedA: 350, loadKw: 89.4, status: 'normal' },
       { id: 'b1-r3-5', name: 'WashingLTPanel', ratedA: 400, loadKw: 241.9, status: 'heavy' },
       { id: 'b1-r3-6', name: 'Spare-1', ratedA: 100, loadKw: 0.0, status: 'spare' },
@@ -107,7 +108,7 @@ export const INITIAL_FLOW_DATA = {
     row4: [
       { id: 'b1-r4-1', name: 'G1', ratedA: 100, loadKw: 0.0, status: 'normal' },
       { id: 'b1-r4-2', name: 'G2', ratedA: 100, loadKw: 0.0, status: 'normal' },
-      { id: 'b1-r4-3', name: 'WAPDA-AMB', ratedA: 400, loadKw: 432.6, status: 'heavy' },
+      { id: 'b1-r4-3', name: 'WAPDA-AMB', ratedA: 400, loadKw: 432.6, status: 'heavy', units: 369630.0, slaveId: '70fbfe31-667a-45cc-86e4-1c25bf4607dd', deviceId: '04fa70be-06e8-423b-bc22-fa76178a909f' },
       { id: 'b1-r4-4', name: 'Tie-Feeder to AFL', ratedA: 350, loadKw: 0.0, status: 'tie-line' },
     ],
   },
@@ -116,11 +117,12 @@ export const INITIAL_FLOW_DATA = {
     name: 'Building 2 (AFL Plant)',
     code: 'B2',
     runningLoad: 171.7,
+    units: 201421.0,
     maxCapacityKw: 1800,
     sources: [
-      { id: 'b2-solar', name: 'Solar AFL', type: 'solar', loadKw: 59.0, voltage: 405, current: 85, pf: 0.99, status: 'generating' },
-      { id: 'b2-genset', name: 'Genset (G3 AFL)', type: 'genset', loadKw: 0.0, voltage: 400, current: 0, pf: 0.96, status: 'standby' },
-      { id: 'b2-wapda', name: 'WAPDA-AFL', type: 'grid', loadKw: 112.7, voltage: 401, current: 162, pf: 0.98, status: 'active' },
+      { id: 'b2-solar', name: 'Solar AFL', type: 'solar', loadKw: 59.0, voltage: 405, current: 85, pf: 0.99, status: 'generating', units: 21692.5, slaveId: '97b044fb-2619-4aa2-acba-b2bd6240e471', deviceId: 'cdd6d1b1-6fd8-48a5-9984-5e220328571d' },
+      { id: 'b2-genset', name: 'Genset (G3 AFL)', type: 'genset', loadKw: 0.0, voltage: 400, current: 0, pf: 0.96, status: 'standby', units: 7038.9, slaveId: 'aa419c5c-27e5-460c-b9a4-ad4be67184f9', deviceId: 'cdd6d1b1-6fd8-48a5-9984-5e220328571d' },
+      { id: 'b2-wapda', name: 'WAPDA-AFL', type: 'grid', loadKw: 112.7, voltage: 401, current: 162, pf: 0.98, status: 'active', units: 179728.5, slaveId: '27b7fd32-1ac6-480c-82eb-280abf6d0636', deviceId: 'cdd6d1b1-6fd8-48a5-9984-5e220328571d' },
     ],
     // 4 exact rows of real registered AFL slaves:
     row1: [
@@ -138,7 +140,7 @@ export const INITIAL_FLOW_DATA = {
       { id: 'b2-r2-3', name: 'Comp', ratedA: 150, loadKw: 0.0, status: 'normal' },
       { id: 'b2-r2-4', name: 'ETP-AFL', ratedA: 200, loadKw: 23.4, status: 'normal' },
       { id: 'b2-r2-5', name: 'Air Cooler 2nd Floor', ratedA: 100, loadKw: 0.0, status: 'normal' },
-      { id: 'b2-r2-6', name: 'Solar AFL', ratedA: 250, loadKw: 59.0, status: 'generating' },
+      { id: 'b2-r2-6', name: 'Solar AFL', ratedA: 250, loadKw: 59.0, status: 'generating', units: 21692.5, slaveId: '97b044fb-2619-4aa2-acba-b2bd6240e471', deviceId: 'cdd6d1b1-6fd8-48a5-9984-5e220328571d' },
       { id: 'b2-r2-7', name: 'Drain Pump', ratedA: 125, loadKw: 0.0, status: 'normal' },
     ],
     row3: [
@@ -151,8 +153,8 @@ export const INITIAL_FLOW_DATA = {
       { id: 'b2-r3-7', name: 'Spare Feeder 2', ratedA: 100, loadKw: 0.0, status: 'spare' },
     ],
     row4: [
-      { id: 'b2-r4-1', name: 'G3 AFL', ratedA: 150, loadKw: 0.0, status: 'normal' },
-      { id: 'b2-r4-2', name: 'WAPDA-AFL', ratedA: 200, loadKw: 112.7, status: 'normal' },
+      { id: 'b2-r4-1', name: 'G3 AFL', ratedA: 150, loadKw: 0.0, status: 'normal', units: 7038.9, slaveId: 'aa419c5c-27e5-460c-b9a4-ad4be67184f9', deviceId: 'cdd6d1b1-6fd8-48a5-9984-5e220328571d' },
+      { id: 'b2-r4-2', name: 'WAPDA-AFL', ratedA: 200, loadKw: 112.7, status: 'normal', units: 179728.5, slaveId: '27b7fd32-1ac6-480c-82eb-280abf6d0636', deviceId: 'cdd6d1b1-6fd8-48a5-9984-5e220328571d' },
       { id: 'b2-r4-3', name: 'From Ambition (Tie-Line)', ratedA: 300, loadKw: 0.0, status: 'tie-line' },
     ],
   },
@@ -675,6 +677,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
       : basePower
 
     const resolvedUnits = Number(node.units) || variables.find((v) => v.key === 'Units')?.value || 0
+    const minPeriodUnits = historyRange === '30d' ? basePower * 24 * 30 : historyRange === '7d' ? basePower * 24 * 7 : basePower * 24
     const baseUnits = isSpareOrZero
       ? 0
       : (resolvedUnits > 0
@@ -683,7 +686,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
             ? Number((solarPeakKw * 350).toFixed(1))
             : isGenset
               ? Number((gensetOperatingKw * 50).toFixed(1))
-              : (basePower > 0 ? Number((basePower * 240.5).toFixed(1)) : 0))
+              : (basePower > 0 ? Number(Math.max(basePower * 240.5, minPeriodUnits).toFixed(1)) : 0))
 
     const selectedVar = variables.find((v) => v.key === historyVariable)
     const customBase = selectedVar ? (selectedVar.value ?? 0) : basePower
@@ -1132,8 +1135,10 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
     const minPower = powerVals.length > 0 ? Math.min(...powerVals) : 0
     const avgPower = powerVals.length > 0 ? (powerVals.reduce((a, b) => a + b, 0) / powerVals.length) : 0
 
-    const curUnits = cumVals.length > 0 ? cumVals[cumVals.length - 1] : 0
+    const rawCurUnits = cumVals.length > 0 ? cumVals[cumVals.length - 1] : 0
     const periodUnits = unitVals.length > 0 ? unitVals.reduce((a, b) => a + b, 0) : 0
+    // Physical metering rule: cumulative lifetime meter units cannot be less than period consumption
+    const curUnits = Math.max(rawCurUnits, periodUnits)
 
     const generalVals = pointsToUse.map((d) => d.value)
     const peak = generalVals.length > 0 ? Math.max(...generalVals) : 0
