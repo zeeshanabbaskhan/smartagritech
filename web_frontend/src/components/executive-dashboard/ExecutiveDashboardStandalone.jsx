@@ -529,6 +529,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
             if (!pt || !pt.timestamp) continue
             const tDate = new Date(pt.timestamp)
             if (isNaN(tDate.getTime())) continue
+            if (tDate > now) continue // Strictly discard any future timestamp
 
             const timeKey = tDate.toISOString()
             let entry = bucketMap.get(timeKey)
@@ -596,13 +597,17 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
             }
           }
 
-          const p = Number(item.powerSum.toFixed(1))
+          let p = Number(item.powerSum.toFixed(1))
+          if (isGenerating && (historyRange === '7d' || historyRange === '30d' || historyRange === '1y') && p > 0) {
+            // Restore daylight generating peak power from 24h diluted average
+            p = Number(Math.max(p * (24 / 5.2), basePower).toFixed(1))
+          }
           let u = 0
           if (item.unitsSum > 0) {
             u = Number(item.unitsSum.toFixed(1))
           } else if (p > 0) {
             const bucketHours = historyRange === '1h' ? (5 / 60) : historyRange === '24h' ? 1 : (historyRange === '7d' || historyRange === '30d') ? 24 : 720
-            u = Number((p * bucketHours).toFixed(1))
+            u = Number(((isGenerating ? p * (5.2 / 24) : p) * bucketHours).toFixed(1))
           }
 
           rollingCumulative = Number((rollingCumulative + u).toFixed(1))
@@ -839,7 +844,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
           intervalUnits = todayUnits
         } else if (isGenerating) {
           intervalUnits = Number((dailySolarYieldKwh * weatherFactor).toFixed(1))
-          p = Number((intervalUnits / 24).toFixed(1))
+          p = Number(Math.max(0, solarPeakKw * weatherFactor * (1 + jitter)).toFixed(1))
         } else if (isGenset) {
           if (basePower > 5) {
             p = Number(Math.max(0, basePower * (1 + jitter)).toFixed(1))
@@ -918,7 +923,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
           intervalUnits = todayUnits
         } else if (isGenerating) {
           intervalUnits = Number((dailySolarYieldKwh * weatherFactor).toFixed(1))
-          p = Number((intervalUnits / 24).toFixed(1))
+          p = Number(Math.max(0, solarPeakKw * weatherFactor * (1 + jitter)).toFixed(1))
         } else if (isGenset) {
           const isRunDay = (i % 3 === 0 || i % 7 === 2)
           if (basePower > 5) {
@@ -1050,7 +1055,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
           activeDays = Math.max(1, daysInMonth - commissionDay + 1)
           if (isGenerating) {
             intervalUnits = Number((solarPeakKw * 5.2 * activeDays * solarSeason * (1 + jitter)).toFixed(1))
-            p = Number((intervalUnits / (activeDays * 24)).toFixed(1))
+            p = Number(Math.max(0, solarPeakKw * solarSeason * (1 + jitter)).toFixed(1))
           } else if (isGenset) {
             if (basePower > 5) {
               p = Number(Math.max(0, basePower * (1 + jitter)).toFixed(1))
@@ -1069,7 +1074,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
           activeDays = daysInMonth
           if (isGenerating) {
             intervalUnits = Number((solarPeakKw * 5.2 * daysInMonth * solarSeason * (1 + jitter)).toFixed(1))
-            p = Number((intervalUnits / (daysInMonth * 24)).toFixed(1))
+            p = Number(Math.max(0, solarPeakKw * solarSeason * (1 + jitter)).toFixed(1))
           } else if (isGenset) {
             if (basePower > 5) {
               p = Number(Math.max(0, basePower * (1 + jitter)).toFixed(1))
@@ -2225,7 +2230,9 @@ function EnergyFlowOverview({ data, onSelectNode }) {
   const b2WapdaUnits = Number(building2.sources?.find((s) => s.id === 'b2-wapda')?.units || (building2.sources?.find((s) => s.id === 'b2-wapda')?.loadKw ? Number(building2.sources.find((s) => s.id === 'b2-wapda').loadKw) * 240.5 : 0))
   const totalWapdaUnits = Number((b1WapdaUnits + b2WapdaUnits || (Number(metrics.totalWapda || 0) * 240.5)).toFixed(1))
 
-  const totalRunningUnits = Number(((Number(building1.runningLoad || 0) + Number(building2.runningLoad || 0)) * 240.5 || Number(metrics.totalRunningLoad || 0) * 240.5).toFixed(1))
+  const b1RunningUnits = Number(building1.units || (building1.sources || []).reduce((sum, s) => sum + (Number(s.units) || 0), 0) || (Number(building1.runningLoad || 0) * 240.5))
+  const b2RunningUnits = Number(building2.units || (building2.sources || []).reduce((sum, s) => sum + (Number(s.units) || 0), 0) || (Number(building2.runningLoad || 0) * 240.5))
+  const totalRunningUnits = Number((b1RunningUnits + b2RunningUnits).toFixed(1))
 
   const b1SolarUnits = Number(building1.sources?.find((s) => s.type === 'solar')?.units || (building1.sources?.find((s) => s.type === 'solar')?.loadKw ? Number(building1.sources.find((s) => s.type === 'solar').loadKw) * 180.2 : 0))
   const b2SolarUnits = Number(building2.sources?.find((s) => s.type === 'solar')?.units || (building2.sources?.find((s) => s.type === 'solar')?.loadKw ? Number(building2.sources.find((s) => s.type === 'solar').loadKw) * 180.2 : 0))
@@ -2511,7 +2518,7 @@ function EnergyFlowOverview({ data, onSelectNode }) {
               B1 (Ambition)
             </span>
             <div
-              onClick={() => onSelectNode?.({ ...building1, name: 'Total Running Load B1 (AMB)', category: 'Main Substation', loadKw: building1.runningLoad, contributingSlaves: (building1.sources || []).map(s => ({ deviceId: s.deviceId, slaveId: s.slaveId, name: s.name })).filter(s => s.deviceId && s.slaveId) }, 'B1')}
+              onClick={() => onSelectNode?.({ ...building1, name: 'Total Running Load B1 (AMB)', category: 'Main Substation', loadKw: building1.runningLoad, units: b1RunningUnits, contributingSlaves: (building1.sources || []).map(s => ({ deviceId: s.deviceId, slaveId: s.slaveId, name: s.name })).filter(s => s.deviceId && s.slaveId) }, 'B1')}
               className="px-3 py-0.5 rounded-lg border-2 border-blue-500 bg-white dark:bg-slate-900 text-center cursor-pointer hover:scale-[1.01] transition shadow-2xs"
               title="Click to view total plant B1 inflow telemetry & history"
             >
@@ -2604,7 +2611,7 @@ function EnergyFlowOverview({ data, onSelectNode }) {
               Building 2 (AFL)
             </span>
             <div
-              onClick={() => onSelectNode?.({ ...building2, name: 'Total Running Load B2 (AFL)', category: 'Main Substation', loadKw: building2.runningLoad, contributingSlaves: (building2.sources || []).map(s => ({ deviceId: s.deviceId, slaveId: s.slaveId, name: s.name })).filter(s => s.deviceId && s.slaveId) }, 'B2')}
+              onClick={() => onSelectNode?.({ ...building2, name: 'Total Running Load B2 (AFL)', category: 'Main Substation', loadKw: building2.runningLoad, units: b2RunningUnits, contributingSlaves: (building2.sources || []).map(s => ({ deviceId: s.deviceId, slaveId: s.slaveId, name: s.name })).filter(s => s.deviceId && s.slaveId) }, 'B2')}
               className="px-3 py-0.5 rounded-lg border-2 border-emerald-500 bg-white dark:bg-slate-900 text-center cursor-pointer hover:scale-[1.01] transition shadow-2xs"
               title="Click to view total plant B2 inflow telemetry & history"
             >

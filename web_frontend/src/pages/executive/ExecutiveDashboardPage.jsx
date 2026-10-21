@@ -7,7 +7,7 @@ import { onSocketEvent } from '../../services/socketService'
 import { useAuth } from '../../context/AuthContext'
 
 const AMBITION_ORG_ID = 'b99129f8-85f2-44c2-81ca-cc2d876092ea'
-const CACHE_KEY = 'ems_exec_ambition_v8'
+const CACHE_KEY = 'ems_exec_ambition_v9'
 
 /**
  * Safely parse any metric value (number, string, or { value, displayValue, unit } object).
@@ -668,6 +668,7 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
       code: 'B1',
       runningLoad: b1RunningLoad,
       consumerLoad: b1ConsumerLoad,
+      units: Number(b1Sources.reduce((sum, s) => sum + (Number(s.units) || 0), 0).toFixed(1)),
       maxCapacityKw: 2000,
       sources: b1Sources,
       row1: b1Row1,
@@ -681,6 +682,7 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
       code: 'B2',
       runningLoad: b2RunningLoad,
       consumerLoad: b2ConsumerLoad,
+      units: Number(b2Sources.reduce((sum, s) => sum + (Number(s.units) || 0), 0).toFixed(1)),
       maxCapacityKw: 1800,
       sources: b2Sources,
       row1: b2Row1,
