@@ -489,19 +489,21 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
     const customBase = selectedVar ? (selectedVar.value ?? 0) : basePower
 
     let points = []
+    const now = new Date()
 
     if (historyRange === '1h') {
-      const currentHour = new Date().getHours()
-      const isDaylight = currentHour >= 6 && currentHour <= 18
-      const daylightFraction = isDaylight ? Math.sin(((currentHour - 5.5) / 13) * Math.PI) : 0
-      const currentExpectedKw = isGenerating
-        ? (basePower > 2 ? basePower : (isDaylight ? Number((solarPeakKw * daylightFraction).toFixed(1)) : 0))
-        : isGenset
-          ? (basePower > 5 ? basePower : 0)
-          : basePower
-
       points = Array.from({ length: 12 }, (_, i) => {
-        const timeStr = `${String(currentHour).padStart(2, '0')}:${String((i * 5) % 60).padStart(2, '0')}`
+        const pt = new Date(now.getTime() - (11 - i) * 5 * 60 * 1000)
+        const hour = pt.getHours()
+        const timeStr = `${String(hour).padStart(2, '0')}:${String(pt.getMinutes()).padStart(2, '0')}`
+        const isDaylight = hour >= 6 && hour <= 18
+        const daylightFraction = isDaylight ? Math.sin(((hour - 5.5) / 13) * Math.PI) : 0
+        const currentExpectedKw = isGenerating
+          ? (basePower > 2 ? basePower : (isDaylight ? Number((solarPeakKw * daylightFraction).toFixed(1)) : 0))
+          : isGenset
+            ? (basePower > 5 ? basePower : 0)
+            : basePower
+
         const jitter = Math.sin(i * 0.8) * 0.06
         const p = (isGenerating && !isDaylight && basePower <= 0.5) || (isGenset && basePower <= 5)
           ? 0
@@ -521,8 +523,10 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
     } else if (historyRange === '24h') {
       const dailySolarYieldKwh = isGenerating ? Number((solarPeakKw * 5.2).toFixed(1)) : 0
       const solarProfileWeights = Array.from({ length: 24 }, (_, i) => {
-        if (!isGenerating || i < 6 || i > 18) return 0
-        return Math.sin(((i - 5.5) / 13) * Math.PI)
+        const pt = new Date(now.getTime() - (23 - i) * 3600 * 1000)
+        const h = pt.getHours()
+        if (!isGenerating || h < 6 || h > 18) return 0
+        return Math.sin(((h - 5.5) / 13) * Math.PI)
       })
       const totalWeight = solarProfileWeights.reduce((a, b) => a + b, 0) || 1
 
@@ -538,14 +542,16 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
           : baseUnits
 
       points = Array.from({ length: 24 }, (_, i) => {
-        const hour = `${String(i).padStart(2, '0')}:00`
+        const pt = new Date(now.getTime() - (23 - i) * 3600 * 1000)
+        const targetHour = pt.getHours()
+        const hour = `${String(targetHour).padStart(2, '0')}:00`
         const jitter = Math.sin(i * 0.5) * 0.04
         let p = 0
         let intervalUnits = 0
 
         if (isGenerating) {
-          if (i >= 6 && i <= 18) {
-            const solarFactor = Math.sin(((i - 5.5) / 13) * Math.PI)
+          if (targetHour >= 6 && targetHour <= 18) {
+            const solarFactor = Math.sin(((targetHour - 5.5) / 13) * Math.PI)
             p = Number(Math.max(0, solarPeakKw * solarFactor * (1 + jitter)).toFixed(1))
             intervalUnits = Number(((solarProfileWeights[i] / totalWeight) * dailySolarYieldKwh).toFixed(1))
           } else {
@@ -557,7 +563,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
           if (basePower > 5) {
             p = Number(Math.max(0, basePower * (1 + jitter)).toFixed(1))
             intervalUnits = Number((p * 1).toFixed(1))
-          } else if (gensetRunHours.includes(i)) {
+          } else if (gensetRunHours.includes(targetHour)) {
             p = Number(Math.max(0, gensetOperatingKw * (1 + jitter)).toFixed(1))
             intervalUnits = Number((p * 1).toFixed(1))
           } else {
@@ -567,14 +573,14 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
           rollingCumulative = Number((rollingCumulative + intervalUnits).toFixed(1))
         } else {
           // Daily industrial shift profile: low at night, peak during day shift
-          const shiftFactor = (i >= 8 && i <= 18) ? 1.15 : (i >= 19 && i <= 23) ? 0.95 : 0.65
+          const shiftFactor = (targetHour >= 8 && targetHour <= 18) ? 1.15 : (targetHour >= 19 && targetHour <= 23) ? 0.95 : 0.65
           p = Number(Math.max(0, basePower * shiftFactor * (1 + jitter)).toFixed(1))
           intervalUnits = Number((p * 1).toFixed(1))
         }
 
         const cumulativeUnits = (isGenerating || isGenset)
           ? Math.min(baseUnits, rollingCumulative)
-          : Number(Math.max(0, baseUnits - ((23 - i) * (basePower * ((i >= 8 && i <= 18) ? 1.15 : (i >= 19 && i <= 23) ? 0.95 : 0.65)))).toFixed(1))
+          : Number(Math.max(0, baseUnits - ((23 - i) * (basePower * ((targetHour >= 8 && targetHour <= 18) ? 1.15 : (targetHour >= 19 && targetHour <= 23) ? 0.95 : 0.65)))).toFixed(1))
 
         const val = selectedVar ? Number((customBase * (1 + jitter)).toFixed(1)) : p
         return {
@@ -586,15 +592,19 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
         }
       })
     } else if (historyRange === '7d') {
-      const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
       const dailySolarYieldKwh = isGenerating ? Number((solarPeakKw * 5.2).toFixed(1)) : 0
       const gensetRunDays = [0, 2, 4, 5]
       const totalGensetWeeklyKwh = isGenset ? Number((gensetOperatingKw * 1.8 * gensetRunDays.length).toFixed(1)) : 0
       let rollingWeeklyGensetCum = isGenset ? Math.max(0, baseUnits - totalGensetWeeklyKwh) : baseUnits
 
-      points = days.map((day, i) => {
+      points = Array.from({ length: 7 }, (_, i) => {
+        const pt = new Date(now)
+        pt.setDate(now.getDate() - (6 - i))
+        const dayName = pt.toLocaleDateString('en-US', { weekday: 'short' })
+        const dayLabel = `${dayName} ${pt.getDate()}`
+        const isWeekend = pt.getDay() === 0 || pt.getDay() === 6
         const weatherFactor = 0.92 + Math.sin(i * 1.3) * 0.08
-        const weekendFactor = (i >= 5) ? 0.7 : 1.05
+        const weekendFactor = isWeekend ? 0.7 : 1.05
         const jitter = Math.sin(i * 0.06) * 0.06
         let p = 0
         let intervalUnits = 0
@@ -628,7 +638,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
 
         const val = selectedVar ? Number((customBase * (1 + jitter)).toFixed(1)) : p
         return {
-          timestamp: day,
+          timestamp: dayLabel,
           power: p,
           units: intervalUnits,
           cumulativeUnits,
@@ -636,13 +646,16 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
         }
       })
     } else {
-      // 30 Days
+      // 30 Days: dynamically compute the past 30 days rolling backwards from today
       const dailySolarYieldKwh = isGenerating ? Number((solarPeakKw * 5.2).toFixed(1)) : 0
       const totalGensetMonthKwh = isGenset ? Number((gensetOperatingKw * 1.8 * 12).toFixed(1)) : 0
       let rollingMonthlyGensetCum = isGenset ? Math.max(0, baseUnits - totalGensetMonthKwh) : baseUnits
 
       points = Array.from({ length: 30 }, (_, i) => {
-        const dayStr = `${i + 1} Oct`
+        const pt = new Date(now)
+        pt.setDate(now.getDate() - (29 - i))
+        const monthShort = pt.toLocaleDateString('en-US', { month: 'short' })
+        const dayStr = `${pt.getDate()} ${monthShort}`
         const jitter = Math.sin(i * 0.4) * 0.08
         const weatherFactor = 0.92 + Math.sin(i * 0.6) * 0.1
         let p = 0
