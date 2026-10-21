@@ -490,6 +490,21 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
 
     let points = []
     const now = new Date()
+    const elapsedHoursToday = Math.max(0.1, Number((now.getHours() + now.getMinutes() / 60).toFixed(2)))
+
+    // Solar fraction accumulated today up to the current minute
+    let todaySolarAcc = 0
+    let totalSolarDayWeight = 0
+    for (let h = 0; h < 24; h++) {
+      const w = (h >= 6 && h <= 18) ? Math.sin(((h - 5.5) / 13) * Math.PI) : 0
+      totalSolarDayWeight += w
+      if (h < now.getHours()) {
+        todaySolarAcc += w
+      } else if (h === now.getHours()) {
+        todaySolarAcc += w * (now.getMinutes() / 60)
+      }
+    }
+    const todaySolarFraction = Math.min(1, Math.max(0, todaySolarAcc / (totalSolarDayWeight || 1)))
 
     if (historyRange === '1h') {
       points = Array.from({ length: 12 }, (_, i) => {
@@ -542,6 +557,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
           : baseUnits
 
       points = Array.from({ length: 24 }, (_, i) => {
+        const isCurrentHour = i === 23
         const pt = new Date(now.getTime() - (23 - i) * 3600 * 1000)
         const targetHour = pt.getHours()
         const hour = `${String(targetHour).padStart(2, '0')}:00`
@@ -553,7 +569,8 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
           if (targetHour >= 6 && targetHour <= 18) {
             const solarFactor = Math.sin(((targetHour - 5.5) / 13) * Math.PI)
             p = Number(Math.max(0, solarPeakKw * solarFactor * (1 + jitter)).toFixed(1))
-            intervalUnits = Number(((solarProfileWeights[i] / totalWeight) * dailySolarYieldKwh).toFixed(1))
+            const fullHourUnits = Number(((solarProfileWeights[i] / totalWeight) * dailySolarYieldKwh).toFixed(1))
+            intervalUnits = isCurrentHour ? Number((fullHourUnits * (Math.max(1, now.getMinutes()) / 60)).toFixed(1)) : fullHourUnits
           } else {
             p = 0
             intervalUnits = 0
@@ -562,10 +579,10 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
         } else if (isGenset) {
           if (basePower > 5) {
             p = Number(Math.max(0, basePower * (1 + jitter)).toFixed(1))
-            intervalUnits = Number((p * 1).toFixed(1))
+            intervalUnits = Number((p * (isCurrentHour ? Math.max(1, now.getMinutes()) / 60 : 1)).toFixed(1))
           } else if (gensetRunHours.includes(targetHour)) {
             p = Number(Math.max(0, gensetOperatingKw * (1 + jitter)).toFixed(1))
-            intervalUnits = Number((p * 1).toFixed(1))
+            intervalUnits = Number((p * (isCurrentHour ? Math.max(1, now.getMinutes()) / 60 : 1)).toFixed(1))
           } else {
             p = 0
             intervalUnits = 0
@@ -575,7 +592,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
           // Daily industrial shift profile: low at night, peak during day shift
           const shiftFactor = (targetHour >= 8 && targetHour <= 18) ? 1.15 : (targetHour >= 19 && targetHour <= 23) ? 0.95 : 0.65
           p = Number(Math.max(0, basePower * shiftFactor * (1 + jitter)).toFixed(1))
-          intervalUnits = Number((p * 1).toFixed(1))
+          intervalUnits = Number((p * (isCurrentHour ? Math.max(1, now.getMinutes()) / 60 : 1)).toFixed(1))
         }
 
         const cumulativeUnits = (isGenerating || isGenset)
@@ -589,15 +606,35 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
           units: intervalUnits,
           cumulativeUnits,
           value: historyVariable === 'Units' ? intervalUnits : val,
+          isCurrentHour,
         }
       })
     } else if (historyRange === '7d') {
       const dailySolarYieldKwh = isGenerating ? Number((solarPeakKw * 5.2).toFixed(1)) : 0
       const gensetRunDays = [0, 2, 4, 5]
       const totalGensetWeeklyKwh = isGenset ? Number((gensetOperatingKw * 1.8 * gensetRunDays.length).toFixed(1)) : 0
-      let rollingWeeklyGensetCum = isGenset ? Math.max(0, baseUnits - totalGensetWeeklyKwh) : baseUnits
+
+      // Compute actual partial units accumulated today so far:
+      let todayUnits = 0
+      let todayPower = 0
+      if (isGenerating) {
+        todayUnits = Number((dailySolarYieldKwh * todaySolarFraction).toFixed(1))
+        todayPower = basePower
+      } else if (isGenset) {
+        if (basePower > 5) {
+          todayUnits = Number((basePower * elapsedHoursToday).toFixed(1))
+          todayPower = basePower
+        } else {
+          todayUnits = 0
+          todayPower = 0
+        }
+      } else {
+        todayPower = Number(basePower.toFixed(1))
+        todayUnits = Number((basePower * elapsedHoursToday).toFixed(1))
+      }
 
       points = Array.from({ length: 7 }, (_, i) => {
+        const isToday = i === 6
         const pt = new Date(now)
         pt.setDate(now.getDate() - (6 - i))
         const dayName = pt.toLocaleDateString('en-US', { weekday: 'short' })
@@ -609,7 +646,10 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
         let p = 0
         let intervalUnits = 0
 
-        if (isGenerating) {
+        if (isToday) {
+          p = todayPower
+          intervalUnits = todayUnits
+        } else if (isGenerating) {
           intervalUnits = Number((dailySolarYieldKwh * weatherFactor).toFixed(1))
           p = Number((intervalUnits / 24).toFixed(1))
         } else if (isGenset) {
@@ -624,34 +664,58 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
             p = 0
             intervalUnits = 0
           }
-          rollingWeeklyGensetCum = Number((rollingWeeklyGensetCum + intervalUnits).toFixed(1))
         } else {
           p = Number(Math.max(0, basePower * weekendFactor * (1 + jitter)).toFixed(1))
           intervalUnits = Number((p * 24).toFixed(1))
         }
 
-        const cumulativeUnits = isGenerating
-          ? Number(Math.max(0, baseUnits - ((6 - i) * dailySolarYieldKwh)).toFixed(1))
+        const pastDayUnits = isGenerating
+          ? dailySolarYieldKwh
           : isGenset
-            ? Math.min(baseUnits, rollingWeeklyGensetCum)
-            : Number(Math.max(0, baseUnits - ((6 - i) * (basePower * weekendFactor * 24))).toFixed(1))
+            ? (gensetOperatingKw * 1.8)
+            : (basePower * weekendFactor * 24)
 
-        const val = selectedVar ? Number((customBase * (1 + jitter)).toFixed(1)) : p
+        const cumulativeUnits = isToday
+          ? baseUnits
+          : Number(Math.max(0, baseUnits - todayUnits - ((5 - i) * pastDayUnits)).toFixed(1))
+
+        const val = selectedVar ? Number((customBase * (isToday ? 1 : 1 + jitter)).toFixed(1)) : p
         return {
           timestamp: dayLabel,
           power: p,
           units: intervalUnits,
           cumulativeUnits,
           value: historyVariable === 'Units' ? intervalUnits : val,
+          isToday,
+          elapsedHours: elapsedHoursToday,
         }
       })
     } else {
       // 30 Days: dynamically compute the past 30 days rolling backwards from today
       const dailySolarYieldKwh = isGenerating ? Number((solarPeakKw * 5.2).toFixed(1)) : 0
       const totalGensetMonthKwh = isGenset ? Number((gensetOperatingKw * 1.8 * 12).toFixed(1)) : 0
-      let rollingMonthlyGensetCum = isGenset ? Math.max(0, baseUnits - totalGensetMonthKwh) : baseUnits
+
+      // Compute actual partial units accumulated today so far:
+      let todayUnits = 0
+      let todayPower = 0
+      if (isGenerating) {
+        todayUnits = Number((dailySolarYieldKwh * todaySolarFraction).toFixed(1))
+        todayPower = basePower
+      } else if (isGenset) {
+        if (basePower > 5) {
+          todayUnits = Number((basePower * elapsedHoursToday).toFixed(1))
+          todayPower = basePower
+        } else {
+          todayUnits = 0
+          todayPower = 0
+        }
+      } else {
+        todayPower = Number(basePower.toFixed(1))
+        todayUnits = Number((basePower * elapsedHoursToday).toFixed(1))
+      }
 
       points = Array.from({ length: 30 }, (_, i) => {
+        const isToday = i === 29
         const pt = new Date(now)
         pt.setDate(now.getDate() - (29 - i))
         const monthShort = pt.toLocaleDateString('en-US', { month: 'short' })
@@ -661,7 +725,10 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
         let p = 0
         let intervalUnits = 0
 
-        if (isGenerating) {
+        if (isToday) {
+          p = todayPower
+          intervalUnits = todayUnits
+        } else if (isGenerating) {
           intervalUnits = Number((dailySolarYieldKwh * weatherFactor).toFixed(1))
           p = Number((intervalUnits / 24).toFixed(1))
         } else if (isGenset) {
@@ -677,25 +744,30 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
             p = 0
             intervalUnits = 0
           }
-          rollingMonthlyGensetCum = Number((rollingMonthlyGensetCum + intervalUnits).toFixed(1))
         } else {
           p = Number(Math.max(0, basePower * (1 + jitter)).toFixed(1))
           intervalUnits = Number((p * 24).toFixed(1))
         }
 
-        const cumulativeUnits = isGenerating
-          ? Number(Math.max(0, baseUnits - ((29 - i) * dailySolarYieldKwh)).toFixed(1))
+        const pastDayUnits = isGenerating
+          ? dailySolarYieldKwh
           : isGenset
-            ? Math.min(baseUnits, rollingMonthlyGensetCum)
-            : Number(Math.max(0, baseUnits - ((29 - i) * (basePower * (1 + jitter) * 24))).toFixed(1))
+            ? (gensetOperatingKw * 1.8)
+            : (basePower * 24)
 
-        const val = selectedVar ? Number((customBase * (1 + jitter)).toFixed(1)) : p
+        const cumulativeUnits = isToday
+          ? baseUnits
+          : Number(Math.max(0, baseUnits - todayUnits - ((28 - i) * pastDayUnits)).toFixed(1))
+
+        const val = selectedVar ? Number((customBase * (isToday ? 1 : 1 + jitter)).toFixed(1)) : p
         return {
           timestamp: dayStr,
           power: p,
           units: intervalUnits,
           cumulativeUnits,
           value: historyVariable === 'Units' ? intervalUnits : val,
+          isToday,
+          elapsedHours: elapsedHoursToday,
         }
       })
     }
@@ -1278,16 +1350,21 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                           if (!active || !payload || !payload.length) return null
                           const point = chartData.find((d) => d.timestamp === label)
                           return (
-                            <div className="bg-surface-900 border border-surface-700 p-2.5 rounded-lg shadow-xl text-xs space-y-1.5 min-w-[190px]">
+                            <div className="bg-surface-900 border border-surface-700 p-2.5 rounded-lg shadow-xl text-xs space-y-1.5 min-w-[200px]">
                               <div className="font-bold text-surface-200 border-b border-surface-800 pb-1 flex items-center justify-between gap-3">
-                                <span>{label}</span>
+                                <span>{label}{point?.isToday ? ' (Today - In Progress)' : ''}</span>
                                 <span className="text-[10px] text-surface-400 font-normal">{node.name}</span>
                               </div>
+                              {point?.isToday && (historyRange === '7d' || historyRange === '30d') && (
+                                <div className="text-[10px] text-amber-400 font-medium">
+                                  Today so far ({point.elapsedHours}h of 24h elapsed)
+                                </div>
+                              )}
                               {payload.map((entry, idx) => (
                                 <div key={idx} className="flex items-center justify-between gap-4 text-[11px]">
                                   <span className="flex items-center gap-1.5" style={{ color: entry.color }}>
                                     <span className="w-2 h-2 rounded-xs inline-block" style={{ backgroundColor: entry.color }} />
-                                    {entry.name}:
+                                    {entry.name}{point?.isToday && entry.name === 'Units' ? ' (So Far)' : ''}:
                                   </span>
                                   <span className="font-mono font-bold text-white">
                                     {typeof entry.value === 'number' ? entry.value.toLocaleString() : entry.value}
@@ -1409,17 +1486,23 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                       <Tooltip
                         content={({ active, payload, label }) => {
                           if (!active || !payload || !payload.length) return null
+                          const point = chartData.find((d) => d.timestamp === label)
                           return (
-                            <div className="bg-surface-900 border border-surface-700 p-2 rounded-lg shadow-xl text-xs space-y-1">
+                            <div className="bg-surface-900 border border-surface-700 p-2 rounded-lg shadow-xl text-xs space-y-1 min-w-[190px]">
                               <div className="font-bold text-surface-200 border-b border-surface-800 pb-1 flex items-center justify-between gap-3">
-                                <span>{label}</span>
+                                <span>{label}{point?.isToday ? ' (Today - In Progress)' : ''}</span>
                                 <span className="text-[10px] text-surface-400 font-normal">{node.name}</span>
                               </div>
+                              {point?.isToday && (historyRange === '7d' || historyRange === '30d') && (
+                                <div className="text-[10px] text-amber-400 font-medium">
+                                  Today so far ({point.elapsedHours}h of 24h elapsed)
+                                </div>
+                              )}
                               {payload.map((entry, idx) => (
                                 <div key={idx} className="flex items-center justify-between gap-4 text-[11px]">
                                   <span className="flex items-center gap-1.5" style={{ color: entry.color }}>
                                     <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: entry.color }} />
-                                    {entry.name}:
+                                    {entry.name}{point?.isToday && entry.name === 'Units' ? ' (So Far)' : ''}:
                                   </span>
                                   <span className="font-mono font-bold text-white">
                                     {typeof entry.value === 'number' ? entry.value.toLocaleString() : entry.value}
