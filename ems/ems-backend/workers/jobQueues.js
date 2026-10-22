@@ -54,13 +54,19 @@ const flushIngestBuffer = async () => {
     metrics.inc('ingest_errors_total')
     logger.error('ingest batch failed', { message: err.message, size: batch.length })
     throw err
+  } finally {
+    // Keep draining remaining buffered messages even if this batch failed.
+    if (ingestBuffer.length) scheduleIngestFlush()
   }
-  if (ingestBuffer.length) scheduleIngestFlush()
 }
 
 const scheduleIngestFlush = () => {
   if (ingestFlushTimer) return
-  ingestFlushTimer = setTimeout(flushIngestBuffer, INGEST_BATCH_MS)
+  // Timer-driven flushes have no awaiting caller — swallow here (already logged) so the
+  // rejection never becomes an unhandledRejection that kills the process on Node 15+.
+  ingestFlushTimer = setTimeout(() => {
+    flushIngestBuffer().catch(() => {})
+  }, INGEST_BATCH_MS)
 }
 
 const initIngestQueue = () => {
@@ -167,6 +173,7 @@ const deleteDeviceBatches = async (deviceId) => {
       select:  { id: true },
       take:    BATCH,
     })
+    if (!rows.length) break
     try {
       if (prisma.sensorReadingValue) await prisma.sensorReadingValue.deleteMany({ where: { sensorReadingId: { in: rows.map((r) => r.id) } } })
     } catch (_) {}

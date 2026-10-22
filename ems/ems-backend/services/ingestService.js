@@ -8,6 +8,7 @@ const redis  = require('../config/redis')
 const { markDirty } = require('./valueFlushService')
 const { applyIngestFormulas, CONFIG_VAR_INCLUDE } = require('../utils/applyIngestFormulas')
 const { cacheLatestValues: writeLatestCache } = require('../utils/redisLatest')
+const logger = require('../utils/logger')
 
 const enqueueAnomaly = (payload) => {
   try {
@@ -31,16 +32,53 @@ const parsePersistInterval = () => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_PERSIST_INTERVAL_MS
 }
 const INGEST_PERSIST_INTERVAL_MS = parsePersistInterval()
-const lastPersistMap = new Map()
+const SLOT_TTL_SEC = Math.ceil(INGEST_PERSIST_INTERVAL_MS / 1000)
 
-const shouldPersist = (deviceId, slaveId, nowMs) => {
-  const key = `${deviceId}:${slaveId || 'none'}`
-  const last = lastPersistMap.get(key) || 0
-  if (nowMs - last >= INGEST_PERSIST_INTERVAL_MS) {
-    lastPersistMap.set(key, nowMs)
-    return true
+// Fixed clock-aligned slots (:00, :10, :20 ... for the 10-min default) — one history row per slot.
+// In-memory map is the per-process lock; Redis key makes the claim survive restarts / multiple instances.
+const claimedSlots = new Map()
+const slotKeyOf = (deviceId, slaveId) => `${deviceId}:${slaveId || 'none'}`
+const slotStartOf = (nowMs) => Math.floor(nowMs / INGEST_PERSIST_INTERVAL_MS) * INGEST_PERSIST_INTERVAL_MS
+const redisSlotKey = (deviceId, slaveId, slotMs) => `ingest:slot:${deviceId}:${slaveId || 'none'}:${slotMs}`
+
+/** Returns the claimed slot start (ms) if this packet should be persisted, otherwise null. */
+const claimPersistSlot = async (deviceId, slaveId, nowMs) => {
+  const key = slotKeyOf(deviceId, slaveId)
+  const slotMs = slotStartOf(nowMs)
+  if (claimedSlots.get(key) === slotMs) return null
+  // Set synchronously before any await so concurrent packets in this process cannot both claim.
+  claimedSlots.set(key, slotMs)
+
+  const c = redis.getClient()
+  if (c) {
+    try {
+      const ok = await c.set(redisSlotKey(deviceId, slaveId, slotMs), String(nowMs), { NX: true, EX: SLOT_TTL_SEC })
+      return ok ? slotMs : null
+    } catch (_) {
+      // Redis hiccup — fall back to DB check below
+    }
   }
-  return false
+
+  try {
+    const existing = await prisma.sensorReading.findFirst({
+      where: { deviceId, deviceConfigSlaveId: slaveId || null, timestamp: { gte: new Date(slotMs) } },
+      select: { id: true },
+    })
+    return existing ? null : slotMs
+  } catch (_) {
+    return slotMs
+  }
+}
+
+/** Release a claimed slot after a failed write so the next packet in the same slot can retry. */
+const releasePersistSlot = async (deviceId, slaveId, slotMs) => {
+  const key = slotKeyOf(deviceId, slaveId)
+  if (claimedSlots.get(key) === slotMs) claimedSlots.delete(key)
+  const c = redis.getClient()
+  if (!c) return
+  try {
+    await c.del(redisSlotKey(deviceId, slaveId, slotMs))
+  } catch (_) {}
 }
 
 const cacheLatestValues = async (deviceId, slaveId, readings) => {
@@ -108,41 +146,54 @@ const persistIngest = async ({ deviceId, slaveId, readings, organizationId }) =>
   const computed = applyIngestFormulas(configVars, readings, slaveId)
   const varUpdates = buildVarUpdates(configVars, computed, slaveId)
 
-  const doPersist = shouldPersist(deviceId, slaveId, now)
+  // Live hot cache first — every packet, independent of the persistence gate or DB health.
+  await cacheLatestValues(deviceId, slaveId, computed)
+
+  const slotMs = await claimPersistSlot(deviceId, slaveId, now)
   let reading = null
   let isOnline = true
   let gatewayId = null
+  let persisted = false
 
-  if (doPersist) {
-    const sensorReading = await prisma.$transaction(async (tx) => {
-      const r = await tx.sensorReading.create({
-        data: { deviceId, deviceConfigSlaveId: slaveId || null, organizationId, readings: computed, timestamp: ts },
+  if (slotMs !== null) {
+    try {
+      const sensorReading = await prisma.$transaction(async (tx) => {
+        const r = await tx.sensorReading.create({
+          data: { deviceId, deviceConfigSlaveId: slaveId || null, organizationId, readings: computed, timestamp: ts },
+        })
+        const existing = await tx.device.findUnique({
+          where: { id: deviceId },
+          select: { switchState: true, gatewayId: true },
+        })
+        const goOnline = existing?.switchState !== 'OFF'
+        await tx.device.update({
+          where: { id: deviceId },
+          data: {
+            lastDataReceivedAt: ts,
+            ...(goOnline ? { status: 'ONLINE' } : {}),
+          },
+        })
+        await tx.deviceTimestamp.upsert({
+          where:  { deviceId },
+          update: { lastActiveAt: ts },
+          create: { deviceId, organizationId, lastActiveAt: ts },
+        })
+        await bulkUpdateVariables(tx, deviceId, varUpdates, ts)
+        return { reading: r, goOnline, gatewayId: existing?.gatewayId || null }
       })
-      const existing = await tx.device.findUnique({
-        where: { id: deviceId },
-        select: { switchState: true, gatewayId: true },
-      })
-      const goOnline = existing?.switchState !== 'OFF'
-      await tx.device.update({
-        where: { id: deviceId },
-        data: {
-          lastDataReceivedAt: ts,
-          ...(goOnline ? { status: 'ONLINE' } : {}),
-        },
-      })
-      await tx.deviceTimestamp.upsert({
-        where:  { deviceId },
-        update: { lastActiveAt: ts },
-        create: { deviceId, organizationId, lastActiveAt: ts },
-      })
-      await bulkUpdateVariables(tx, deviceId, varUpdates, ts)
-      return { reading: r, goOnline, gatewayId: existing?.gatewayId || null }
-    })
-    reading = sensorReading.reading
-    isOnline = sensorReading.goOnline
-    gatewayId = sensorReading.gatewayId
-  } else {
-    // 10-min resolution: skip heavy table inserts, but update presence and currentValues
+      reading = sensorReading.reading
+      isOnline = sensorReading.goOnline
+      gatewayId = sensorReading.gatewayId
+      persisted = true
+    } catch (err) {
+      // Free the slot so the next packet in this window retries; fall through to the live path below.
+      await releasePersistSlot(deviceId, slaveId, slotMs)
+      logger.error('ingest slot persist failed', { deviceId, slaveId, slotMs, message: err.message })
+    }
+  }
+
+  if (!persisted) {
+    // Between slots (or after a failed slot write): skip history insert, but update presence and currentValues
     const existing = await prisma.device.findUnique({
       where: { id: deviceId },
       select: { switchState: true, gatewayId: true },
@@ -164,7 +215,6 @@ const persistIngest = async ({ deviceId, slaveId, readings, organizationId }) =>
     await bulkUpdateVariables(prisma, deviceId, varUpdates, ts)
   }
 
-  await cacheLatestValues(deviceId, slaveId, computed)
   if (isOnline) {
     try {
       const { emitDeviceStatus, touchGatewayOnline } = require('./devicePresenceService')
@@ -208,22 +258,36 @@ const processIngestBatch = async (payloads) => {
     computed: applyIngestFormulas(varsByDevice[p.deviceId] ?? [], p.readings, p.slaveId),
   }))
 
-  const payloadsToPersist = payloads.filter((p) => shouldPersist(p.deviceId, p.slaveId, nowMs))
+  // Live path first — hot cache + socket on every packet, before any DB work.
+  for (const p of computedByPayload) {
+    await cacheLatestValues(p.deviceId, p.slaveId, p.computed)
+    emitReading(p.organizationId, p.deviceId, p.computed, now)
+  }
+
+  // Claims start synchronously in order, so duplicates of the same device/slave within a batch lose.
+  const slots = await Promise.all(
+    computedByPayload.map((p) => claimPersistSlot(p.deviceId, p.slaveId, nowMs))
+  )
+  const payloadsToPersist = computedByPayload
+    .map((p, i) => ({ p, slotMs: slots[i] }))
+    .filter((x) => x.slotMs !== null)
 
   if (payloadsToPersist.length) {
-    const readingRows = payloadsToPersist.map((p) => {
-      const computed = applyIngestFormulas(varsByDevice[p.deviceId] ?? [], p.readings, p.slaveId)
-      return {
-        id:                  crypto.randomUUID(),
-        deviceId:            p.deviceId,
-        deviceConfigSlaveId: p.slaveId || null,
-        organizationId:      p.organizationId,
-        readings:            computed,
-        timestamp:           now,
-      }
-    })
+    const readingRows = payloadsToPersist.map(({ p }) => ({
+      id:                  crypto.randomUUID(),
+      deviceId:            p.deviceId,
+      deviceConfigSlaveId: p.slaveId || null,
+      organizationId:      p.organizationId,
+      readings:            p.computed,
+      timestamp:           now,
+    }))
 
-    await prisma.sensorReading.createMany({ data: readingRows })
+    try {
+      await prisma.sensorReading.createMany({ data: readingRows })
+    } catch (err) {
+      await Promise.all(payloadsToPersist.map(({ p, slotMs }) => releasePersistSlot(p.deviceId, p.slaveId, slotMs)))
+      logger.error('ingest batch slot persist failed', { size: readingRows.length, message: err.message })
+    }
   }
 
   if (!skipPgCurrentValue()) {
@@ -264,8 +328,6 @@ const processIngestBatch = async (payloads) => {
 
   const touchedGateways = new Set()
   for (const p of computedByPayload) {
-    await cacheLatestValues(p.deviceId, p.slaveId, p.computed)
-    emitReading(p.organizationId, p.deviceId, p.computed, now)
     if (switchById[p.deviceId] !== 'OFF') {
       try {
         const { emitDeviceStatus, touchGatewayOnline } = require('./devicePresenceService')
