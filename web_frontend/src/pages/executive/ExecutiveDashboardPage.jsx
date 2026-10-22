@@ -69,43 +69,65 @@ function build24Variables(slave, loadKw, ratedA = 100) {
     : (safeExtractNumber(metrics['Total Power']) || readDeviceMetric(slave, 'power') || 0.0)
 
   // 2. Phase Active Powers
-  const pA = safeExtractNumber(metrics['PowerA'], pTotal > 0 ? (pTotal / 3) * 0.98 : 0)
-  const pB = safeExtractNumber(metrics['PowerB'], pTotal > 0 ? (pTotal / 3) * 1.01 : 0)
-  const pC = safeExtractNumber(metrics['PowerC'], pTotal > 0 ? (pTotal / 3) * 1.01 : 0)
+  const pA = getMetricFromSlave(slave, ['PowerA', 'Power A', 'Power_A', 'ActivePowerA', 'P1'], pTotal > 0 ? (pTotal / 3) * 0.98 : 0)
+  const pB = getMetricFromSlave(slave, ['PowerB', 'Power B', 'Power_B', 'ActivePowerB', 'P2'], pTotal > 0 ? (pTotal / 3) * 1.01 : 0)
+  const pC = getMetricFromSlave(slave, ['PowerC', 'Power C', 'Power_C', 'ActivePowerC', 'P3'], pTotal > 0 ? (pTotal / 3) * 1.01 : 0)
 
-  // 3. Line-to-Line Voltages (Phase VoltageA, B, C in Ambition meters ~420V)
-  const vAvg = readDeviceMetric(slave, 'voltage') || 400.0
-  const vLineA = safeExtractNumber(metrics['Phase VoltageA'], vAvg + 0.8)
-  const vLineB = safeExtractNumber(metrics['Phase VoltageB'], vAvg - 0.7)
-  const vLineC = safeExtractNumber(metrics['Phase VoltageC'], vAvg - 0.1)
+  // 3. Phase-to-Neutral Voltages (Voltage, VoltageA, VoltageB, VoltageC in meters ~230V)
+  const rawNeutralA = getMetricFromSlave(slave, ['Voltage', 'VoltageA', 'Voltage A', 'Va', 'V1', 'Phase Voltage A (LN)'], null)
+  const rawNeutralB = getMetricFromSlave(slave, ['VoltageB', 'Voltage B', 'Vb', 'V2', 'Phase Voltage B (LN)'], null)
+  const rawNeutralC = getMetricFromSlave(slave, ['VoltageC', 'Voltage C', 'Vc', 'V3', 'Phase Voltage C (LN)'], null)
 
-  // 4. Phase-to-Neutral Voltages (Voltage, VoltageA, VoltageB, VoltageC in Ambition meters ~242V)
-  const vLnAvg = +(vAvg / Math.sqrt(3)).toFixed(1)
-  const vNeutral = safeExtractNumber(metrics['Voltage'], vLnAvg)
-  const vNeutralA = safeExtractNumber(metrics['VoltageA'], vLnAvg + 0.4)
-  const vNeutralB = safeExtractNumber(metrics['VoltageB'], vLnAvg - 0.5)
-  const vNeutralC = safeExtractNumber(metrics['VoltageC'], vLnAvg + 0.1)
+  // 4. Line-to-Line Voltages (Phase VoltageA, B, C in meters ~400V)
+  const rawLineA = getMetricFromSlave(slave, ['Phase VoltageA', 'Phase Voltage A', 'PhaseVoltageA', 'LineVoltageA', 'Line Voltage A', 'Vab', 'V12'], null)
+  const rawLineB = getMetricFromSlave(slave, ['Phase VoltageB', 'Phase Voltage B', 'PhaseVoltageB', 'LineVoltageB', 'Line Voltage B', 'Vbc', 'V23'], null)
+  const rawLineC = getMetricFromSlave(slave, ['Phase VoltageC', 'Phase Voltage C', 'PhaseVoltageC', 'LineVoltageC', 'Line Voltage C', 'Vca', 'V31'], null)
+
+  // Physical 3-phase derivation if either is missing: V_LL = V_LN * sqrt(3)
+  const vNeutralA = rawNeutralA !== null
+    ? rawNeutralA
+    : (rawLineA !== null ? rawLineA / Math.sqrt(3) : 230.0)
+
+  const vLineA = rawLineA !== null
+    ? rawLineA
+    : (rawNeutralA !== null ? rawNeutralA * Math.sqrt(3) : 400.0)
+
+  const vNeutralB = rawNeutralB !== null
+    ? rawNeutralB
+    : (rawLineB !== null ? rawLineB / Math.sqrt(3) : vNeutralA)
+
+  const vLineB = rawLineB !== null
+    ? rawLineB
+    : (rawNeutralB !== null ? rawNeutralB * Math.sqrt(3) : vLineA)
+
+  const vNeutralC = rawNeutralC !== null
+    ? rawNeutralC
+    : (rawLineC !== null ? rawLineC / Math.sqrt(3) : vNeutralA)
+
+  const vLineC = rawLineC !== null
+    ? rawLineC
+    : (rawNeutralC !== null ? rawNeutralC * Math.sqrt(3) : vLineA)
 
   // 5. Phase Currents
-  const iAvg = readDeviceMetric(slave, 'current') || (pTotal > 0 ? (pTotal * 1000) / (Math.sqrt(3) * vAvg * 0.95) : 0)
-  const iA = safeExtractNumber(metrics['Current A'], iAvg * 0.98)
-  const iB = safeExtractNumber(metrics['Current B'], iAvg * 1.01)
-  const iC = safeExtractNumber(metrics['Current C'], iAvg * 1.01)
+  const iAvg = readDeviceMetric(slave, 'current') || (pTotal > 0 ? (pTotal * 1000) / (Math.sqrt(3) * vLineA * 0.95) : 0)
+  const iA = getMetricFromSlave(slave, ['Current A', 'CurrentA', 'Current_A', 'Ia', 'I1'], iAvg * 0.98)
+  const iB = getMetricFromSlave(slave, ['Current B', 'CurrentB', 'Current_B', 'Ib', 'I2'], iAvg * 1.01)
+  const iC = getMetricFromSlave(slave, ['Current C', 'CurrentC', 'Current_C', 'Ic', 'I3'], iAvg * 1.01)
 
   // 6. Power Factor & Frequency
-  const pf = safeExtractNumber(metrics['Power Factor'], readDeviceMetric(slave, 'pf') || 0.96)
-  const freq = safeExtractNumber(metrics['Frequency'], 50.02)
+  const pf = getMetricFromSlave(slave, ['Power Factor', 'PowerFactor', 'PF', 'pf'], readDeviceMetric(slave, 'pf') || 0.96)
+  const freq = getMetricFromSlave(slave, ['Frequency', 'Freq', 'Hz'], 50.02)
 
   // 7. Apparent & Reactive Powers
-  const sTotal = safeExtractNumber(metrics['Total Apparent Power'], pf > 0 ? pTotal / pf : pTotal)
-  const sA = safeExtractNumber(metrics['Apparent Power A'], (sTotal / 3) * 0.98)
-  const sB = safeExtractNumber(metrics['Apparent Power B'], (sTotal / 3) * 1.01)
-  const sC = safeExtractNumber(metrics['Apparent Power C'], (sTotal / 3) * 1.01)
+  const sTotal = getMetricFromSlave(slave, ['Total Apparent Power', 'TotalApparentPower', 'ApparentPower', 'Apparent Power'], pf > 0 ? pTotal / pf : pTotal)
+  const sA = getMetricFromSlave(slave, ['Apparent Power A', 'ApparentPowerA', 'Apparent PowerA', 'Sa'], (sTotal / 3) * 0.98)
+  const sB = getMetricFromSlave(slave, ['Apparent Power B', 'ApparentPowerB', 'Apparent PowerB', 'Sb'], (sTotal / 3) * 1.01)
+  const sC = getMetricFromSlave(slave, ['Apparent Power C', 'ApparentPowerC', 'Apparent PowerC', 'Sc'], (sTotal / 3) * 1.01)
 
-  const qTotal = safeExtractNumber(metrics['Total Reactive Power'], Math.sqrt(Math.max(0, sTotal * sTotal - pTotal * pTotal)))
-  const qA = safeExtractNumber(metrics['Reactive Power A'], (qTotal / 3) * 0.97)
-  const qB = safeExtractNumber(metrics['Reactive Power B'], (qTotal / 3) * 1.02)
-  const qC = safeExtractNumber(metrics['Reactive Power C'], (qTotal / 3) * 1.01)
+  const qTotal = getMetricFromSlave(slave, ['Total Reactive Power', 'TotalReactivePower', 'ReactivePower', 'Reactive Power'], Math.sqrt(Math.max(0, sTotal * sTotal - pTotal * pTotal)))
+  const qA = getMetricFromSlave(slave, ['Reactive Power A', 'ReactivePowerA', 'Reactive PowerA', 'Qa'], (qTotal / 3) * 0.97)
+  const qB = getMetricFromSlave(slave, ['Reactive Power B', 'ReactivePowerB', 'Reactive PowerB', 'Qb'], (qTotal / 3) * 1.02)
+  const qC = getMetricFromSlave(slave, ['Reactive Power C', 'ReactivePowerC', 'Reactive PowerC', 'Qc'], (qTotal / 3) * 1.01)
 
   // 8. Cumulative Active Energy (Units in kWh)
   const units = safeExtractNumber(
@@ -121,7 +143,7 @@ function build24Variables(slave, loadKw, ratedA = 100) {
     { key: 'Phase VoltageA', name: 'Phase VoltageA', shortName: 'Phase VoltageA', value: +vLineA.toFixed(1), unit: 'V', group: 'voltage' },
     { key: 'Phase VoltageB', name: 'Phase VoltageB', shortName: 'Phase VoltageB', value: +vLineB.toFixed(1), unit: 'V', group: 'voltage' },
     { key: 'Phase VoltageC', name: 'Phase VoltageC', shortName: 'Phase VoltageC', value: +vLineC.toFixed(1), unit: 'V', group: 'voltage' },
-    { key: 'Voltage', name: 'Voltage', shortName: 'Voltage', value: +vNeutral.toFixed(1), unit: 'V', group: 'voltage' },
+    { key: 'Voltage', name: 'Voltage', shortName: 'Voltage', value: +vNeutralA.toFixed(1), unit: 'V', group: 'voltage' },
     { key: 'VoltageA', name: 'VoltageA', shortName: 'VoltageA', value: +vNeutralA.toFixed(1), unit: 'V', group: 'voltage' },
     { key: 'VoltageB', name: 'VoltageB', shortName: 'VoltageB', value: +vNeutralB.toFixed(1), unit: 'V', group: 'voltage' },
     { key: 'VoltageC', name: 'VoltageC', shortName: 'VoltageC', value: +vNeutralC.toFixed(1), unit: 'V', group: 'voltage' },
@@ -215,7 +237,7 @@ function makeBreakerNode(id, fallbackName, defaultRatedA, slaveObj, buildingCode
     deviceId: slaveObj?.deviceId,
     deviceName: slaveObj?.deviceName,
     buildingCode,
-    voltage: vars24 ? (vars24.find((v) => v.key === 'Phase VoltageA')?.value || vars24.find((v) => v.key === 'Voltage')?.value || 400.0) : 400.0,
+    voltage: vars24 ? (vars24.find((v) => v.key === 'Phase VoltageA')?.value || (vars24.find((v) => v.key === 'VoltageA' || v.key === 'Voltage')?.value ? +(vars24.find((v) => v.key === 'VoltageA' || v.key === 'Voltage').value * Math.sqrt(3)).toFixed(1) : 400.0)) : 400.0,
     current: vars24 ? (vars24.find((v) => v.key === 'Current A')?.value || 0.0) : 0.0,
     powerFactor: vars24 ? (vars24.find((v) => v.key === 'Power Factor')?.value || 0.96) : 0.96,
     units: vars24 ? (vars24.find((v) => v.key === 'Units')?.value || 0.0) : 0.0,

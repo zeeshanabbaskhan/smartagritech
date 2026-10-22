@@ -220,13 +220,13 @@ export function generateBreakerDetails(breaker, buildingCode) {
     { key: 'PowerA', name: 'PowerA', shortName: 'PowerA', value: Number(((loadKw / 3) * 0.98).toFixed(1)), unit: 'kW', group: 'power' },
     { key: 'PowerB', name: 'PowerB', shortName: 'PowerB', value: Number(((loadKw / 3) * 1.01).toFixed(1)), unit: 'kW', group: 'power' },
     { key: 'PowerC', name: 'PowerC', shortName: 'PowerC', value: Number(((loadKw / 3) * 1.01).toFixed(1)), unit: 'kW', group: 'power' },
-    { key: 'Phase VoltageA', name: 'Phase VoltageA', shortName: 'Phase VoltageA', value: Number((vLine + 0.8).toFixed(1)), unit: 'V', group: 'voltage' },
-    { key: 'Phase VoltageB', name: 'Phase VoltageB', shortName: 'Phase VoltageB', value: Number((vLine - 0.7).toFixed(1)), unit: 'V', group: 'voltage' },
-    { key: 'Phase VoltageC', name: 'Phase VoltageC', shortName: 'Phase VoltageC', value: Number((vLine - 0.1).toFixed(1)), unit: 'V', group: 'voltage' },
+    { key: 'Phase VoltageA', name: 'Phase VoltageA', shortName: 'Phase VoltageA', value: Number(vLine.toFixed(1)), unit: 'V', group: 'voltage' },
+    { key: 'Phase VoltageB', name: 'Phase VoltageB', shortName: 'Phase VoltageB', value: Number(vLine.toFixed(1)), unit: 'V', group: 'voltage' },
+    { key: 'Phase VoltageC', name: 'Phase VoltageC', shortName: 'Phase VoltageC', value: Number(vLine.toFixed(1)), unit: 'V', group: 'voltage' },
     { key: 'Voltage', name: 'Voltage', shortName: 'Voltage', value: Number(vPhase.toFixed(1)), unit: 'V', group: 'voltage' },
-    { key: 'VoltageA', name: 'VoltageA', shortName: 'VoltageA', value: Number((vPhase + 0.4).toFixed(1)), unit: 'V', group: 'voltage' },
-    { key: 'VoltageB', name: 'VoltageB', shortName: 'VoltageB', value: Number((vPhase - 0.5).toFixed(1)), unit: 'V', group: 'voltage' },
-    { key: 'VoltageC', name: 'VoltageC', shortName: 'VoltageC', value: Number((vPhase + 0.1).toFixed(1)), unit: 'V', group: 'voltage' },
+    { key: 'VoltageA', name: 'VoltageA', shortName: 'VoltageA', value: Number(vPhase.toFixed(1)), unit: 'V', group: 'voltage' },
+    { key: 'VoltageB', name: 'VoltageB', shortName: 'VoltageB', value: Number(vPhase.toFixed(1)), unit: 'V', group: 'voltage' },
+    { key: 'VoltageC', name: 'VoltageC', shortName: 'VoltageC', value: Number(vPhase.toFixed(1)), unit: 'V', group: 'voltage' },
     { key: 'Current A', name: 'Current A', shortName: 'Current A', value: Number((current * 0.98).toFixed(1)), unit: 'A', group: 'current' },
     { key: 'Current B', name: 'Current B', shortName: 'Current B', value: Number((current * 1.01).toFixed(1)), unit: 'A', group: 'current' },
     { key: 'Current C', name: 'Current C', shortName: 'Current C', value: Number((current * 1.01).toFixed(1)), unit: 'A', group: 'current' },
@@ -387,13 +387,13 @@ function getResolvedVariables(node) {
     { key: 'PowerA', name: 'PowerA', shortName: 'PowerA', value: Number(((loadKw / 3) * 0.98).toFixed(1)), unit: 'kW', group: 'power' },
     { key: 'PowerB', name: 'PowerB', shortName: 'PowerB', value: Number(((loadKw / 3) * 1.01).toFixed(1)), unit: 'kW', group: 'power' },
     { key: 'PowerC', name: 'PowerC', shortName: 'PowerC', value: Number(((loadKw / 3) * 1.01).toFixed(1)), unit: 'kW', group: 'power' },
-    { key: 'Phase VoltageA', name: 'Phase VoltageA', shortName: 'Phase VoltageA', value: Number((vLine + 0.8).toFixed(1)), unit: 'V', group: 'voltage' },
-    { key: 'Phase VoltageB', name: 'Phase VoltageB', shortName: 'Phase VoltageB', value: Number((vLine - 0.7).toFixed(1)), unit: 'V', group: 'voltage' },
-    { key: 'Phase VoltageC', name: 'Phase VoltageC', shortName: 'Phase VoltageC', value: Number((vLine - 0.1).toFixed(1)), unit: 'V', group: 'voltage' },
+    { key: 'Phase VoltageA', name: 'Phase VoltageA', shortName: 'Phase VoltageA', value: Number(vLine.toFixed(1)), unit: 'V', group: 'voltage' },
+    { key: 'Phase VoltageB', name: 'Phase VoltageB', shortName: 'Phase VoltageB', value: Number(vLine.toFixed(1)), unit: 'V', group: 'voltage' },
+    { key: 'Phase VoltageC', name: 'Phase VoltageC', shortName: 'Phase VoltageC', value: Number(vLine.toFixed(1)), unit: 'V', group: 'voltage' },
     { key: 'Voltage', name: 'Voltage', shortName: 'Voltage', value: Number(vPhase.toFixed(1)), unit: 'V', group: 'voltage' },
-    { key: 'VoltageA', name: 'VoltageA', shortName: 'VoltageA', value: Number((vPhase + 0.4).toFixed(1)), unit: 'V', group: 'voltage' },
-    { key: 'VoltageB', name: 'VoltageB', shortName: 'VoltageB', value: Number((vPhase - 0.5).toFixed(1)), unit: 'V', group: 'voltage' },
-    { key: 'VoltageC', name: 'VoltageC', shortName: 'VoltageC', value: Number((vPhase + 0.1).toFixed(1)), unit: 'V', group: 'voltage' },
+    { key: 'VoltageA', name: 'VoltageA', shortName: 'VoltageA', value: Number(vPhase.toFixed(1)), unit: 'V', group: 'voltage' },
+    { key: 'VoltageB', name: 'VoltageB', shortName: 'VoltageB', value: Number(vPhase.toFixed(1)), unit: 'V', group: 'voltage' },
+    { key: 'VoltageC', name: 'VoltageC', shortName: 'VoltageC', value: Number(vPhase.toFixed(1)), unit: 'V', group: 'voltage' },
     { key: 'Current A', name: 'Current A', shortName: 'Current A', value: Number((current * 0.98).toFixed(1)), unit: 'A', group: 'current' },
     { key: 'Current B', name: 'Current B', shortName: 'Current B', value: Number((current * 1.01).toFixed(1)), unit: 'A', group: 'current' },
     { key: 'Current C', name: 'Current C', shortName: 'Current C', value: Number((current * 1.01).toFixed(1)), unit: 'A', group: 'current' },
@@ -493,7 +493,15 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
         // 'PowerConsumption' resolves to Units, Active Energy, kWh
         const fetchVariables = historyVariable === 'both'
           ? ['ActivePower', 'PowerConsumption']
-          : [historyVariable === 'Total Power' ? 'ActivePower' : (historyVariable === 'Units' ? 'PowerConsumption' : historyVariable)]
+          : (historyVariable === 'Total Power'
+              ? ['ActivePower']
+              : (historyVariable === 'Units'
+                  ? ['PowerConsumption']
+                  : (historyVariable === 'VoltageA' || historyVariable === 'Voltage'
+                      ? ['Voltage', 'VoltageA']
+                      : (historyVariable === 'Phase VoltageA'
+                          ? ['Phase VoltageA', 'PhaseVoltageA', 'LineVoltageA']
+                          : [historyVariable]))))
 
         // Query each slave in parallel from database telemetry records with timeout guard
         const queryTasks = []
@@ -522,6 +530,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
         if (!isMounted) return
 
         // Merge time buckets across slaves into real aggregate points
+        const now = new Date()
         const bucketMap = new Map()
         for (const res of results) {
           const isPower = res.varName === 'ActivePower' || res.varName === 'Total Power'
@@ -552,7 +561,6 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
         }
 
         const sortedKeys = Array.from(bucketMap.keys()).sort()
-        const now = new Date()
         const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
         const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
 
