@@ -269,6 +269,8 @@ const emsApi = {
   updateCustomDashboard: (id, body) => api.put(`/custom-dashboards/${id}`, body),
   deleteCustomDashboard: (id) => api.delete(`/custom-dashboards/${id}`),
   getPowerFlow: (params) => api.get('/custom-dashboards/power-flow', params),
+  getPublicPowerFlow: (params) => api.get('/custom-dashboards/public-power-flow', q(params)),
+  getExecutiveDevices: (params) => api.get('/devices/executive-flow', q(params)),
   updatePowerFlow: (body) => api.put('/custom-dashboards/power-flow', body),
 
   downloadSensorCsv: (params) => api.download('/sensor-data/download', params, 'DeviceData.csv'),

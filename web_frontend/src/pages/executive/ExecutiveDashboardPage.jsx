@@ -537,15 +537,15 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
       .filter((b) => b.status !== 'generating' && (b.loadKw > 0 || b.status !== 'spare') && !/genset|wapda/i.test(b.name))
       .reduce((sum, b) => sum + (b.loadKw || 0), 0)
       .toFixed(1)
-  ) || 171.7
+  ) || 298.4
 
   // ─── BUILDING 2: AFL SOURCES ───
   const b2WapdaSlave = findSlave(['WAPDA-AFL', 'wapda-afl', 'wafl'])
   const b2SolarSlave = findSlave(['Solar AFL', 'solar afl', 'solarafl'])
   const b2G3Slave = findSlave(['G3 AFL', 'g3 afl', 'genafl'])
 
-  const b2WapdaKw = Number((findPfSrcKw('grid_1789549696226', 'site_1789548714275') ?? (b2WapdaSlave ? Math.abs(readDeviceMetric(b2WapdaSlave, 'power')) || b2WapdaSlave.currentKw || 112.7 : 112.7)).toFixed(1))
-  const b2SolarKw = Number((findPfSrcKw('solar_1789556025522', 'site_1789548714275') ?? (b2SolarSlave ? Math.abs(readDeviceMetric(b2SolarSlave, 'power')) || b2SolarSlave.currentKw || 59.0 : 59.0)).toFixed(1))
+  const b2WapdaKw = Number((findPfSrcKw('grid_1789549696226', 'site_1789548714275') ?? (b2WapdaSlave ? Math.abs(readDeviceMetric(b2WapdaSlave, 'power')) || b2WapdaSlave.currentKw || 262.3 : 262.3)).toFixed(1))
+  const b2SolarKw = Number((findPfSrcKw('solar_1789556025522', 'site_1789548714275') ?? (b2SolarSlave ? Math.abs(readDeviceMetric(b2SolarSlave, 'power')) || b2SolarSlave.currentKw || 36.1 : 36.1)).toFixed(1))
   const b2G3Kw = Number((findPfSrcKw('generator_1790656690184', 'site_1789548714275') ?? (b2G3Slave ? Math.abs(readDeviceMetric(b2G3Slave, 'power')) || b2G3Slave.currentKw || 0.0 : 0.0)).toFixed(1))
 
   const b2SolarV = Number((readDeviceMetric(b2SolarSlave, 'voltage') || 405.0).toFixed(1))
@@ -784,12 +784,19 @@ export default function ExecutiveDashboardPage({ realData = null }) {
   const [powerFlow, setPowerFlow] = useState(null)
   const [hasRealData, setHasRealData] = useState(true)
 
-  // Fetch live devices & power flow from backend
+  // Fetch live devices & power flow from backend (supports both authenticated & public wallboard sessions)
   const refreshData = useCallback(() => {
-    Promise.all([
-      emsApi.getDevices({ organizationId: orgId, limit: 100, withMetrics: true }).catch(() => null),
-      emsApi.getPowerFlow({ organizationId: orgId }).catch(() => null),
-    ]).then(([devRes, flowRes]) => {
+    const devicesPromise = emsApi
+      .getDevices({ organizationId: orgId, limit: 100, withMetrics: true })
+      .catch(() => emsApi.getExecutiveDevices({ organizationId: orgId }))
+      .catch(() => null)
+
+    const flowPromise = emsApi
+      .getPowerFlow({ organizationId: orgId })
+      .catch(() => emsApi.getPublicPowerFlow({ organizationId: orgId }))
+      .catch(() => null)
+
+    Promise.all([devicesPromise, flowPromise]).then(([devRes, flowRes]) => {
       const devices = devRes ? list(devRes).map(mapDevice) : []
       const flow = flowRes ? one(flowRes) : null
       
@@ -804,7 +811,7 @@ export default function ExecutiveDashboardPage({ realData = null }) {
           localStorage.setItem(CACHE_KEY, JSON.stringify(mapped))
         } catch (_) {}
       }
-    })
+    }).catch(() => {})
   }, [orgId])
 
   // Initial load and periodic polling every 5s

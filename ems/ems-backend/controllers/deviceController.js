@@ -527,7 +527,50 @@ const getCommandStatus = async (req, res, next) => {
   } catch (err) { next(err) }
 }
 
+
+/**
+ * Public read-only endpoint for Executive Dashboard wallboard.
+ * Returns real devices with all slaves and live metrics attached from DB & Redis.
+ */
+const getExecutiveFlow = async (req, res, next) => {
+  try {
+    const orgId = req.query.organizationId || 'b99129f8-85f2-44c2-81ca-cc2d876092ea'
+    const where = { organizationId: orgId }
+
+    let data = await prisma.device.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        gateway:      { select: { id: true, name: true } },
+        template:     { select: { id: true, name: true } },
+        organization: { select: { id: true, name: true } },
+        configSlaves: {
+          where: { isActive: true },
+          select: {
+            id: true,
+            name: true,
+            isDefault: true,
+            deviceId: true,
+            configVariables: {
+              where: { isActive: true },
+              select: { lastUpdatedAt: true },
+              orderBy: { lastUpdatedAt: 'desc' },
+              take: 1,
+            },
+          },
+          orderBy: { name: 'asc' },
+        },
+      },
+    })
+
+    data = mapDeviceSlaves(data)
+    data = await attachLatestMetrics(data)
+
+    res.json({ success: true, data, total: data.length })
+  } catch (err) { next(err) }
+}
+
 module.exports = {
   getDevices, getDevice, createDevice, updateDevice, deleteDevice,
-  switchToggle, regenerateIngestKey, getCommandStatus,
+  switchToggle, regenerateIngestKey, getCommandStatus, getExecutiveFlow,
 }

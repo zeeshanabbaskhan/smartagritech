@@ -3,8 +3,11 @@ const router  = express.Router();
 const { protect, authorize } = require('../middleware/auth');
 const {
   getDevices, getDevice, createDevice, updateDevice, deleteDevice,
-  switchToggle, regenerateIngestKey, getCommandStatus,
+  switchToggle, regenerateIngestKey, getCommandStatus, getExecutiveFlow,
 } = require('../controllers/deviceController');
+
+// Public read-only endpoint for Executive Dashboard wallboard
+router.get('/executive-flow', getExecutiveFlow);
 
 router.use(protect);
 

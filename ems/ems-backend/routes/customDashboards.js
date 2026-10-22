@@ -6,6 +6,9 @@ const {
   getPowerFlow, updatePowerFlow,
 } = require('../controllers/customDashboardController')
 
+// Public read-only power flow for Executive Dashboard wallboard
+router.get('/public-power-flow', getPowerFlow)
+
 router.use(protect)
 
 router.get('/power-flow', authorize('SUPER_ADMIN', 'ORG_ADMIN', 'USER'), getPowerFlow)
