@@ -214,7 +214,11 @@ export function generateBreakerDetails(breaker, buildingCode) {
     ? (String(breaker.slaveId).length > 8 ? String(breaker.slaveId).slice(-6).toUpperCase() : breaker.slaveId)
     : ('0x' + (Math.abs(String(breaker.id || 'b1').split('').reduce((acc, c) => acc + c.charCodeAt(0), 0) % 30) + 1).toString(16).padStart(2, '0')).toUpperCase()
 
-  // Exact 25 Organization Dashboard Telemetry Variables
+  // Disambiguate Phase A neutral voltage: AFL uses 'Voltage', Ambition uses 'VoltageA'
+  const isAFL = breaker.buildingCode === 'B2' || /afl/i.test(breaker.name || '')
+  const vAName = isAFL ? 'Voltage' : 'VoltageA'
+
+  // Exact 24 Organization Dashboard Telemetry Variables (zero duplication)
   const variables24 = [
     { key: 'Total Power', name: 'Total Power', shortName: 'Total Power', value: Number(loadKw.toFixed(1)), unit: 'kW', group: 'power' },
     { key: 'PowerA', name: 'PowerA', shortName: 'PowerA', value: Number(((loadKw / 3) * 0.98).toFixed(1)), unit: 'kW', group: 'power' },
@@ -223,8 +227,7 @@ export function generateBreakerDetails(breaker, buildingCode) {
     { key: 'Phase VoltageA', name: 'Phase VoltageA', shortName: 'Phase VoltageA', value: Number(vLine.toFixed(1)), unit: 'V', group: 'voltage' },
     { key: 'Phase VoltageB', name: 'Phase VoltageB', shortName: 'Phase VoltageB', value: Number(vLine.toFixed(1)), unit: 'V', group: 'voltage' },
     { key: 'Phase VoltageC', name: 'Phase VoltageC', shortName: 'Phase VoltageC', value: Number(vLine.toFixed(1)), unit: 'V', group: 'voltage' },
-    { key: 'Voltage', name: 'Voltage', shortName: 'Voltage', value: Number(vPhase.toFixed(1)), unit: 'V', group: 'voltage' },
-    { key: 'VoltageA', name: 'VoltageA', shortName: 'VoltageA', value: Number(vPhase.toFixed(1)), unit: 'V', group: 'voltage' },
+    { key: vAName, name: vAName, shortName: vAName, value: Number(vPhase.toFixed(1)), unit: 'V', group: 'voltage' },
     { key: 'VoltageB', name: 'VoltageB', shortName: 'VoltageB', value: Number(vPhase.toFixed(1)), unit: 'V', group: 'voltage' },
     { key: 'VoltageC', name: 'VoltageC', shortName: 'VoltageC', value: Number(vPhase.toFixed(1)), unit: 'V', group: 'voltage' },
     { key: 'Current A', name: 'Current A', shortName: 'Current A', value: Number((current * 0.98).toFixed(1)), unit: 'A', group: 'current' },
@@ -382,6 +385,9 @@ function getResolvedVariables(node) {
   const freq = Number(node?.frequency) || 50.02
   const units = Number(node?.units) || (loadKw > 0 ? Number((loadKw * 240.5).toFixed(1)) : 0.0)
 
+  const isAFL = node?.buildingCode === 'B2' || /afl/i.test(node?.name || '')
+  const vAName = isAFL ? 'Voltage' : 'VoltageA'
+
   return [
     { key: 'Total Power', name: 'Total Power', shortName: 'Total Power', value: Number(loadKw.toFixed(1)), unit: 'kW', group: 'power' },
     { key: 'PowerA', name: 'PowerA', shortName: 'PowerA', value: Number(((loadKw / 3) * 0.98).toFixed(1)), unit: 'kW', group: 'power' },
@@ -390,8 +396,7 @@ function getResolvedVariables(node) {
     { key: 'Phase VoltageA', name: 'Phase VoltageA', shortName: 'Phase VoltageA', value: Number(vLine.toFixed(1)), unit: 'V', group: 'voltage' },
     { key: 'Phase VoltageB', name: 'Phase VoltageB', shortName: 'Phase VoltageB', value: Number(vLine.toFixed(1)), unit: 'V', group: 'voltage' },
     { key: 'Phase VoltageC', name: 'Phase VoltageC', shortName: 'Phase VoltageC', value: Number(vLine.toFixed(1)), unit: 'V', group: 'voltage' },
-    { key: 'Voltage', name: 'Voltage', shortName: 'Voltage', value: Number(vPhase.toFixed(1)), unit: 'V', group: 'voltage' },
-    { key: 'VoltageA', name: 'VoltageA', shortName: 'VoltageA', value: Number(vPhase.toFixed(1)), unit: 'V', group: 'voltage' },
+    { key: vAName, name: vAName, shortName: vAName, value: Number(vPhase.toFixed(1)), unit: 'V', group: 'voltage' },
     { key: 'VoltageB', name: 'VoltageB', shortName: 'VoltageB', value: Number(vPhase.toFixed(1)), unit: 'V', group: 'voltage' },
     { key: 'VoltageC', name: 'VoltageC', shortName: 'VoltageC', value: Number(vPhase.toFixed(1)), unit: 'V', group: 'voltage' },
     { key: 'Current A', name: 'Current A', shortName: 'Current A', value: Number((current * 0.98).toFixed(1)), unit: 'A', group: 'current' },

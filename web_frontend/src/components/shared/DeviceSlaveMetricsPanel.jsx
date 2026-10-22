@@ -41,7 +41,8 @@ function labelFor(row) {
 
 /** Legacy cfsmartems.com display order per slave. */
 const LEGACY_SORT = [
-  'Voltage A', 'Voltage B', 'Voltage C',
+  'Voltage', 'Voltage A', 'Voltage B', 'Voltage C',
+  'Phase VoltageA', 'Phase VoltageB', 'Phase VoltageC',
   'Phase Voltage A', 'Phase Voltage B', 'Phase Voltage C',
   'Current A', 'Current B', 'Current C',
   'Operating Power', 'Active Power', 'Reactive Power', 'Apparent Power',

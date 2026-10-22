@@ -60,25 +60,103 @@ function getMetricFromSlave(slave, aliasList, fallback = 0) {
  * Populates real phase voltages, currents, active/reactive/apparent power,
  * power factor, frequency, and Units (kWh) matching Organization Dashboard Device Telemetry.
  */
-function build24Variables(slave, loadKw, ratedA = 100) {
-  const metrics = slave?.latestMetrics || {}
+/** Legacy display sort order matching DeviceSlaveMetricsPanel */
+const LEGACY_VAR_SORT = [
+  'Voltage', 'Voltage A', 'VoltageA', 'Voltage B', 'VoltageB', 'Voltage C', 'VoltageC',
+  'Phase Voltage A', 'Phase VoltageA', 'Phase Voltage B', 'Phase VoltageB', 'Phase Voltage C', 'Phase VoltageC',
+  'Current A', 'CurrentA', 'Current B', 'CurrentB', 'Current C', 'CurrentC',
+  'Total Power', 'Power', 'Active Power', 'ActivePower', 'Operating Power',
+  'PowerA', 'Power A', 'PowerB', 'Power B', 'PowerC', 'Power C',
+  'Total Reactive Power', 'TotalReactivePower', 'Reactive Power', 'Reactive Power A', 'Reactive Power B', 'Reactive Power C',
+  'Total Apparent Power', 'TotalApparentPower', 'Apparent Power', 'Apparent Power A', 'Apparent Power B', 'Apparent Power C',
+  'Units', 'Active Energy', 'Power Consumption', 'Export Power',
+  'Power Factor', 'PowerFactor', 'Frequency', 'Temperature',
+  'THD Ua', 'THD Ub', 'THD Uc', 'THD Ia', 'THD Ib', 'THD Ic',
+  'Control Status',
+]
 
-  // 1. Total Power
+function sortExecutiveVariables(a, b) {
+  const nameA = a.shortName || a.name || a.key || ''
+  const nameB = b.shortName || b.name || b.key || ''
+  const ia = LEGACY_VAR_SORT.indexOf(nameA) !== -1 ? LEGACY_VAR_SORT.indexOf(nameA) : LEGACY_VAR_SORT.indexOf(a.key)
+  const ib = LEGACY_VAR_SORT.indexOf(nameB) !== -1 ? LEGACY_VAR_SORT.indexOf(nameB) : LEGACY_VAR_SORT.indexOf(b.key)
+  if (ia >= 0 && ib >= 0) return ia - ib
+  if (ia >= 0) return -1
+  if (ib >= 0) return 1
+  return nameA.localeCompare(nameB)
+}
+
+/**
+ * Builds the exact variables for a slave matching Device Telemetry.
+ * When real database metrics are available in slave.latestMetrics, they are mapped
+ * directly so the variables and their values match Device Telemetry 1-to-1 with zero duplication.
+ */
+function build24Variables(slave, loadKw, ratedA = 100, buildingCode = 'B1') {
+  const metrics = slave?.latestMetrics || {}
+  const metricKeys = Object.keys(metrics)
+
+  // 1. Direct Dynamic Mapping from Slave Telemetry if configured variables exist (matches Device Telemetry exactly)
+  if (metricKeys.length >= 6) {
+    const directList = metricKeys.map((k) => {
+      const item = metrics[k]
+      const rawVal = typeof item === 'object' && item !== null ? item.value : item
+      const dispVal = typeof item === 'object' && item !== null ? item.displayValue : null
+      const unit = typeof item === 'object' && item !== null ? (item.unit || '') : ''
+      const displayName = typeof item === 'object' && item !== null ? (item.displayName || k) : k
+
+      let label = displayName?.trim() || k
+      if (!displayName || displayName === k) {
+        const spaced = String(k)
+          .replace(/([a-z])([A-Z])/g, '$1 $2')
+          .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+        if (spaced !== k && !/^R[0-9]+$/i.test(k)) label = spaced
+      }
+
+      const normKey = k.toLowerCase()
+      let group = 'metric'
+      if (/voltage/i.test(normKey)) group = 'voltage'
+      else if (/current/i.test(normKey)) group = 'current'
+      else if (/reactive/i.test(normKey)) group = 'reactive'
+      else if (/apparent/i.test(normKey)) group = 'apparent'
+      else if (/power\s*factor|\bpf\b|freq|thd|temp/i.test(normKey)) group = 'quality'
+      else if (/energy|unit|consumption|export/i.test(normKey)) group = 'energy'
+      else if (/power/i.test(normKey)) group = 'power'
+
+      let numVal = safeExtractNumber(item, 0)
+      if ((k === 'Total Power' || k === 'Power' || k === 'ActivePower') && loadKw > 0) {
+        numVal = +loadKw.toFixed(1)
+      }
+
+      return {
+        key: k,
+        name: label,
+        shortName: label,
+        value: Number(numVal.toFixed(2)),
+        unit: unit || (group === 'voltage' ? 'V' : group === 'current' ? 'A' : group === 'power' ? 'kW' : group === 'energy' ? 'kWh' : ''),
+        group,
+      }
+    })
+
+    directList.sort(sortExecutiveVariables)
+    return directList
+  }
+
+  // 2. Standardized Fallback when slave has fewer than 6 metric keys
   const pTotal = loadKw > 0
     ? loadKw
     : (safeExtractNumber(metrics['Total Power']) || readDeviceMetric(slave, 'power') || 0.0)
 
-  // 2. Phase Active Powers
+  // Phase Active Powers
   const pA = getMetricFromSlave(slave, ['PowerA', 'Power A', 'Power_A', 'ActivePowerA', 'P1'], pTotal > 0 ? (pTotal / 3) * 0.98 : 0)
   const pB = getMetricFromSlave(slave, ['PowerB', 'Power B', 'Power_B', 'ActivePowerB', 'P2'], pTotal > 0 ? (pTotal / 3) * 1.01 : 0)
   const pC = getMetricFromSlave(slave, ['PowerC', 'Power C', 'Power_C', 'ActivePowerC', 'P3'], pTotal > 0 ? (pTotal / 3) * 1.01 : 0)
 
-  // 3. Phase-to-Neutral Voltages (Voltage, VoltageA, VoltageB, VoltageC in meters ~230V)
+  // Phase-to-Neutral Voltages (Voltage, VoltageA, VoltageB, VoltageC in meters ~230V)
   const rawNeutralA = getMetricFromSlave(slave, ['Voltage', 'VoltageA', 'Voltage A', 'Va', 'V1', 'Phase Voltage A (LN)'], null)
   const rawNeutralB = getMetricFromSlave(slave, ['VoltageB', 'Voltage B', 'Vb', 'V2', 'Phase Voltage B (LN)'], null)
   const rawNeutralC = getMetricFromSlave(slave, ['VoltageC', 'Voltage C', 'Vc', 'V3', 'Phase Voltage C (LN)'], null)
 
-  // 4. Line-to-Line Voltages (Phase VoltageA, B, C in meters ~400V)
+  // Line-to-Line Voltages (Phase VoltageA, B, C in meters ~400V)
   const rawLineA = getMetricFromSlave(slave, ['Phase VoltageA', 'Phase Voltage A', 'PhaseVoltageA', 'LineVoltageA', 'Line Voltage A', 'Vab', 'V12'], null)
   const rawLineB = getMetricFromSlave(slave, ['Phase VoltageB', 'Phase Voltage B', 'PhaseVoltageB', 'LineVoltageB', 'Line Voltage B', 'Vbc', 'V23'], null)
   const rawLineC = getMetricFromSlave(slave, ['Phase VoltageC', 'Phase Voltage C', 'PhaseVoltageC', 'LineVoltageC', 'Line Voltage C', 'Vca', 'V31'], null)
@@ -108,17 +186,17 @@ function build24Variables(slave, loadKw, ratedA = 100) {
     ? rawLineC
     : (rawNeutralC !== null ? rawNeutralC * Math.sqrt(3) : vLineA)
 
-  // 5. Phase Currents
+  // Phase Currents
   const iAvg = readDeviceMetric(slave, 'current') || (pTotal > 0 ? (pTotal * 1000) / (Math.sqrt(3) * vLineA * 0.95) : 0)
   const iA = getMetricFromSlave(slave, ['Current A', 'CurrentA', 'Current_A', 'Ia', 'I1'], iAvg * 0.98)
   const iB = getMetricFromSlave(slave, ['Current B', 'CurrentB', 'Current_B', 'Ib', 'I2'], iAvg * 1.01)
   const iC = getMetricFromSlave(slave, ['Current C', 'CurrentC', 'Current_C', 'Ic', 'I3'], iAvg * 1.01)
 
-  // 6. Power Factor & Frequency
+  // Power Factor & Frequency
   const pf = getMetricFromSlave(slave, ['Power Factor', 'PowerFactor', 'PF', 'pf'], readDeviceMetric(slave, 'pf') || 0.96)
   const freq = getMetricFromSlave(slave, ['Frequency', 'Freq', 'Hz'], 50.02)
 
-  // 7. Apparent & Reactive Powers
+  // Apparent & Reactive Powers
   const sTotal = getMetricFromSlave(slave, ['Total Apparent Power', 'TotalApparentPower', 'ApparentPower', 'Apparent Power'], pf > 0 ? pTotal / pf : pTotal)
   const sA = getMetricFromSlave(slave, ['Apparent Power A', 'ApparentPowerA', 'Apparent PowerA', 'Sa'], (sTotal / 3) * 0.98)
   const sB = getMetricFromSlave(slave, ['Apparent Power B', 'ApparentPowerB', 'Apparent PowerB', 'Sb'], (sTotal / 3) * 1.01)
@@ -129,11 +207,16 @@ function build24Variables(slave, loadKw, ratedA = 100) {
   const qB = getMetricFromSlave(slave, ['Reactive Power B', 'ReactivePowerB', 'Reactive PowerB', 'Qb'], (qTotal / 3) * 1.02)
   const qC = getMetricFromSlave(slave, ['Reactive Power C', 'ReactivePowerC', 'Reactive PowerC', 'Qc'], (qTotal / 3) * 1.01)
 
-  // 8. Cumulative Active Energy (Units in kWh)
+  // Cumulative Active Energy (Units in kWh)
   const units = safeExtractNumber(
     getMetricFromSlave(slave, ['Units', 'Active Energy', 'ActiveEnergy', 'Energy', 'Total Energy', 'TotalEnergy', 'Power Consumption', 'PowerConsumption', 'Total Units', 'Active Energy(kWh)', 'kWh', 'Import Energy', 'ImportEnergy']),
     safeExtractNumber(slave?.currentUnits, pTotal > 0 ? +(pTotal * 240.5).toFixed(1) : 0.0)
   )
+
+  // Disambiguate Phase A neutral voltage: AFL uses 'Voltage', Ambition uses 'VoltageA' (zero duplicate!)
+  const hasVoltageA = metrics['VoltageA'] !== undefined || metrics['Voltage A'] !== undefined || (buildingCode !== 'B2' && !/afl/i.test(slave?.name || ''))
+  const vAName = hasVoltageA ? 'VoltageA' : 'Voltage'
+  const vAShort = hasVoltageA ? 'VoltageA' : 'Voltage'
 
   return [
     { key: 'Total Power', name: 'Total Power', shortName: 'Total Power', value: +pTotal.toFixed(1), unit: 'kW', group: 'power' },
@@ -143,8 +226,7 @@ function build24Variables(slave, loadKw, ratedA = 100) {
     { key: 'Phase VoltageA', name: 'Phase VoltageA', shortName: 'Phase VoltageA', value: +vLineA.toFixed(1), unit: 'V', group: 'voltage' },
     { key: 'Phase VoltageB', name: 'Phase VoltageB', shortName: 'Phase VoltageB', value: +vLineB.toFixed(1), unit: 'V', group: 'voltage' },
     { key: 'Phase VoltageC', name: 'Phase VoltageC', shortName: 'Phase VoltageC', value: +vLineC.toFixed(1), unit: 'V', group: 'voltage' },
-    { key: 'Voltage', name: 'Voltage', shortName: 'Voltage', value: +vNeutralA.toFixed(1), unit: 'V', group: 'voltage' },
-    { key: 'VoltageA', name: 'VoltageA', shortName: 'VoltageA', value: +vNeutralA.toFixed(1), unit: 'V', group: 'voltage' },
+    { key: vAName, name: vAName, shortName: vAShort, value: +vNeutralA.toFixed(1), unit: 'V', group: 'voltage' },
     { key: 'VoltageB', name: 'VoltageB', shortName: 'VoltageB', value: +vNeutralB.toFixed(1), unit: 'V', group: 'voltage' },
     { key: 'VoltageC', name: 'VoltageC', shortName: 'VoltageC', value: +vNeutralC.toFixed(1), unit: 'V', group: 'voltage' },
     { key: 'Current A', name: 'Current A', shortName: 'Current A', value: +iA.toFixed(1), unit: 'A', group: 'current' },
@@ -225,7 +307,7 @@ function makeBreakerNode(id, fallbackName, defaultRatedA, slaveObj, buildingCode
   else if (loadKw >= 70) status = 'heavy'
   else if (loadKw > maxKw * 0.8) status = 'heavy'
 
-  const vars24 = slaveObj ? build24Variables(slaveObj, loadKw, ratedA) : null
+  const vars24 = slaveObj ? build24Variables(slaveObj, loadKw, ratedA, buildingCode) : null
 
   return {
     id,
