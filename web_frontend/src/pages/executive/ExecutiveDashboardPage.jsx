@@ -1,5 +1,5 @@
 import { Component, useState, useEffect, useMemo, useCallback } from 'react'
-import ExecutiveDashboard, { INITIAL_FLOW_DATA } from '../../components/executive-dashboard/ExecutiveDashboardStandalone'
+import ExecutiveDashboard, { INITIAL_FLOW_DATA, isFifteenVarSlave } from '../../components/executive-dashboard/ExecutiveDashboardStandalone'
 import emsApi, { list, one } from '../../api/emsApi'
 import { mapDevice } from '../../utils/mappers'
 import { readDeviceMetric } from '../../utils/deviceMetrics'
@@ -7,7 +7,7 @@ import { onSocketEvent } from '../../services/socketService'
 import { useAuth } from '../../context/AuthContext'
 
 const AMBITION_ORG_ID = 'b99129f8-85f2-44c2-81ca-cc2d876092ea'
-const CACHE_KEY = 'ems_exec_ambition_v10'
+const CACHE_KEY = 'ems_exec_ambition_v11'
 
 /**
  * Safely parse any metric value (number, string, or { value, displayValue, unit } object).
@@ -142,9 +142,52 @@ function build24Variables(slave, loadKw, ratedA = 100, buildingCode = 'B1') {
   }
 
   // 2. Standardized Fallback when slave has fewer than 6 metric keys
+  const is15Var = isFifteenVarSlave(slave?.name)
   const pTotal = loadKw > 0
     ? loadKw
     : (safeExtractNumber(metrics['Total Power']) || readDeviceMetric(slave, 'power') || 0.0)
+
+  // Disambiguate Phase A neutral voltage: AFL uses 'Voltage', Ambition uses 'VoltageA' (zero duplicate!)
+  const hasVoltageA = metrics['VoltageA'] !== undefined || metrics['Voltage A'] !== undefined || (buildingCode !== 'B2' && !/afl/i.test(slave?.name || ''))
+  const vAName = hasVoltageA ? 'VoltageA' : 'Voltage'
+  const vAShort = hasVoltageA ? 'VoltageA' : 'Voltage'
+
+  // If 15-variable slave, return only the 15 real electrical parameters without synthesizing fake per-phase powers
+  if (is15Var) {
+    const rawNeutralA = getMetricFromSlave(slave, ['Voltage', 'VoltageA', 'Voltage A', 'Va', 'V1'], 230.0)
+    const rawNeutralB = getMetricFromSlave(slave, ['VoltageB', 'Voltage B', 'Vb', 'V2'], rawNeutralA)
+    const rawNeutralC = getMetricFromSlave(slave, ['VoltageC', 'Voltage C', 'Vc', 'V3'], rawNeutralA)
+    const rawLineA = getMetricFromSlave(slave, ['Phase VoltageA', 'Phase Voltage A', 'PhaseVoltageA'], rawNeutralA * Math.sqrt(3))
+    const rawLineB = getMetricFromSlave(slave, ['Phase VoltageB', 'Phase Voltage B', 'PhaseVoltageB'], rawLineA)
+    const rawLineC = getMetricFromSlave(slave, ['Phase VoltageC', 'Phase Voltage C', 'PhaseVoltageC'], rawLineA)
+    const iAvg = readDeviceMetric(slave, 'current') || (pTotal > 0 ? (pTotal * 1000) / (Math.sqrt(3) * rawLineA * 0.95) : 0)
+    const iA = getMetricFromSlave(slave, ['Current A', 'CurrentA'], iAvg * 0.98)
+    const iB = getMetricFromSlave(slave, ['Current B', 'CurrentB'], iAvg * 1.01)
+    const iC = getMetricFromSlave(slave, ['Current C', 'CurrentC'], iAvg * 1.01)
+    const pf = getMetricFromSlave(slave, ['Power Factor', 'PF'], 0.96)
+    const freq = getMetricFromSlave(slave, ['Frequency', 'Hz'], 50.02)
+    const sTotal = getMetricFromSlave(slave, ['Total Apparent Power'], pf > 0 ? pTotal / pf : pTotal)
+    const qTotal = getMetricFromSlave(slave, ['Total Reactive Power'], Math.sqrt(Math.max(0, sTotal * sTotal - pTotal * pTotal)))
+    const units = safeExtractNumber(getMetricFromSlave(slave, ['Units', 'Power Consumption']), pTotal > 0 ? +(pTotal * 240.5).toFixed(1) : 0.0)
+
+    return [
+      { key: 'Total Power', name: 'Total Power', shortName: 'Total Power', value: +pTotal.toFixed(1), unit: 'kW', group: 'power' },
+      { key: 'Phase VoltageA', name: 'Phase VoltageA', shortName: 'Phase VoltageA', value: +rawLineA.toFixed(1), unit: 'V', group: 'voltage' },
+      { key: 'Phase VoltageB', name: 'Phase VoltageB', shortName: 'Phase VoltageB', value: +rawLineB.toFixed(1), unit: 'V', group: 'voltage' },
+      { key: 'Phase VoltageC', name: 'Phase VoltageC', shortName: 'Phase VoltageC', value: +rawLineC.toFixed(1), unit: 'V', group: 'voltage' },
+      { key: vAName, name: vAName, shortName: vAShort, value: +rawNeutralA.toFixed(1), unit: 'V', group: 'voltage' },
+      { key: 'VoltageB', name: 'VoltageB', shortName: 'VoltageB', value: +rawNeutralB.toFixed(1), unit: 'V', group: 'voltage' },
+      { key: 'VoltageC', name: 'VoltageC', shortName: 'VoltageC', value: +rawNeutralC.toFixed(1), unit: 'V', group: 'voltage' },
+      { key: 'Current A', name: 'Current A', shortName: 'Current A', value: +iA.toFixed(1), unit: 'A', group: 'current' },
+      { key: 'Current B', name: 'Current B', shortName: 'Current B', value: +iB.toFixed(1), unit: 'A', group: 'current' },
+      { key: 'Current C', name: 'Current C', shortName: 'Current C', value: +iC.toFixed(1), unit: 'A', group: 'current' },
+      { key: 'Total Reactive Power', name: 'Total Reactive Power', shortName: 'Total Reactive', value: +qTotal.toFixed(1), unit: 'kVAR', group: 'reactive' },
+      { key: 'Total Apparent Power', name: 'Total Apparent Power', shortName: 'Total Apparent', value: +sTotal.toFixed(1), unit: 'kVA', group: 'apparent' },
+      { key: 'Power Factor', name: 'Power Factor', shortName: 'Power Factor', value: +pf.toFixed(3), unit: 'PF', group: 'quality' },
+      { key: 'Frequency', name: 'Frequency', shortName: 'Frequency', value: +freq.toFixed(2), unit: 'Hz', group: 'quality' },
+      { key: 'Units', name: 'Units', shortName: 'Units (kWh)', value: +units.toFixed(1), unit: 'kWh', group: 'energy' },
+    ]
+  }
 
   // Phase Active Powers
   const pA = getMetricFromSlave(slave, ['PowerA', 'Power A', 'Power_A', 'ActivePowerA', 'P1'], pTotal > 0 ? (pTotal / 3) * 0.98 : 0)
@@ -212,11 +255,6 @@ function build24Variables(slave, loadKw, ratedA = 100, buildingCode = 'B1') {
     getMetricFromSlave(slave, ['Units', 'Active Energy', 'ActiveEnergy', 'Energy', 'Total Energy', 'TotalEnergy', 'Power Consumption', 'PowerConsumption', 'Total Units', 'Active Energy(kWh)', 'kWh', 'Import Energy', 'ImportEnergy']),
     safeExtractNumber(slave?.currentUnits, pTotal > 0 ? +(pTotal * 240.5).toFixed(1) : 0.0)
   )
-
-  // Disambiguate Phase A neutral voltage: AFL uses 'Voltage', Ambition uses 'VoltageA' (zero duplicate!)
-  const hasVoltageA = metrics['VoltageA'] !== undefined || metrics['Voltage A'] !== undefined || (buildingCode !== 'B2' && !/afl/i.test(slave?.name || ''))
-  const vAName = hasVoltageA ? 'VoltageA' : 'Voltage'
-  const vAShort = hasVoltageA ? 'VoltageA' : 'Voltage'
 
   return [
     { key: 'Total Power', name: 'Total Power', shortName: 'Total Power', value: +pTotal.toFixed(1), unit: 'kW', group: 'power' },

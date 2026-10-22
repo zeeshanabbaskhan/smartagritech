@@ -28,10 +28,10 @@ function pickDefaultSlaveId(slaveList) {
 }
 
 /** Human label: prefer displayName from legacy template. */
-function labelFor(row) {
+export function labelFor(row) {
   const dn = row.displayName?.trim()
   if (dn) return dn
-  const n = String(row.name || '')
+  const n = String(row.name || row.key || '')
   const spaced = n
     .replace(/([a-z])([A-Z])/g, '$1 $2')
     .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
@@ -40,23 +40,26 @@ function labelFor(row) {
 }
 
 /** Legacy cfsmartems.com display order per slave. */
-const LEGACY_SORT = [
+export const LEGACY_SORT = [
   'Voltage', 'Voltage A', 'Voltage B', 'Voltage C',
   'Phase VoltageA', 'Phase VoltageB', 'Phase VoltageC',
   'Phase Voltage A', 'Phase Voltage B', 'Phase Voltage C',
   'Current A', 'Current B', 'Current C',
-  'Operating Power', 'Active Power', 'Reactive Power', 'Apparent Power',
+  'Total Power', 'Power', 'Active Power', 'ActivePower', 'Operating Power',
+  'PowerA', 'Power A', 'PowerB', 'Power B', 'PowerC', 'Power C',
+  'Total Reactive Power', 'TotalReactivePower', 'Reactive Power', 'Reactive Power A', 'Reactive Power B', 'Reactive Power C',
+  'Total Apparent Power', 'TotalApparentPower', 'Apparent Power', 'Apparent Power A', 'Apparent Power B', 'Apparent Power C',
   'Power Consumption', 'Units', 'Export Power',
   'Power Factor', 'Frequency', 'Temperature',
   'THD Ua', 'THD Ub', 'THD Uc', 'THD Ia', 'THD Ib', 'THD Ic',
   'Control Status',
 ]
 
-function sortLegacy(a, b) {
+export function sortLegacy(a, b) {
   const la = labelFor(a)
   const lb = labelFor(b)
-  const ia = LEGACY_SORT.indexOf(la)
-  const ib = LEGACY_SORT.indexOf(lb)
+  const ia = LEGACY_SORT.indexOf(la) !== -1 ? LEGACY_SORT.indexOf(la) : LEGACY_SORT.indexOf(a.name || a.key)
+  const ib = LEGACY_SORT.indexOf(lb) !== -1 ? LEGACY_SORT.indexOf(lb) : LEGACY_SORT.indexOf(b.name || b.key)
   if (ia >= 0 && ib >= 0) return ia - ib
   if (ia >= 0) return -1
   if (ib >= 0) return 1

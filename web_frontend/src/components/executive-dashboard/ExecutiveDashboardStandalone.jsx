@@ -20,7 +20,10 @@ import {
 import {
   ResponsiveContainer, BarChart, Bar, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, Legend
 } from 'recharts'
-import emsApi from '../../api/emsApi'
+import emsApi, { list } from '../../api/emsApi'
+import { latestToReadings } from '../../utils/sensorReadings'
+import { formatMetricValue } from '../shared/dashboardFormatters'
+import { labelFor, sortLegacy } from '../shared/DeviceSlaveMetricsPanel'
 
 
 /**
@@ -168,6 +171,50 @@ export function getAllBreakers(building) {
 /**
  * Generates electrical telemetry for individual breaker nodes
  */
+// In-memory caches for instantaneous (0ms) slave telemetry variable rendering
+const varDefinitionsCache = new Map()
+const slaveRowsCache = new Map()
+
+export const FIFTEEN_VAR_SLAVE_NAMES = new Set([
+  '1f back side db',
+  '1f-main db-finishing',
+  '1st floor pr',
+  '2f-db back side',
+  '2f-main db-sewing',
+  '2nd floor',
+  '3f-air-cooler',
+  '3f air cooler',
+  '3f-main db-sewing',
+  '3rd floor',
+  '55kw comp',
+  'air cooler 2nd floor',
+  'boiler',
+  'drain pump',
+  'finshing amb',
+  'finishing amb',
+  'fhall',
+  'lt panel room-afl',
+  'ozone ups',
+  'sampling stitching',
+  'spare',
+  'spray booth 1',
+  'spray booth 2',
+  'spray booth 3',
+  'suprafurnace',
+  'washing hall',
+  'w hall',
+  'whall',
+])
+
+export function isFifteenVarSlave(name) {
+  if (!name) return false
+  const norm = String(name).toLowerCase().trim().replace(/[\s_\-]+/g, ' ')
+  for (const s of FIFTEEN_VAR_SLAVE_NAMES) {
+    if (norm === s || norm.includes(s) || s.includes(norm)) return true
+  }
+  return false
+}
+
 export function generateBreakerDetails(breaker, buildingCode) {
   if (Array.isArray(breaker.variables24) && breaker.variables24.length > 0) {
     const isTripped = breaker.status === 'tripped' && Number(breaker.loadKw || 0) === 0
@@ -217,9 +264,27 @@ export function generateBreakerDetails(breaker, buildingCode) {
   // Disambiguate Phase A neutral voltage: AFL uses 'Voltage', Ambition uses 'VoltageA'
   const isAFL = breaker.buildingCode === 'B2' || /afl/i.test(breaker.name || '')
   const vAName = isAFL ? 'Voltage' : 'VoltageA'
+  const is15Var = isFifteenVarSlave(breaker.name)
 
-  // Exact 24 Organization Dashboard Telemetry Variables (zero duplication)
-  const variables24 = [
+  // Standardized fallback matching hardware meter parameters exactly:
+  // 15-variable slaves omit per-phase synthesized powers (matching Device Telemetry 1-to-1)
+  const variables24 = is15Var ? [
+    { key: 'Total Power', name: 'Total Power', shortName: 'Total Power', value: Number(loadKw.toFixed(1)), unit: 'kW', group: 'power' },
+    { key: 'Phase VoltageA', name: 'Phase VoltageA', shortName: 'Phase VoltageA', value: Number(vLine.toFixed(1)), unit: 'V', group: 'voltage' },
+    { key: 'Phase VoltageB', name: 'Phase VoltageB', shortName: 'Phase VoltageB', value: Number(vLine.toFixed(1)), unit: 'V', group: 'voltage' },
+    { key: 'Phase VoltageC', name: 'Phase VoltageC', shortName: 'Phase VoltageC', value: Number(vLine.toFixed(1)), unit: 'V', group: 'voltage' },
+    { key: vAName, name: vAName, shortName: vAName, value: Number(vPhase.toFixed(1)), unit: 'V', group: 'voltage' },
+    { key: 'VoltageB', name: 'VoltageB', shortName: 'VoltageB', value: Number(vPhase.toFixed(1)), unit: 'V', group: 'voltage' },
+    { key: 'VoltageC', name: 'VoltageC', shortName: 'VoltageC', value: Number(vPhase.toFixed(1)), unit: 'V', group: 'voltage' },
+    { key: 'Current A', name: 'Current A', shortName: 'Current A', value: Number((current * 0.98).toFixed(1)), unit: 'A', group: 'current' },
+    { key: 'Current B', name: 'Current B', shortName: 'Current B', value: Number((current * 1.01).toFixed(1)), unit: 'A', group: 'current' },
+    { key: 'Current C', name: 'Current C', shortName: 'Current C', value: Number((current * 1.01).toFixed(1)), unit: 'A', group: 'current' },
+    { key: 'Total Reactive Power', name: 'Total Reactive Power', shortName: 'Total Reactive', value: Number(kvar.toFixed(1)), unit: 'kVAR', group: 'reactive' },
+    { key: 'Total Apparent Power', name: 'Total Apparent Power', shortName: 'Total Apparent', value: Number(kva.toFixed(1)), unit: 'kVA', group: 'apparent' },
+    { key: 'Power Factor', name: 'Power Factor', shortName: 'Power Factor', value: Number(pf.toFixed(3)), unit: 'PF', group: 'quality' },
+    { key: 'Frequency', name: 'Frequency', shortName: 'Frequency', value: Number(freq.toFixed(2)), unit: 'Hz', group: 'quality' },
+    { key: 'Units', name: 'Units', shortName: 'Units (kWh)', value: Number(units.toFixed(1)), unit: 'kWh', group: 'energy' },
+  ] : [
     { key: 'Total Power', name: 'Total Power', shortName: 'Total Power', value: Number(loadKw.toFixed(1)), unit: 'kW', group: 'power' },
     { key: 'PowerA', name: 'PowerA', shortName: 'PowerA', value: Number(((loadKw / 3) * 0.98).toFixed(1)), unit: 'kW', group: 'power' },
     { key: 'PowerB', name: 'PowerB', shortName: 'PowerB', value: Number(((loadKw / 3) * 1.01).toFixed(1)), unit: 'kW', group: 'power' },
@@ -387,6 +452,27 @@ function getResolvedVariables(node) {
 
   const isAFL = node?.buildingCode === 'B2' || /afl/i.test(node?.name || '')
   const vAName = isAFL ? 'Voltage' : 'VoltageA'
+  const is15Var = isFifteenVarSlave(node?.name)
+
+  if (is15Var) {
+    return [
+      { key: 'Total Power', name: 'Total Power', shortName: 'Total Power', value: Number(loadKw.toFixed(1)), unit: 'kW', group: 'power' },
+      { key: 'Phase VoltageA', name: 'Phase VoltageA', shortName: 'Phase VoltageA', value: Number(vLine.toFixed(1)), unit: 'V', group: 'voltage' },
+      { key: 'Phase VoltageB', name: 'Phase VoltageB', shortName: 'Phase VoltageB', value: Number(vLine.toFixed(1)), unit: 'V', group: 'voltage' },
+      { key: 'Phase VoltageC', name: 'Phase VoltageC', shortName: 'Phase VoltageC', value: Number(vLine.toFixed(1)), unit: 'V', group: 'voltage' },
+      { key: vAName, name: vAName, shortName: vAName, value: Number(vPhase.toFixed(1)), unit: 'V', group: 'voltage' },
+      { key: 'VoltageB', name: 'VoltageB', shortName: 'VoltageB', value: Number(vPhase.toFixed(1)), unit: 'V', group: 'voltage' },
+      { key: 'VoltageC', name: 'VoltageC', shortName: 'VoltageC', value: Number(vPhase.toFixed(1)), unit: 'V', group: 'voltage' },
+      { key: 'Current A', name: 'Current A', shortName: 'Current A', value: Number((current * 0.98).toFixed(1)), unit: 'A', group: 'current' },
+      { key: 'Current B', name: 'Current B', shortName: 'Current B', value: Number((current * 1.01).toFixed(1)), unit: 'A', group: 'current' },
+      { key: 'Current C', name: 'Current C', shortName: 'Current C', value: Number((current * 1.01).toFixed(1)), unit: 'A', group: 'current' },
+      { key: 'Total Reactive Power', name: 'Total Reactive Power', shortName: 'Total Reactive', value: Number(kvar.toFixed(1)), unit: 'kVAR', group: 'reactive' },
+      { key: 'Total Apparent Power', name: 'Total Apparent Power', shortName: 'Total Apparent', value: Number(kva.toFixed(1)), unit: 'kVA', group: 'apparent' },
+      { key: 'Power Factor', name: 'Power Factor', shortName: 'Power Factor', value: Number(pf.toFixed(3)), unit: 'PF', group: 'quality' },
+      { key: 'Frequency', name: 'Frequency', shortName: 'Frequency', value: Number(freq.toFixed(2)), unit: 'Hz', group: 'quality' },
+      { key: 'Units', name: 'Units', shortName: 'Units (kWh)', value: Number(units.toFixed(1)), unit: 'kWh', group: 'energy' },
+    ]
+  }
 
   return [
     { key: 'Total Power', name: 'Total Power', shortName: 'Total Power', value: Number(loadKw.toFixed(1)), unit: 'kW', group: 'power' },
@@ -436,7 +522,102 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
   const [isLoadingHistory, setIsLoadingHistory] = useState(false)
   const [historyError, setHistoryError] = useState(null)
 
-  const variables = useMemo(() => getResolvedVariables(node), [node])
+  // Live Telemetry Variables from Database matching Device Telemetry exactly
+  const [liveSlaveVars, setLiveSlaveVars] = useState(() => {
+    const sId = node.rawSlaveId || node.slaveId
+    if (sId && slaveRowsCache.has(sId)) {
+      return slaveRowsCache.get(sId)
+    }
+    return null
+  })
+
+  useEffect(() => {
+    const targetDeviceId = node.rawDeviceId || node.deviceId
+    const targetSlaveId = node.rawSlaveId || node.slaveId
+
+    if (!targetDeviceId || !targetSlaveId) {
+      setLiveSlaveVars(null)
+      return
+    }
+
+    if (slaveRowsCache.has(targetSlaveId)) {
+      setLiveSlaveVars(slaveRowsCache.get(targetSlaveId))
+    }
+
+    let isMounted = true
+
+    async function fetchSlaveTelemetry() {
+      try {
+        const varsPromise = varDefinitionsCache.has(targetSlaveId)
+          ? Promise.resolve(varDefinitionsCache.get(targetSlaveId))
+          : emsApi.getDeviceVariables(targetDeviceId, targetSlaveId, { limit: 200 })
+              .then((res) => {
+                const listVars = list(res)
+                varDefinitionsCache.set(targetSlaveId, listVars)
+                return listVars
+              })
+              .catch(() => [])
+
+        const latestPromise = emsApi.getLatestReadings({ deviceId: targetDeviceId, slaveId: targetSlaveId }).catch(() => null)
+
+        const [vars, latestRes] = await Promise.all([varsPromise, latestPromise])
+        if (!isMounted || !vars || vars.length === 0) return
+
+        const latestReadings = latestToReadings(latestRes ?? {})
+        const hasLiveBatch = latestReadings.length > 0
+        const latestMap = Object.fromEntries(
+          latestReadings.map((r) => [r.variableName, r]),
+        )
+
+        const merged = vars.map((v) => {
+          const key = v.name ?? v.variableName
+          const live = latestMap[key]
+          const rawVal = live?.value ?? (hasLiveBatch ? null : v.currentValue ?? null)
+          const dispVal = live?.displayValue ?? (hasLiveBatch ? null : v.displayValue ?? null)
+          const unit = live?.unit ?? v.unit ?? ''
+          const label = labelFor(v)
+
+          const normKey = key.toLowerCase()
+          let group = 'metric'
+          if (/voltage/i.test(normKey)) group = 'voltage'
+          else if (/current/i.test(normKey)) group = 'current'
+          else if (/reactive/i.test(normKey)) group = 'reactive'
+          else if (/apparent/i.test(normKey)) group = 'apparent'
+          else if (/power\s*factor|\bpf\b|freq|thd|temp/i.test(normKey)) group = 'quality'
+          else if (/energy|unit|consumption|export/i.test(normKey)) group = 'energy'
+          else if (/power/i.test(normKey)) group = 'power'
+
+          const formatted = formatMetricValue(rawVal, dispVal, key, unit)
+          const numValue = formatted !== '—' && !isNaN(parseFloat(formatted)) ? parseFloat(formatted) : (dispVal || rawVal || '—')
+
+          return {
+            key,
+            name: label,
+            shortName: label,
+            value: numValue,
+            unit,
+            group,
+          }
+        })
+
+        merged.sort(sortLegacy)
+        slaveRowsCache.set(targetSlaveId, merged)
+        if (isMounted) {
+          setLiveSlaveVars(merged)
+        }
+      } catch (_) {}
+    }
+
+    fetchSlaveTelemetry()
+    return () => { isMounted = false }
+  }, [node.rawDeviceId, node.deviceId, node.rawSlaveId, node.slaveId])
+
+  const variables = useMemo(() => {
+    if (Array.isArray(liveSlaveVars) && liveSlaveVars.length > 0) {
+      return liveSlaveVars
+    }
+    return getResolvedVariables(node)
+  }, [liveSlaveVars, node])
 
   const [selectedVarKeys, setSelectedVarKeys] = useState(() =>
     variables.map((v) => v.key)
