@@ -145,8 +145,14 @@ const readDeviceLoadKw = async (deviceId) => {
   try {
     const vars = await prisma.deviceConfigVariable.findMany({
       where: { deviceId, isActive: true },
-      select: { name: true, currentValue: true },
+      select: { name: true, currentValue: true, lastUpdatedAt: true },
     })
+    const STALE_MS = 15 * 60 * 1000
+    const now = Date.now()
+    const isFresh = vars.some((v) => v.lastUpdatedAt && (now - new Date(v.lastUpdatedAt).getTime()) < STALE_MS)
+    if (!isFresh) {
+      return 0
+    }
     for (const v of vars) {
       if (v.currentValue != null && v.currentValue !== '') {
         varMap[v.name] = v.currentValue
@@ -163,9 +169,10 @@ const readSlaveLoadKw = async (deviceId, slaveId) => {
   if (deviceId) {
     const device = await prisma.device.findUnique({
       where: { id: deviceId },
-      select: { switchState: true },
+      select: { switchState: true, status: true },
     })
     if (String(device?.switchState || '').toUpperCase() === 'OFF') return 0
+    if (String(device?.status || '').toUpperCase() === 'OFFLINE') return 0
   }
 
   const c = redis.getClient()
@@ -185,8 +192,14 @@ const readSlaveLoadKw = async (deviceId, slaveId) => {
   try {
     const vars = await prisma.deviceConfigVariable.findMany({
       where: { deviceConfigSlaveId: slaveId, isActive: true },
-      select: { name: true, currentValue: true },
+      select: { name: true, currentValue: true, lastUpdatedAt: true },
     })
+    const STALE_MS = 15 * 60 * 1000
+    const now = Date.now()
+    const isFresh = vars.some((v) => v.lastUpdatedAt && (now - new Date(v.lastUpdatedAt).getTime()) < STALE_MS)
+    if (!isFresh) {
+      return 0
+    }
     for (const v of vars) {
       if (v.currentValue != null && v.currentValue !== '') {
         varMap[v.name] = v.currentValue
@@ -755,6 +768,18 @@ async function buildPowerFlowData(req, orgId, config) {
       s.derived = false
     }
   }))
+
+  // Solar nighttime protection: In Pakistan (UTC+5), solar inverters cannot physically generate power at night (19:00 - 06:00 PKT)
+  const nowUtc = new Date()
+  const pktHour = (nowUtc.getUTCHours() + 5) % 24
+  const isNight = pktHour >= 19 || pktHour < 6
+  if (isNight) {
+    for (const s of sources) {
+      if (s.type === 'solar' || s.id === 'solar' || String(s.id).startsWith('solar')) {
+        s.valueKw = 0
+      }
+    }
+  }
 
   // Sites: every source belongs to one, defaulting to the default site
   const sites = normaliseSites(config.sites)

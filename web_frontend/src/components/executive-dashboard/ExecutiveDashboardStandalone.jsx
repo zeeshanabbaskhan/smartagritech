@@ -2447,7 +2447,7 @@ function EnergyFlowOverview({ data, onSelectNode }) {
     const name = b.name || ''
     const loadKwVal = Number.isFinite(Number(b.loadKw)) ? Number(b.loadKw) : 0
     const isSpare = (b.status === 'spare' || name.toLowerCase().includes('spare')) && loadKwVal === 0
-    const isGenerating = b.status === 'generating' || name.toLowerCase().includes('solar')
+    const isGenerating = (b.status === 'generating' || name.toLowerCase().includes('solar')) && loadKwVal > 0
     const isTieLine = b.status === 'tie-line' || name.toLowerCase().includes('ambition') || name.toLowerCase().includes('tie')
 
     // Threshold evaluation: checks slave override, then global default, falling back to 70 / 100
@@ -2621,7 +2621,7 @@ function EnergyFlowOverview({ data, onSelectNode }) {
                   loadKw: Number(metrics.solarTotal || 0),
                   units: totalSolarUnits,
                   type: 'solar',
-                  status: Number(metrics.solarTotal || 0) > 0 ? 'generating' : 'idle',
+                  status: Number(metrics.solarTotal || 0) > 0 ? 'generating' : 'standby',
                   ratedA: 1200,
                   voltage: 400.0,
                   powerFactor: 0.98,

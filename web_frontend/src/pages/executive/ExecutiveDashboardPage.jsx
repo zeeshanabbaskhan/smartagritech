@@ -7,7 +7,7 @@ import { onSocketEvent } from '../../services/socketService'
 import { useAuth } from '../../context/AuthContext'
 
 const AMBITION_ORG_ID = 'b99129f8-85f2-44c2-81ca-cc2d876092ea'
-const CACHE_KEY = 'ems_exec_ambition_v11'
+const CACHE_KEY = 'ems_exec_ambition_v13'
 
 /**
  * Safely parse any metric value (number, string, or { value, displayValue, unit } object).
@@ -323,23 +323,31 @@ function makeBreakerNode(id, fallbackName, defaultRatedA, slaveObj, buildingCode
   }
   metricKw = Math.abs(Number.isFinite(metricKw) ? metricKw : 0)
 
-  // 3. Active status: If slave reports positive power or metrics, it is actively online!
+  // 3. Active status: Determine real online/offline/standby status
   const isSpare = isNamedSpare
-  const hasLiveReading = slaveObj && !isSpare && (metricKw > 0 || Object.keys(slaveObj.latestMetrics || {}).length > 0)
-  const isOnline = slaveObj ? (slaveObj.status === 'Online' || slaveObj.statusRaw === 'ONLINE' || hasLiveReading) : false
-  const loadKw = (isOnline && !isSpare) ? +metricKw.toFixed(1) : 0.0
+  const isExplicitOffline = slaveObj && (slaveObj.status === 'OFFLINE' || slaveObj.status === 'offline' || slaveObj.statusRaw === 'OFFLINE')
+  const hasLiveReading = slaveObj && !isSpare && !isExplicitOffline && (metricKw > 0)
+  const isOnline = slaveObj ? (!isExplicitOffline && (slaveObj.status === 'Online' || slaveObj.status === 'ONLINE' || slaveObj.statusRaw === 'ONLINE' || hasLiveReading)) : false
+  let loadKw = (isOnline && !isSpare) ? +metricKw.toFixed(1) : 0.0
 
   const ratedA = defaultRatedA || 100
   const maxKw = Math.round((ratedA * 400 * Math.sqrt(3) * 0.95) / 1000)
+  const currentPktHour = (new Date().getUTCHours() + 5) % 24
+  const isNight = currentPktHour >= 19 || currentPktHour < 6
+
   const isSolar = /solar/i.test(displayName) || /solar/i.test(fallbackName)
   const isGenset = /genset|gen\s*afl|genafl|\bg[1-3]\b/i.test(displayName) || /genset|gen\s*afl|genafl|\bg[1-3]\b/i.test(fallbackName)
   const isTieLine = /tie/i.test(displayName) || /tie/i.test(fallbackName)
+
+  if (isSolar && isNight) {
+    loadKw = 0.0
+  }
 
   let status = 'normal'
   if (isTieLine) status = 'tie-line'
   else if (isSpare) status = 'spare'
   else if (!slaveObj || !isOnline) status = 'offline'
-  else if (isSolar) status = 'generating'
+  else if (isSolar) status = loadKw > 0 ? 'generating' : 'standby'
   else if (isGenset && loadKw === 0) status = 'standby'
   else if (loadKw >= 100) status = 'critical'
   else if (loadKw >= 70) status = 'heavy'
@@ -502,7 +510,7 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
 
   const b1ConsumerLoad = Number(
     [...b1Row1, ...b1Row2, ...b1Row3, ...b1Row4]
-      .filter((b) => b.status !== 'generating' && (b.loadKw > 0 || b.status !== 'spare') && !/genset|wapda/i.test(b.name))
+      .filter((b) => b.status !== 'generating' && (b.loadKw > 0 || b.status !== 'spare') && !/genset|wapda|solar/i.test(b.name))
       .reduce((sum, b) => sum + (b.loadKw || 0), 0)
       .toFixed(1)
   ) || 710.8
@@ -527,11 +535,15 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
   const b1WapdaKw = Number((findPfSrcKw('grid', 'site-1') ?? (b1WapdaSlave ? Math.abs(readDeviceMetric(b1WapdaSlave, 'power')) || b1WapdaSlave.currentKw || 432.6 : 432.6)).toFixed(1))
   const b1G1Kw = Number((findPfSrcKw('generator', 'site-1') ?? (b1G1Slave ? Math.abs(readDeviceMetric(b1G1Slave, 'power')) || b1G1Slave.currentKw || 0.0 : 0.0)).toFixed(1))
   const b1G2Kw = Number((findPfSrcKw('generator_1789717695565', 'site-1') ?? (b1G2Slave ? Math.abs(readDeviceMetric(b1G2Slave, 'power')) || b1G2Slave.currentKw || 0.0 : 0.0)).toFixed(1))
-  const b1SolarKw = Number((findPfSrcKw('solar', 'site-1') ?? (
-    (Math.abs(readDeviceMetric(b1Solar1, 'power')) || b1Solar1?.currentKw || 0) +
-    (Math.abs(readDeviceMetric(b1Solar4, 'power')) || b1Solar4?.currentKw || 0) +
-    (Math.abs(readDeviceMetric(b1Solar5, 'power')) || b1Solar5?.currentKw || 0) || 136.2
-  )).toFixed(1))
+  const currentPktHour = (new Date().getUTCHours() + 5) % 24
+  const isNight = currentPktHour >= 19 || currentPktHour < 6
+
+  const b1SolarLiveSum = isNight ? 0.0 : (
+    (Math.abs(readDeviceMetric(b1Solar1, 'power')) || Number(b1Solar1?.currentKw) || 0) +
+    (Math.abs(readDeviceMetric(b1Solar4, 'power')) || Number(b1Solar4?.currentKw) || 0) +
+    (Math.abs(readDeviceMetric(b1Solar5, 'power')) || Number(b1Solar5?.currentKw) || 0)
+  )
+  const b1SolarKw = isNight ? 0.0 : Number((findPfSrcKw('solar', 'site-1') ?? b1SolarLiveSum).toFixed(1))
 
   const b1WapdaV = Number((readDeviceMetric(b1WapdaSlave, 'voltage') || 402.0).toFixed(1))
   const b1WapdaPf = Number((readDeviceMetric(b1WapdaSlave, 'pf') || 0.98).toFixed(2))
@@ -617,7 +629,7 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
       voltage: b1SolarV,
       current: b1SolarI,
       pf: b1SolarPf,
-      status: 'generating',
+      status: b1SolarKw > 0 ? 'generating' : 'standby',
       slaveId: b1Solar1?.id,
       deviceId: b1Solar1?.deviceId,
       deviceName: b1Solar1?.deviceName,
@@ -676,7 +688,7 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
 
   const b2ConsumerLoad = Number(
     [...b2Row1, ...b2Row2, ...b2Row3, ...b2Row4]
-      .filter((b) => b.status !== 'generating' && (b.loadKw > 0 || b.status !== 'spare') && !/genset|wapda/i.test(b.name))
+      .filter((b) => b.status !== 'generating' && (b.loadKw > 0 || b.status !== 'spare') && !/genset|wapda|solar/i.test(b.name))
       .reduce((sum, b) => sum + (b.loadKw || 0), 0)
       .toFixed(1)
   ) || 298.4
@@ -686,8 +698,10 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
   const b2SolarSlave = findSlave(['Solar AFL', 'solar afl', 'solarafl'])
   const b2G3Slave = findSlave(['G3 AFL', 'g3 afl', 'genafl'])
 
+  const isB2SolarOffline = !b2SolarSlave || b2SolarSlave.status === 'OFFLINE' || b2SolarSlave.status === 'offline' || b2SolarSlave.statusRaw === 'OFFLINE'
   const b2WapdaKw = Number((findPfSrcKw('grid_1789549696226', 'site_1789548714275') ?? (b2WapdaSlave ? Math.abs(readDeviceMetric(b2WapdaSlave, 'power')) || b2WapdaSlave.currentKw || 262.3 : 262.3)).toFixed(1))
-  const b2SolarKw = Number((findPfSrcKw('solar_1789556025522', 'site_1789548714275') ?? (b2SolarSlave ? Math.abs(readDeviceMetric(b2SolarSlave, 'power')) || b2SolarSlave.currentKw || 36.1 : 36.1)).toFixed(1))
+  const b2SolarLive = (isB2SolarOffline || isNight) ? 0.0 : (Math.abs(readDeviceMetric(b2SolarSlave, 'power')) || Number(b2SolarSlave?.currentKw) || 0.0)
+  const b2SolarKw = (isB2SolarOffline || isNight) ? 0.0 : Number((findPfSrcKw('solar_1789556025522', 'site_1789548714275') ?? b2SolarLive).toFixed(1))
   const b2G3Kw = Number((findPfSrcKw('generator_1790656690184', 'site_1789548714275') ?? (b2G3Slave ? Math.abs(readDeviceMetric(b2G3Slave, 'power')) || b2G3Slave.currentKw || 0.0 : 0.0)).toFixed(1))
 
   const b2SolarV = Number((readDeviceMetric(b2SolarSlave, 'voltage') || 405.0).toFixed(1))
@@ -713,7 +727,7 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
       voltage: b2SolarV,
       current: b2SolarI,
       pf: b2SolarPf,
-      status: 'generating',
+      status: isB2SolarOffline ? 'offline' : (b2SolarKw > 0 ? 'generating' : 'standby'),
       slaveId: b2SolarSlave?.id,
       deviceId: b2SolarSlave?.deviceId,
       deviceName: b2SolarSlave?.deviceName,
@@ -765,21 +779,16 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
   // True Total Running Load of B2 (AFL Plant) = Inflow from Supply Sources
   const b2RunningLoad = Number(
     (powerFlow?.siteTotals?.['site_1789548714275'] && powerFlow.siteTotals['site_1789548714275'] > 0
-      ? powerFlow.siteTotals['site_1789548714275']
+      ? (isB2SolarOffline ? Math.max(0, powerFlow.siteTotals['site_1789548714275'] - (Number(powerFlow?.sources?.find(s => s.id === 'solar_1789556025522')?.valueKw) || 0)) : powerFlow.siteTotals['site_1789548714275'])
       : b2WapdaKw + b2SolarKw + b2G3Kw
     ).toFixed(1)
   )
 
   // ─── OVERALL FACTORY TOTALS (Harmonized with OrgDashboard KPIs) ───
   const totalWapda = Number((powerFlow?.gridKw && powerFlow.gridKw > 0 ? powerFlow.gridKw : b1WapdaKw + b2WapdaKw).toFixed(1))
-  const solarTotal = Number((powerFlow?.solarKw && powerFlow.solarKw > 0 ? powerFlow.solarKw : b1SolarKw + b2SolarKw).toFixed(1))
+  const solarTotal = Number((b1SolarKw + b2SolarKw).toFixed(1))
   const totalGenset = Number((b1G1Kw + b1G2Kw + b2G3Kw).toFixed(1))
-  const totalRunningLoad = Number(
-    (powerFlow?.totalLoadKw && powerFlow.totalLoadKw > 0
-      ? powerFlow.totalLoadKw
-      : b1RunningLoad + b2RunningLoad
-    ).toFixed(1)
-  )
+  const totalRunningLoad = Number((b1RunningLoad + b2RunningLoad).toFixed(1))
 
   const pfAvg = Number((powerFlow?.gridMetrics?.powerFactor || b1WapdaPf || 0.98).toFixed(2))
   const freqAvg = Number((powerFlow?.gridMetrics?.frequency || 50.02).toFixed(2))
