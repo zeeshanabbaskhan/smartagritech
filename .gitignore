@@ -1,0 +1,11 @@
+# Local scratch directory
+scratch/
+
+# Backup files
+*.bak
+*.bak.*
+
+# Specific screenshot files
+wapda_amb_drawer_*.png
+dryer_hall_drawer_*.png
+sewing_3f_amb_drawer_*.png

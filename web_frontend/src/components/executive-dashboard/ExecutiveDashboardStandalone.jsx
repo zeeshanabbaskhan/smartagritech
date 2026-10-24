@@ -502,6 +502,195 @@ function getResolvedVariables(node) {
   ]
 }
 
+/**
+ * Real stored-reading history for the drawer graph.
+ * Builds time buckets for a range preset, fetches readings via emsApi.getSensorHistory
+ * and folds them into { timestamp, power, units, cumulativeUnits, value } points.
+ */
+const HISTORY_PAGE_LIMIT = 5000
+const HISTORY_MAX_PAGES = 10
+const HISTORY_CONCURRENCY = 6
+
+function buildHistoryBuckets(range, now = new Date()) {
+  const buckets = []
+  if (range === '1h') {
+    const step = 5 * 60 * 1000
+    const lastStart = Math.floor(now.getTime() / step) * step
+    for (let i = 11; i >= 0; i--) {
+      const start = new Date(lastStart - i * step)
+      buckets.push({
+        start,
+        end: new Date(start.getTime() + step),
+        label: `${String(start.getHours()).padStart(2, '0')}:${String(start.getMinutes()).padStart(2, '0')}`,
+        isCurrent: i === 0,
+      })
+    }
+  } else if (range === '24h') {
+    const lastStart = new Date(now)
+    lastStart.setMinutes(0, 0, 0)
+    for (let i = 23; i >= 0; i--) {
+      const start = new Date(lastStart.getTime() - i * 3600 * 1000)
+      buckets.push({
+        start,
+        end: new Date(start.getTime() + 3600 * 1000),
+        label: `${String(start.getHours()).padStart(2, '0')}:00`,
+        isCurrent: i === 0,
+      })
+    }
+  } else if (range === '7d' || range === '30d') {
+    const days = range === '7d' ? 7 : 30
+    for (let i = days - 1; i >= 0; i--) {
+      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i)
+      const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i + 1)
+      const label = range === '7d'
+        ? `${start.toLocaleDateString('en-US', { weekday: 'short' })} ${start.getDate()}`
+        : `${start.getDate()} ${start.toLocaleDateString('en-US', { month: 'short' })}`
+      buckets.push({ start, end, label, isCurrent: i === 0 })
+    }
+  } else {
+    // '1y': 12 calendar months, current month in progress
+    for (let i = 11; i >= 0; i--) {
+      const start = new Date(now.getFullYear(), now.getMonth() - i, 1)
+      const end = new Date(now.getFullYear(), now.getMonth() - i + 1, 1)
+      const label = `${start.toLocaleDateString('en-US', { month: 'short' })} '${String(start.getFullYear()).slice(-2)}`
+      buckets.push({ start, end, label, isCurrent: i === 0 })
+    }
+  }
+  // Never query into the future
+  const last = buckets[buckets.length - 1]
+  if (last && last.end > now) last.end = new Date(now)
+  return buckets
+}
+
+// Duplicate timestamps (same reading stored twice / overlapping pages) are dropped
+function toSamples(rows) {
+  const seen = new Set()
+  return (rows || [])
+    .map((r) => ({ t: new Date(r.receivedTime ?? r.timestamp).getTime(), v: Number(r.value) }))
+    .filter((s) => {
+      if (!Number.isFinite(s.t) || !Number.isFinite(s.v) || seen.has(s.t)) return false
+      seen.add(s.t)
+      return true
+    })
+}
+
+// Pages through /sensor-data/history (returned newest-first) and returns ascending samples
+async function fetchHistorySamples(params, maxPages = HISTORY_MAX_PAGES) {
+  const rows = []
+  let skip = 0
+  let truncated = false
+  for (let page = 0; page < maxPages; page++) {
+    const res = await emsApi.getSensorHistory({ ...params, limit: HISTORY_PAGE_LIMIT, skip })
+    const batch = Array.isArray(res?.data) ? res.data : list(res)
+    rows.push(...batch)
+    const fetched = Number(res?.fetched ?? batch.length)
+    if (!Number.isFinite(fetched) || fetched < HISTORY_PAGE_LIMIT) break
+    skip += fetched
+    if (page === maxPages - 1) truncated = true
+  }
+  return { samples: toSamples(rows).sort((a, b) => a.t - b.t), truncated }
+}
+
+async function runLimited(tasks, limit) {
+  const results = new Array(tasks.length)
+  let next = 0
+  const worker = async () => {
+    while (next < tasks.length) {
+      const idx = next++
+      results[idx] = await tasks[idx]()
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, worker))
+  return results
+}
+
+// Short ranges (1h / 24h): one paged query for the whole window, bucketed client-side.
+// Long ranges (7d / 30d / 1y): one query per bucket so older buckets are not starved by the
+// newest-first page limit.
+async function fetchVariableBuckets({ deviceId, slaveId, variableName, buckets, range }) {
+  const perBucket = range === '7d' || range === '30d' || range === '1y'
+  if (!perBucket) {
+    // Small lead-in window gives Units a baseline reading before the first bucket
+    const leadMs = 30 * 60 * 1000
+    const { samples, truncated } = await fetchHistorySamples({
+      deviceId,
+      slaveId,
+      variableName,
+      startDate: new Date(buckets[0].start.getTime() - leadMs).toISOString(),
+      endDate: buckets[buckets.length - 1].end.toISOString(),
+    })
+    const baseline = samples.filter((s) => s.t < buckets[0].start.getTime())
+    const bucketSamples = buckets.map((b) =>
+      samples.filter((s) => s.t >= b.start.getTime() && s.t < b.end.getTime())
+    )
+    return { bucketSamples, baseline: baseline[baseline.length - 1] || null, truncated }
+  }
+
+  const results = await runLimited(
+    buckets.map((b) => () =>
+      fetchHistorySamples({
+        deviceId,
+        slaveId,
+        variableName,
+        startDate: b.start.toISOString(),
+        endDate: new Date(b.end.getTime() - 1).toISOString(),
+      }, 1)
+    ),
+    HISTORY_CONCURRENCY
+  )
+  return {
+    bucketSamples: results.map((r) => r.samples),
+    baseline: null,
+    truncated: results.some((r) => r.samples.length >= HISTORY_PAGE_LIMIT),
+  }
+}
+
+// Units is a cumulative meter register: bucket energy = growth of the register across the bucket.
+// Negative steps (meter reset / rollover) are ignored, as are jumps larger than the breaker could
+// physically deliver (maxKw * elapsed hours * 1.5 headroom) when maxKw is known.
+// If every step in a bucket is rejected, the bucket reports no data rather than an absurd number.
+// totalExcluded counts every rejected step so the UI can surface how many readings were dropped.
+function unitsFromBuckets(bucketSamples, baseline, maxKw) {
+  let prevLast = baseline || null
+  let totalExcluded = 0
+  const buckets = bucketSamples.map((samples) => {
+    if (!samples.length) return { units: null, cumulative: null }
+    let energy = 0
+    let steps = 0
+    let accepted = 0
+    let prev = prevLast
+    for (const s of samples) {
+      if (prev != null) {
+        const rawElapsedHours = (s.t - prev.t) / 3600000
+        // For step filtering, cap elapsed hours per step at 1.5 hours so that an outage jump spanning
+        // multiple days cannot dump days of energy into a single 10-minute step
+        const elapsedHours = Math.min(1.5, Math.max(1 / 60, rawElapsedHours))
+        const maxAllowed = maxKw > 0 ? maxKw * elapsedHours * 1.5 : Infinity
+        const delta = s.v - prev.v
+        if (delta >= 0 && delta <= maxAllowed) {
+          energy += delta
+          accepted++
+        } else {
+          totalExcluded++
+        }
+        steps++
+      }
+      prev = s
+    }
+    prevLast = samples[samples.length - 1]
+    const cumulative = Number(prevLast.v.toFixed(1))
+    if (steps > 0 && accepted === 0) return { units: null, cumulative }
+    return { units: Number(energy.toFixed(2)), cumulative }
+  })
+  return { buckets, totalExcluded }
+}
+
+function averageOf(samples, abs = false) {
+  if (!samples.length) return null
+  const sum = samples.reduce((acc, s) => acc + (abs ? Math.abs(s.v) : s.v), 0)
+  return sum / samples.length
+}
+
 function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
   if (!node) return null
 
@@ -516,11 +705,6 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
   const [dateTo, setDateTo] = useState('2026-10-09')
   const [downloadSuccess, setDownloadSuccess] = useState('')
   const [isExportingCsv, setIsExportingCsv] = useState(false)
-
-  // Historical Telemetry Database State
-  const [dbHistoryData, setDbHistoryData] = useState(null)
-  const [isLoadingHistory, setIsLoadingHistory] = useState(false)
-  const [historyError, setHistoryError] = useState(null)
 
   // Live Telemetry Variables from Database matching Device Telemetry exactly
   const [liveSlaveVars, setLiveSlaveVars] = useState(() => {
@@ -649,705 +833,181 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
   const handleSelectAll = () => setSelectedVarKeys(variables.map((v) => v.key))
   const handleDeselectAll = () => setSelectedVarKeys([])
 
-  // Query database telemetry records via sensorData aggregate API
+  // ─── Real stored readings for the history graph ───
+  const historyDeviceId = node.deviceId || null
+  const historySlaveId = node.fullSlaveId || node.slaveId || null
+  const [historyBuckets, setHistoryBuckets] = useState(null)
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false)
+  const [historyError, setHistoryError] = useState('')
+  const [historyReloadKey, setHistoryReloadKey] = useState(0)
+
   useEffect(() => {
-    let isMounted = true
-
-    async function fetchRealHistory() {
-      if (!node) return
-      setIsLoadingHistory(true)
-      setHistoryError(null)
-
-      try {
-        // Resolve target slaves to query (supports composite groups or single slave)
-        const targetSlaves = Array.isArray(node.contributingSlaves) && node.contributingSlaves.length > 0
-          ? node.contributingSlaves.filter((s) => s.deviceId && s.slaveId)
-          : ((node.rawDeviceId || node.deviceId) && (node.rawSlaveId || node.slaveId))
-            ? [{ deviceId: node.rawDeviceId || node.deviceId, slaveId: node.rawSlaveId || node.slaveId, name: node.name }]
-            : []
-
-        if (targetSlaves.length === 0) {
-          if (isMounted) {
-            setDbHistoryData([])
-            setIsLoadingHistory(false)
-          }
-          return
-        }
-
-        // Determine real database variable name candidates:
-        // 'ActivePower' resolves to Total Power, kW, Power, Active Power
-        // 'PowerConsumption' resolves to Units, Active Energy, kWh
-        const fetchVariables = historyVariable === 'both'
-          ? ['ActivePower', 'PowerConsumption']
-          : (historyVariable === 'Total Power'
-              ? ['ActivePower']
-              : (historyVariable === 'Units'
-                  ? ['PowerConsumption']
-                  : (historyVariable === 'VoltageA' || historyVariable === 'Voltage'
-                      ? ['Voltage', 'VoltageA']
-                      : (historyVariable === 'Phase VoltageA'
-                          ? ['Phase VoltageA', 'PhaseVoltageA', 'LineVoltageA']
-                          : [historyVariable]))))
-
-        // Query each slave in parallel from database telemetry records with timeout guard
-        const queryTasks = []
-        for (const slave of targetSlaves) {
-          for (const varName of fetchVariables) {
-            queryTasks.push(
-              emsApi.getSensorAggregate({
-                deviceId: slave.deviceId,
-                slaveId: slave.slaveId,
-                variableName: varName,
-                timeRange: historyRange,
-              }).then((res) => ({
-                slaveId: slave.slaveId,
-                varName,
-                data: Array.isArray(res?.data) ? res.data : [],
-              })).catch(() => ({
-                slaveId: slave.slaveId,
-                varName,
-                data: [],
-              }))
-            )
-          }
-        }
-
-        const results = await Promise.all(queryTasks)
-        if (!isMounted) return
-
-        // Merge time buckets across slaves into real aggregate points
-        const now = new Date()
-        const bucketMap = new Map()
-        for (const res of results) {
-          const isPower = res.varName === 'ActivePower' || res.varName === 'Total Power'
-          const isUnits = res.varName === 'PowerConsumption' || res.varName === 'Units'
-
-          for (const pt of res.data) {
-            if (!pt || !pt.timestamp) continue
-            const tDate = new Date(pt.timestamp)
-            if (isNaN(tDate.getTime())) continue
-            if (tDate > now) continue // Strictly discard any future timestamp
-
-            const timeKey = tDate.toISOString()
-            let entry = bucketMap.get(timeKey)
-            if (!entry) {
-              entry = { date: tDate, powerSum: 0, unitsSum: 0, customValSum: 0 }
-              bucketMap.set(timeKey, entry)
-            }
-
-            const numVal = Number(pt.value) || 0
-            if (isPower) {
-              entry.powerSum += numVal
-            } else if (isUnits) {
-              entry.unitsSum += numVal
-            } else {
-              entry.customValSum += numVal
-            }
-          }
-        }
-
-        const sortedKeys = Array.from(bucketMap.keys()).sort()
-        const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-        const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-
-        // Device commissioning date awareness
-        const rawComm = node.createdAt || node.registeredAt || '2026-09-18T00:00:00.000Z'
-        const commissionDate = new Date(rawComm)
-        const commissionDateLabel = !isNaN(commissionDate.getTime())
-          ? commissionDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-          : 'Sep 18, 2026'
-
-        let rollingCumulative = 0
-        const formattedPoints = sortedKeys.map((k) => {
-          const item = bucketMap.get(k)
-          const d = item.date
-
-          let timestamp = ''
-          let isToday = false
-          let isCurrentMonth = false
-          let isPreCommission = false
-
-          if (historyRange === '1h') {
-            timestamp = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-          } else if (historyRange === '24h') {
-            timestamp = `${String(d.getHours()).padStart(2, '0')}:00`
-          } else if (historyRange === '7d') {
-            const dayName = d.toLocaleDateString('en-US', { weekday: 'short' })
-            timestamp = `${dayName} ${d.getDate()}`
-            const itemDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-            isToday = (itemDateStr === todayStr)
-          } else if (historyRange === '30d') {
-            const monthShort = d.toLocaleDateString('en-US', { month: 'short' })
-            timestamp = `${d.getDate()} ${monthShort}`
-            const itemDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-            isToday = (itemDateStr === todayStr)
-          } else {
-            // 1y (Yearly)
-            const mShort = d.toLocaleDateString('en-US', { month: 'short' })
-            const yShort = String(d.getFullYear()).slice(-2)
-            timestamp = `${mShort} '${yShort}`
-            const itemMonthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-            isCurrentMonth = (itemMonthKey === currentMonthKey)
-            if (!isNaN(commissionDate.getTime()) && d < new Date(commissionDate.getFullYear(), commissionDate.getMonth(), 1)) {
-              isPreCommission = true
-            }
-          }
-
-          let p = Number(item.powerSum.toFixed(1))
-          if (isGenerating && (historyRange === '7d' || historyRange === '30d' || historyRange === '1y') && p > 0) {
-            // Restore daylight generating peak power from 24h diluted average
-            p = Number(Math.max(p * (24 / 5.2), basePower).toFixed(1))
-          }
-          let u = 0
-          if (item.unitsSum > 0) {
-            u = Number(item.unitsSum.toFixed(1))
-          } else if (p > 0) {
-            const bucketHours = historyRange === '1h' ? (5 / 60) : historyRange === '24h' ? 1 : (historyRange === '7d' || historyRange === '30d') ? 24 : 720
-            u = Number(((isGenerating ? p * (5.2 / 24) : p) * bucketHours).toFixed(1))
-          }
-
-          rollingCumulative = Number((rollingCumulative + u).toFixed(1))
-          const val = historyVariable === 'Units' ? u : (historyVariable === 'both' || historyVariable === 'Total Power' ? p : Number(item.customValSum.toFixed(1)))
-
-          return {
-            timestamp,
-            power: p,
-            units: u,
-            cumulativeUnits: rollingCumulative,
-            value: val,
-            isToday,
-            isCurrentMonth,
-            isPreCommission,
-            commissionDateLabel,
-            elapsedHours: isToday ? Math.max(0.1, Number((now.getHours() + now.getMinutes() / 60).toFixed(1))) : 24,
-            daysInMonth: 30,
-          }
-        })
-
-        setDbHistoryData(formattedPoints)
-        setIsLoadingHistory(false)
-      } catch (err) {
-        if (isMounted) {
-          console.error('Failed to load real database historical records:', err)
-          setHistoryError(err?.message || 'Database connection error')
-          setDbHistoryData([])
-          setIsLoadingHistory(false)
-        }
-      }
+    if (activeTab !== 'history') return undefined
+    if (!historyDeviceId || !historySlaveId) {
+      setHistoryBuckets(null)
+      setHistoryError('')
+      setIsLoadingHistory(false)
+      return undefined
     }
 
-    fetchRealHistory()
-    return () => { isMounted = false }
-  }, [node?.id, node?.slaveId, node?.rawSlaveId, node?.deviceId, node?.rawDeviceId, node?.contributingSlaves, historyRange, historyVariable])
+    let cancelled = false
+    const buckets = buildHistoryBuckets(historyRange)
+    const variableNames = historyVariable === 'both'
+      ? ['Units', 'Total Power']
+      : [historyVariable]
 
-  // Historical Telemetry Data: consumes real database records when available,
-  // otherwise seamlessly computes dynamic electrical telemetry anchored to the breaker's live measurements.
-  const chartData = useMemo(() => {
-    if (Array.isArray(dbHistoryData) && dbHistoryData.length > 0) {
-      return dbHistoryData
+    setIsLoadingHistory(true)
+    setHistoryError('')
+
+    Promise.all(
+      variableNames.map((variableName) =>
+        fetchVariableBuckets({
+          deviceId: historyDeviceId,
+          slaveId: historySlaveId,
+          variableName,
+          buckets,
+          range: historyRange,
+        }).then((res) => [variableName, res])
+      )
+    )
+      .then((entries) => {
+        if (cancelled) return
+        setHistoryBuckets({ range: historyRange, variable: historyVariable, buckets, series: Object.fromEntries(entries) })
+      })
+      .catch((err) => {
+        if (cancelled) return
+        console.error('Failed to load stored readings:', err)
+        setHistoryBuckets(null)
+        setHistoryError(err?.message || 'Failed to load stored readings')
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingHistory(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeTab, historyRange, historyVariable, historyDeviceId, historySlaveId, historyReloadKey])
+
+  // Transform stored readings into graph buckets
+  const { chartData, historyMeta } = useMemo(() => {
+    const empty = { chartData: [], historyMeta: { sampleCount: 0, firstSampleAt: null, truncated: false, excludedCount: 0 } }
+    if (!historyBuckets || historyBuckets.range !== historyRange || historyBuckets.variable !== historyVariable) {
+      return empty
     }
 
-    const isSpareOrZero = isSpare || (node.status === 'tripped' && loadKwVal === 0)
-    const basePower = isSpareOrZero ? 0 : (loadKwVal || variables.find((v) => v.key === 'Total Power')?.value || 0)
-
-    // Dynamic electrical rating and capacity (ratedA, voltage, powerFactor)
-    const ratedA = Number(node.ratedA) || (Number(node.loadKw) > 0 ? Math.ceil(Number(node.loadKw) * 1.5) : 250)
-    const nodeV = Number(node.voltage) || variables.find((v) => v.key === 'Phase VoltageA')?.value || 400.0
-    const nodePf = Number(node.powerFactor || node.pf) || 0.95
-    const electricalCapacityKw = (ratedA * nodeV * Math.sqrt(3) * nodePf) / 1000
-
-    // For solar generation: derive daytime peak dynamically from inverter electrical rating (35% standard PV ratio)
-    const dynamicSolarPeak = Math.round(electricalCapacityKw * 0.35)
-    const solarPeakKw = isGenerating
-      ? (basePower > 5 ? Math.max(basePower, dynamicSolarPeak) : dynamicSolarPeak)
-      : basePower
-
-    // For generator nodes (G1, G2, G3 AFL / Gen AFL):
-    // Standby diesel generators report 0 kW live while WAPDA is feeding the factory.
-    // Derive generator operating capacity dynamically from electrical rating:
-    const dynamicGensetOperatingKw = Math.round(electricalCapacityKw * (ratedA > 250 ? 0.55 : 0.75))
-    const gensetOperatingKw = isGenset
-      ? (basePower > 5 ? basePower : dynamicGensetOperatingKw)
-      : basePower
-
-    const resolvedUnits = Number(node.units) || variables.find((v) => v.key === 'Units')?.value || 0
-    const minPeriodUnits = historyRange === '30d' ? basePower * 24 * 30 : historyRange === '7d' ? basePower * 24 * 7 : basePower * 24
-    const baseUnits = isSpareOrZero
-      ? 0
-      : (resolvedUnits > 0
-          ? resolvedUnits
-          : isGenerating
-            ? Number((solarPeakKw * 350).toFixed(1))
-            : isGenset
-              ? Number((gensetOperatingKw * 50).toFixed(1))
-              : (basePower > 0 ? Number(Math.max(basePower * 240.5, minPeriodUnits).toFixed(1)) : 0))
-
-    const selectedVar = variables.find((v) => v.key === historyVariable)
-    const customBase = selectedVar ? (selectedVar.value ?? 0) : basePower
-
-    let points = []
+    const { buckets, series } = historyBuckets
     const now = new Date()
-    const elapsedHoursToday = Math.max(0.1, Number((now.getHours() + now.getMinutes() / 60).toFixed(2)))
+    const elapsedHoursToday = Number((now.getHours() + now.getMinutes() / 60).toFixed(1))
+    const elapsedDaysThisMonth = Number(((now.getDate() - 1) + (now.getHours() + now.getMinutes() / 60) / 24).toFixed(1))
 
-    // Solar fraction accumulated today up to the current minute
-    let todaySolarAcc = 0
-    let totalSolarDayWeight = 0
-    for (let h = 0; h < 24; h++) {
-      const w = (h >= 6 && h <= 18) ? Math.sin(((h - 5.5) / 13) * Math.PI) : 0
-      totalSolarDayWeight += w
-      if (h < now.getHours()) {
-        todaySolarAcc += w
-      } else if (h === now.getHours()) {
-        todaySolarAcc += w * (now.getMinutes() / 60)
+    // Device commissioning date awareness (1y view)
+    const rawComm = node.createdAt || node.registeredAt || '2026-09-18T00:00:00.000Z'
+    const parsedComm = new Date(rawComm)
+    const commissionDate = isNaN(parsedComm.getTime()) ? new Date(2026, 8, 18) : parsedComm
+    const commissionMonthStart = new Date(commissionDate.getFullYear(), commissionDate.getMonth(), 1)
+    const commissionDateLabel = commissionDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+
+    // Physical ceiling for this breaker (400 V, 3-phase, 0.95 PF) used to reject absurd meter jumps.
+    // Based only on the configured rating or the historical peak power, never the live load, so a
+    // momentary reading cannot loosen or tighten the filter. Main incomers (WAPDA, tie lines,
+    // transformers) carry the whole plant, so they get a high fixed floor.
+    const isMainIncomer = node.type === 'grid' || /wapda|transformer|grid|incomer/i.test(node.name || '')
+    const ratedA = Number(node.ratedA) || (isMainIncomer ? 2500 : 400)
+    const ratedKw = (Math.sqrt(3) * 400 * ratedA * 0.95) / 1000
+    const historicalPeakKw = series['Total Power']
+      ? series['Total Power'].bucketSamples.reduce(
+        (peak, arr) => arr.reduce((p, s) => Math.max(p, Math.abs(s.v) || 0), peak),
+        0
+      )
+      : 0
+    const maxKw = isMainIncomer
+      ? Math.max(2500, Number(node.maxCapacityKw) || 2000)
+      : Math.max(Number(node.maxCapacityKw) || 0, ratedKw * 1.5, historicalPeakKw * 1.5, 100)
+
+    const unitsResult = series.Units ? unitsFromBuckets(series.Units.bucketSamples, series.Units.baseline, maxKw) : null
+    const unitsSeries = unitsResult ? unitsResult.buckets : null
+    const excludedCount = unitsResult ? unitsResult.totalExcluded : 0
+    const powerSeries = series['Total Power']
+      ? series['Total Power'].bucketSamples.map((s) => averageOf(s, true))
+      : null
+    const customSeries = historyVariable !== 'both' && historyVariable !== 'Units' && historyVariable !== 'Total Power'
+      ? series[historyVariable]?.bucketSamples.map((s) => averageOf(s))
+      : null
+
+    // Count distinct reading times of the primary series only, so 'both' does not double-count
+    const primarySeries = series.Units || series['Total Power'] || series[historyVariable]
+    const primaryTimes = new Set()
+    primarySeries?.bucketSamples.forEach((arr) => arr.forEach((s) => primaryTimes.add(s.t)))
+    const sampleCount = primaryTimes.size
+
+    let firstSampleAt = null
+    let truncated = false
+    Object.values(series).forEach((s) => {
+      truncated = truncated || s.truncated
+      s.bucketSamples.forEach((arr) => {
+        if (arr.length && (firstSampleAt == null || arr[0].t < firstSampleAt)) firstSampleAt = arr[0].t
+      })
+    })
+
+    const round = (v, d = 1) => (v == null ? null : Number(v.toFixed(d)))
+    const isDaily = historyRange === '7d' || historyRange === '30d'
+    const isYearly = historyRange === '1y'
+    const points = buckets.map((b, i) => {
+      const power = powerSeries ? round(powerSeries[i]) : null
+      const units = unitsSeries ? round(unitsSeries[i].units, 2) : null
+      const cumulativeUnits = unitsSeries ? unitsSeries[i].cumulative : null
+      const custom = customSeries ? round(customSeries[i], 2) : null
+      const value = historyVariable === 'Units'
+        ? units
+        : historyVariable === 'Total Power' || historyVariable === 'both'
+          ? power
+          : custom
+      const daysInMonth = new Date(b.start.getFullYear(), b.start.getMonth() + 1, 0).getDate()
+      const isCommissionMonth = isYearly && b.start.getTime() === commissionMonthStart.getTime()
+      return {
+        timestamp: b.label,
+        power,
+        units,
+        cumulativeUnits,
+        value,
+        isCurrentHour: historyRange === '24h' && b.isCurrent,
+        isToday: isDaily && b.isCurrent,
+        isCurrentMonth: isYearly && b.isCurrent,
+        isPreCommission: isYearly && b.start < commissionMonthStart,
+        isCommissionMonth,
+        commissionDateLabel,
+        activeDays: isCommissionMonth ? Math.max(1, daysInMonth - commissionDate.getDate() + 1) : daysInMonth,
+        elapsedHours: elapsedHoursToday,
+        elapsedDays: elapsedDaysThisMonth,
+        daysInMonth,
       }
-    }
-    const todaySolarFraction = Math.min(1, Math.max(0, todaySolarAcc / (totalSolarDayWeight || 1)))
+    })
 
-    if (historyRange === '1h') {
-      points = Array.from({ length: 12 }, (_, i) => {
-        const pt = new Date(now.getTime() - (11 - i) * 5 * 60 * 1000)
-        const hour = pt.getHours()
-        const timeStr = `${String(hour).padStart(2, '0')}:${String(pt.getMinutes()).padStart(2, '0')}`
-        const isDaylight = hour >= 6 && hour <= 18
-        const daylightFraction = isDaylight ? Math.sin(((hour - 5.5) / 13) * Math.PI) : 0
-        const currentExpectedKw = isGenerating
-          ? (basePower > 2 ? basePower : (isDaylight ? Number((solarPeakKw * daylightFraction).toFixed(1)) : 0))
-          : isGenset
-            ? (basePower > 5 ? basePower : 0)
-            : basePower
+    return { chartData: points, historyMeta: { sampleCount, firstSampleAt, truncated, excludedCount } }
+  }, [historyBuckets, historyRange, historyVariable, node.type, node.name, node.ratedA, node.maxCapacityKw, node.createdAt, node.registeredAt])
 
-        const jitter = Math.sin(i * 0.8) * 0.06
-        const p = (isGenerating && !isDaylight && basePower <= 0.5) || (isGenset && basePower <= 5)
-          ? 0
-          : Number(Math.max(0, currentExpectedKw * (1 + jitter)).toFixed(1))
-        // 5-min interval energy consumption/generation = power * (5 / 60) kWh
-        const intervalUnits = Number((p * (5 / 60)).toFixed(2))
-        const cumulativeUnits = Number(Math.max(0, baseUnits - ((11 - i) * (p * (5 / 60)))).toFixed(1))
-        const val = selectedVar ? Number((customBase * (1 + jitter)).toFixed(1)) : p
-        return {
-          timestamp: timeStr,
-          power: p,
-          units: intervalUnits,
-          cumulativeUnits,
-          value: historyVariable === 'Units' ? intervalUnits : val,
-        }
-      })
-    } else if (historyRange === '24h') {
-      // 24 Hours: strictly ending at the CURRENT HOUR today (no future hours)
-      const currentHour = now.getHours()
-      const solarProfileWeights = [
-        0, 0, 0, 0, 0, 0,
-        0.05, 0.20, 0.50, 0.80, 0.95, 1.0,
-        0.98, 0.88, 0.70, 0.45, 0.15, 0.02,
-        0, 0, 0, 0, 0, 0
-      ]
-      const totalWeight = solarProfileWeights.reduce((a, b) => a + b, 0)
-      const dailySolarYieldKwh = isGenerating ? Number((solarPeakKw * 5.2).toFixed(1)) : 0
-      const gensetRunHours = [10, 11, 14, 15] // Periodic generator test run hours
-      let rollingCumulative = Math.max(0, baseUnits - (dailySolarYieldKwh || (gensetOperatingKw * 2.5) || (basePower * 18)))
-
-      points = Array.from({ length: 24 }, (_, i) => {
-        const pt = new Date(now)
-        pt.setHours(now.getHours() - (23 - i))
-        const isCurrentHour = (i === 23)
-        const targetHour = pt.getHours()
-        const hour = `${String(targetHour).padStart(2, '0')}:00`
-        const jitter = Math.sin(i * 0.5) * 0.04
-        let p = 0
-        let intervalUnits = 0
-
-        if (isGenerating) {
-          if (targetHour >= 6 && targetHour <= 18) {
-            const solarFactor = Math.sin(((targetHour - 5.5) / 13) * Math.PI)
-            p = Number(Math.max(0, solarPeakKw * solarFactor * (1 + jitter)).toFixed(1))
-            intervalUnits = Number(((solarProfileWeights[targetHour] / totalWeight) * dailySolarYieldKwh).toFixed(1))
-          } else {
-            p = 0
-            intervalUnits = 0
-          }
-          rollingCumulative = Number((rollingCumulative + intervalUnits).toFixed(1))
-        } else if (isGenset) {
-          if (basePower > 5) {
-            p = Number(Math.max(0, basePower * (1 + jitter)).toFixed(1))
-            intervalUnits = Number((p * (isCurrentHour ? Math.max(1, now.getMinutes()) / 60 : 1)).toFixed(1))
-          } else if (gensetRunHours.includes(targetHour)) {
-            p = Number(Math.max(0, gensetOperatingKw * (1 + jitter)).toFixed(1))
-            intervalUnits = Number((p * (isCurrentHour ? Math.max(1, now.getMinutes()) / 60 : 1)).toFixed(1))
-          } else {
-            p = 0
-            intervalUnits = 0
-          }
-          rollingCumulative = Number((rollingCumulative + intervalUnits).toFixed(1))
-        } else {
-          // Daily industrial shift profile: low at night, peak during day shift
-          const shiftFactor = (targetHour >= 8 && targetHour <= 18) ? 1.15 : (targetHour >= 19 && targetHour <= 23) ? 0.95 : 0.65
-          p = Number(Math.max(0, basePower * shiftFactor * (1 + jitter)).toFixed(1))
-          intervalUnits = Number((p * (isCurrentHour ? Math.max(1, now.getMinutes()) / 60 : 1)).toFixed(1))
-        }
-
-        const cumulativeUnits = (isGenerating || isGenset)
-          ? Math.min(baseUnits, rollingCumulative)
-          : Number(Math.max(0, baseUnits - ((23 - i) * (basePower * ((targetHour >= 8 && targetHour <= 18) ? 1.15 : (targetHour >= 19 && targetHour <= 23) ? 0.95 : 0.65)))).toFixed(1))
-
-        const val = selectedVar ? Number((customBase * (1 + jitter)).toFixed(1)) : p
-        return {
-          timestamp: hour,
-          power: p,
-          units: intervalUnits,
-          cumulativeUnits,
-          value: historyVariable === 'Units' ? intervalUnits : val,
-          isCurrentHour,
-        }
-      })
-    } else if (historyRange === '7d') {
-      const dailySolarYieldKwh = isGenerating ? Number((solarPeakKw * 5.2).toFixed(1)) : 0
-      const gensetRunDays = [0, 2, 4, 5]
-      const totalGensetWeeklyKwh = isGenset ? Number((gensetOperatingKw * 1.8 * gensetRunDays.length).toFixed(1)) : 0
-
-      // Compute actual partial units accumulated today so far:
-      let todayUnits = 0
-      let todayPower = 0
-      if (isGenerating) {
-        todayUnits = Number((dailySolarYieldKwh * todaySolarFraction).toFixed(1))
-        todayPower = basePower
-      } else if (isGenset) {
-        if (basePower > 5) {
-          todayUnits = Number((basePower * elapsedHoursToday).toFixed(1))
-          todayPower = basePower
-        } else {
-          todayUnits = 0
-          todayPower = 0
-        }
-      } else {
-        todayPower = Number(basePower.toFixed(1))
-        todayUnits = Number((basePower * elapsedHoursToday).toFixed(1))
-      }
-
-      points = Array.from({ length: 7 }, (_, i) => {
-        const isToday = i === 6
-        const pt = new Date(now)
-        pt.setDate(now.getDate() - (6 - i))
-        const dayName = pt.toLocaleDateString('en-US', { weekday: 'short' })
-        const dayLabel = `${dayName} ${pt.getDate()}`
-        const isWeekend = pt.getDay() === 0 || pt.getDay() === 6
-        const weatherFactor = 0.92 + Math.sin(i * 1.3) * 0.08
-        const weekendFactor = isWeekend ? 0.7 : 1.05
-        const jitter = Math.sin(i * 0.06) * 0.06
-        let p = 0
-        let intervalUnits = 0
-
-        if (isToday) {
-          p = todayPower
-          intervalUnits = todayUnits
-        } else if (isGenerating) {
-          intervalUnits = Number((dailySolarYieldKwh * weatherFactor).toFixed(1))
-          p = Number(Math.max(0, solarPeakKw * weatherFactor * (1 + jitter)).toFixed(1))
-        } else if (isGenset) {
-          if (basePower > 5) {
-            p = Number(Math.max(0, basePower * (1 + jitter)).toFixed(1))
-            intervalUnits = Number((p * 24).toFixed(1))
-          } else if (gensetRunDays.includes(i)) {
-            const runHours = 1.5 + (i % 2) * 0.5
-            intervalUnits = Number((gensetOperatingKw * runHours * (0.95 + Math.sin(i) * 0.05)).toFixed(1))
-            p = Number((intervalUnits / 24).toFixed(1))
-          } else {
-            p = 0
-            intervalUnits = 0
-          }
-        } else {
-          p = Number(Math.max(0, basePower * weekendFactor * (1 + jitter)).toFixed(1))
-          intervalUnits = Number((p * 24).toFixed(1))
-        }
-
-        const pastDayUnits = isGenerating
-          ? dailySolarYieldKwh
-          : isGenset
-            ? (gensetOperatingKw * 1.8)
-            : (basePower * weekendFactor * 24)
-
-        const cumulativeUnits = isToday
-          ? baseUnits
-          : Number(Math.max(0, baseUnits - todayUnits - ((5 - i) * pastDayUnits)).toFixed(1))
-
-        const val = selectedVar ? Number((customBase * (isToday ? 1 : 1 + jitter)).toFixed(1)) : p
-        return {
-          timestamp: dayLabel,
-          power: p,
-          units: intervalUnits,
-          cumulativeUnits,
-          value: historyVariable === 'Units' ? intervalUnits : val,
-          isToday,
-          elapsedHours: elapsedHoursToday,
-        }
-      })
-    } else if (historyRange === '30d') {
-      // 30 Days: dynamically compute the past 30 days rolling backwards from today
-      const dailySolarYieldKwh = isGenerating ? Number((solarPeakKw * 5.2).toFixed(1)) : 0
-      const totalGensetMonthKwh = isGenset ? Number((gensetOperatingKw * 1.8 * 12).toFixed(1)) : 0
-
-      // Compute actual partial units accumulated today so far:
-      let todayUnits = 0
-      let todayPower = 0
-      if (isGenerating) {
-        todayUnits = Number((dailySolarYieldKwh * todaySolarFraction).toFixed(1))
-        todayPower = basePower
-      } else if (isGenset) {
-        if (basePower > 5) {
-          todayUnits = Number((basePower * elapsedHoursToday).toFixed(1))
-          todayPower = basePower
-        } else {
-          todayUnits = 0
-          todayPower = 0
-        }
-      } else {
-        todayPower = Number(basePower.toFixed(1))
-        todayUnits = Number((basePower * elapsedHoursToday).toFixed(1))
-      }
-
-      points = Array.from({ length: 30 }, (_, i) => {
-        const isToday = i === 29
-        const pt = new Date(now)
-        pt.setDate(now.getDate() - (29 - i))
-        const monthShort = pt.toLocaleDateString('en-US', { month: 'short' })
-        const dayStr = `${pt.getDate()} ${monthShort}`
-        const jitter = Math.sin(i * 0.4) * 0.08
-        const weatherFactor = 0.92 + Math.sin(i * 0.6) * 0.1
-        let p = 0
-        let intervalUnits = 0
-
-        if (isToday) {
-          p = todayPower
-          intervalUnits = todayUnits
-        } else if (isGenerating) {
-          intervalUnits = Number((dailySolarYieldKwh * weatherFactor).toFixed(1))
-          p = Number(Math.max(0, solarPeakKw * weatherFactor * (1 + jitter)).toFixed(1))
-        } else if (isGenset) {
-          const isRunDay = (i % 3 === 0 || i % 7 === 2)
-          if (basePower > 5) {
-            p = Number(Math.max(0, basePower * (1 + jitter)).toFixed(1))
-            intervalUnits = Number((p * 24).toFixed(1))
-          } else if (isRunDay) {
-            const runHours = 1.5 + (i % 2) * 0.5
-            intervalUnits = Number((gensetOperatingKw * runHours * (0.92 + Math.sin(i * 0.5) * 0.08)).toFixed(1))
-            p = Number((intervalUnits / 24).toFixed(1))
-          } else {
-            p = 0
-            intervalUnits = 0
-          }
-        } else {
-          p = Number(Math.max(0, basePower * (1 + jitter)).toFixed(1))
-          intervalUnits = Number((p * 24).toFixed(1))
-        }
-
-        const pastDayUnits = isGenerating
-          ? dailySolarYieldKwh
-          : isGenset
-            ? (gensetOperatingKw * 1.8)
-            : (basePower * 24)
-
-        const cumulativeUnits = isToday
-          ? baseUnits
-          : Number(Math.max(0, baseUnits - todayUnits - ((28 - i) * pastDayUnits)).toFixed(1))
-
-        const val = selectedVar ? Number((customBase * (isToday ? 1 : 1 + jitter)).toFixed(1)) : p
-        return {
-          timestamp: dayStr,
-          power: p,
-          units: intervalUnits,
-          cumulativeUnits,
-          value: historyVariable === 'Units' ? intervalUnits : val,
-          isToday,
-          elapsedHours: elapsedHoursToday,
-        }
-      })
-    } else {
-      // 1y (Yearly): 12 rolling months ending at current month
-      // Commissioning-aware telemetry: devices registered on September 18, 2026.
-      // Months strictly prior to device registration are 0 kW and 0 kWh (no fake readings for non-existent meters).
-      const currentYear = now.getFullYear()
-      const currentMonth = now.getMonth()
-      const daysInCurrentMonth = new Date(currentYear, currentMonth + 1, 0).getDate()
-      const elapsedDaysThisMonth = Math.max(0.1, Number(((now.getDate() - 1) + (now.getHours() + now.getMinutes() / 60) / 24).toFixed(2)))
-      const currentMonthFraction = elapsedDaysThisMonth / daysInCurrentMonth
-
-      // Dynamic device commissioning / registration date:
-      const rawComm = node.createdAt || node.registeredAt || '2026-09-18T00:00:00.000Z'
-      const parsedComm = new Date(rawComm)
-      const commissionDate = isNaN(parsedComm.getTime()) ? new Date(2026, 8, 18) : parsedComm
-      const commissionYear = commissionDate.getFullYear()
-      const commissionMonth = commissionDate.getMonth() // 8 for September
-      const commissionDay = commissionDate.getDate() // 18
-      const commissionDateLabel = commissionDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-
-      // Pre-calculate current month's partial units so far:
-      let currentMonthUnits = 0
-      let currentMonthPower = 0
-      if (isGenerating) {
-        const currentMonthSeason = (currentMonth >= 4 && currentMonth <= 8) ? 1.22 : (currentMonth === 11 || currentMonth <= 1) ? 0.78 : 1.02
-        const fullCurrentMonthSolar = Number((solarPeakKw * 5.2 * daysInCurrentMonth * currentMonthSeason).toFixed(1))
-        currentMonthUnits = Number((fullCurrentMonthSolar * currentMonthFraction).toFixed(1))
-        currentMonthPower = basePower
-      } else if (isGenset) {
-        if (basePower > 5) {
-          currentMonthUnits = Number((basePower * elapsedDaysThisMonth * 24).toFixed(1))
-          currentMonthPower = basePower
-        } else {
-          const runsThisMonth = Math.floor((now.getDate() / 31) * 12)
-          currentMonthUnits = Number((gensetOperatingKw * 1.8 * runsThisMonth).toFixed(1))
-          currentMonthPower = 0
-        }
-      } else {
-        currentMonthPower = Number(basePower.toFixed(1))
-        currentMonthUnits = Number((basePower * elapsedDaysThisMonth * 24).toFixed(1))
-      }
-
-      points = Array.from({ length: 12 }, (_, i) => {
-        const isCurrentMonth = i === 11
-        const pt = new Date(currentYear, currentMonth - (11 - i), 1)
-        const mYear = pt.getFullYear()
-        const m = pt.getMonth()
-        const mShort = pt.toLocaleDateString('en-US', { month: 'short' })
-        const yShort = String(mYear).slice(-2)
-        const monthLabel = `${mShort} '${yShort}`
-        const daysInMonth = new Date(mYear, m + 1, 0).getDate()
-
-        // Check if this month is strictly prior to device registration:
-        const isPreCommission = (mYear < commissionYear) || (mYear === commissionYear && m < commissionMonth)
-        const isCommissionMonth = mYear === commissionYear && m === commissionMonth
-
-        if (isPreCommission) {
-          // Device did not exist yet: strictly 0 kW, 0 kWh
-          return {
-            timestamp: monthLabel,
-            power: 0,
-            units: 0,
-            cumulativeUnits: 0,
-            value: 0,
-            isCurrentMonth: false,
-            isPreCommission: true,
-            isCommissionMonth: false,
-            commissionDateLabel,
-            activeDays: 0,
-            elapsedDays: 0,
-            daysInMonth,
-          }
-        }
-
-        // Industrial seasonality: May-Aug higher chilling/AC load, Dec-Feb lower
-        const industrialSeason = (m >= 4 && m <= 8) ? 1.15 : (m === 11 || m <= 1) ? 0.88 : 1.0
-        // Solar seasonality: longer daylight in summer (~1.25), shorter in winter (~0.76)
-        const solarSeason = (m >= 4 && m <= 8) ? 1.25 : (m === 11 || m <= 1) ? 0.76 : 1.02
-        const jitter = Math.sin(i * 0.7) * 0.05
-
-        let p = 0
-        let intervalUnits = 0
-        let activeDays = daysInMonth
-
-        if (isCurrentMonth) {
-          p = currentMonthPower
-          intervalUnits = currentMonthUnits
-          activeDays = elapsedDaysThisMonth
-        } else if (isCommissionMonth) {
-          // Month of registration (e.g. September 2026): active only from registration day to month end
-          activeDays = Math.max(1, daysInMonth - commissionDay + 1)
-          if (isGenerating) {
-            intervalUnits = Number((solarPeakKw * 5.2 * activeDays * solarSeason * (1 + jitter)).toFixed(1))
-            p = Number(Math.max(0, solarPeakKw * solarSeason * (1 + jitter)).toFixed(1))
-          } else if (isGenset) {
-            if (basePower > 5) {
-              p = Number(Math.max(0, basePower * (1 + jitter)).toFixed(1))
-              intervalUnits = Number((p * activeDays * 24).toFixed(1))
-            } else {
-              const runHours = Math.max(1, Math.round(((m >= 4 && m <= 8) ? 14 : 9) * (activeDays / daysInMonth)))
-              intervalUnits = Number((gensetOperatingKw * runHours * (1 + jitter)).toFixed(1))
-              p = Number((intervalUnits / (activeDays * 24)).toFixed(1))
-            }
-          } else {
-            p = Number(Math.max(0, basePower * industrialSeason * (1 + jitter)).toFixed(1))
-            intervalUnits = Number((p * activeDays * 24).toFixed(1))
-          }
-        } else {
-          // Fully active post-commissioning month:
-          activeDays = daysInMonth
-          if (isGenerating) {
-            intervalUnits = Number((solarPeakKw * 5.2 * daysInMonth * solarSeason * (1 + jitter)).toFixed(1))
-            p = Number(Math.max(0, solarPeakKw * solarSeason * (1 + jitter)).toFixed(1))
-          } else if (isGenset) {
-            if (basePower > 5) {
-              p = Number(Math.max(0, basePower * (1 + jitter)).toFixed(1))
-              intervalUnits = Number((p * daysInMonth * 24).toFixed(1))
-            } else {
-              const runHours = (m >= 4 && m <= 8) ? 14 : 9
-              intervalUnits = Number((gensetOperatingKw * runHours * (1 + jitter)).toFixed(1))
-              p = Number((intervalUnits / (daysInMonth * 24)).toFixed(1))
-            }
-          } else {
-            p = Number(Math.max(0, basePower * industrialSeason * (1 + jitter)).toFixed(1))
-            intervalUnits = Number((p * daysInMonth * 24).toFixed(1))
-          }
-        }
-
-        const cumulativeUnits = isCurrentMonth
-          ? baseUnits
-          : isCommissionMonth
-          ? intervalUnits
-          : Number(Math.max(0, baseUnits - currentMonthUnits).toFixed(1))
-
-        const val = selectedVar ? Number((customBase * (isCurrentMonth ? 1 : 1 + jitter)).toFixed(1)) : p
-        return {
-          timestamp: monthLabel,
-          power: p,
-          units: intervalUnits,
-          cumulativeUnits,
-          value: historyVariable === 'Units' ? intervalUnits : val,
-          isCurrentMonth,
-          isPreCommission: false,
-          isCommissionMonth,
-          commissionDateLabel,
-          activeDays,
-          elapsedDays: elapsedDaysThisMonth,
-          daysInMonth,
-        }
-      })
-    }
-
-    return points
-  }, [dbHistoryData, historyRange, historyVariable, variables, node.loadKw, node.units, node.status, node.ratedA, node.voltage, node.powerFactor, node.createdAt, node.registeredAt, isGenerating, isGenset])
-
-  // Chart KPI stats for both Power and Units
+  // Chart KPI stats for both Power and Units (empty and pre-commissioning buckets are ignored)
   const chartStats = useMemo(() => {
-    if (!chartData || chartData.length === 0) {
-      return { peakPower: 0, avgPower: 0, minPower: 0, totalUnits: 0, periodUnits: 0, peak: 0, avg: 0, min: 0 }
-    }
     const activePoints = chartData.filter((d) => !d.isPreCommission)
-    const pointsToUse = activePoints.length > 0 ? activePoints : chartData
-
-    const powerVals = pointsToUse.map((d) => d.power)
-    const unitVals = chartData.map((d) => d.units)
-    const cumVals = chartData.map((d) => d.cumulativeUnits)
-    const peakPower = powerVals.length > 0 ? Math.max(...powerVals) : 0
-    const minPower = powerVals.length > 0 ? Math.min(...powerVals) : 0
-    const avgPower = powerVals.length > 0 ? (powerVals.reduce((a, b) => a + b, 0) / powerVals.length) : 0
-
-    const rawCurUnits = cumVals.length > 0 ? cumVals[cumVals.length - 1] : 0
-    const periodUnits = unitVals.length > 0 ? unitVals.reduce((a, b) => a + b, 0) : 0
-    // Physical metering rule: cumulative lifetime meter units cannot be less than period consumption
-    const curUnits = Math.max(rawCurUnits, periodUnits)
-
-    const generalVals = pointsToUse.map((d) => d.value)
-    const peak = generalVals.length > 0 ? Math.max(...generalVals) : 0
-    const min = generalVals.length > 0 ? Math.min(...generalVals) : 0
-    const avg = generalVals.length > 0 ? (generalVals.reduce((a, b) => a + b, 0) / generalVals.length) : 0
+    const nums = (key) => activePoints.map((d) => d[key]).filter((v) => typeof v === 'number' && Number.isFinite(v))
+    const powerVals = nums('power')
+    const unitVals = nums('units')
+    const cumVals = nums('cumulativeUnits')
+    const generalVals = nums('value')
+    const maxOf = (arr) => (arr.length ? Math.max(...arr) : 0)
+    const minOf = (arr) => (arr.length ? Math.min(...arr) : 0)
+    const avgOf = (arr) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0)
 
     return {
-      peakPower: Number(peakPower.toFixed(1)),
-      minPower: Number(minPower.toFixed(1)),
-      avgPower: Number(avgPower.toFixed(1)),
-      totalUnits: Number(curUnits.toFixed(1)),
-      periodUnits: Number(periodUnits.toFixed(1)),
-      peak: Number(peak.toFixed(1)),
-      min: Number(min.toFixed(1)),
-      avg: Number(avg.toFixed(1)),
+      peakPower: Number(maxOf(powerVals).toFixed(1)),
+      minPower: Number(minOf(powerVals).toFixed(1)),
+      avgPower: Number(avgOf(powerVals).toFixed(1)),
+      totalUnits: Number((cumVals.length ? cumVals[cumVals.length - 1] : 0).toFixed(1)),
+      periodUnits: Number(unitVals.reduce((a, b) => a + b, 0).toFixed(1)),
+      peak: Number(maxOf(generalVals).toFixed(1)),
+      min: Number(minOf(generalVals).toFixed(1)),
+      avg: Number(avgOf(generalVals).toFixed(1)),
     }
   }, [chartData])
 
@@ -1881,33 +1541,70 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                 </div>
               </div>
 
+              {/* Data source note */}
+              <div className="flex items-center justify-between gap-2 text-[10px] text-surface-400 shrink-0 px-1">
+                <span>
+                  {historyRange === '1y'
+                    ? `Historical: available recorded range${historyMeta.firstSampleAt ? ` since ${new Date(historyMeta.firstSampleAt).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''} (monthly buckets)`
+                    : `Stored readings · ${historyMeta.sampleCount.toLocaleString()} samples`}
+                  {historyMeta.truncated && ' · sampled (page limit reached)'}
+                  {historyMeta.excludedCount > 0 && (
+                    <span className="text-amber-500 dark:text-amber-400">
+                      {` · ${historyMeta.excludedCount.toLocaleString()} readings excluded (meter reset/outage)`}
+                    </span>
+                  )}
+                </span>
+                {historyError && (
+                  <button
+                    type="button"
+                    onClick={() => setHistoryReloadKey((k) => k + 1)}
+                    className="flex items-center gap-1 font-bold text-primary-600 dark:text-primary-400 hover:underline cursor-pointer"
+                  >
+                    <RefreshCw className="w-3 h-3" /> Retry
+                  </button>
+                )}
+              </div>
+
               {/* Interactive Recharts Graph (Bar Graph Format by default) */}
               <div
-                className={`w-full p-2 bg-surface-50 dark:bg-surface-950/60 rounded-xl border border-surface-200 dark:border-surface-800 flex-1 min-h-[180px] ${
+                className={`relative w-full p-2 bg-surface-50 dark:bg-surface-950/60 rounded-xl border border-surface-200 dark:border-surface-800 flex-1 min-h-[180px] ${
                   isMaximized ? 'h-[380px]' : 'h-[230px]'
                 }`}
               >
-                {isLoadingHistory ? (
-                  <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center">
-                    <Loader2 className="w-8 h-8 animate-spin text-primary-500 mb-2" />
-                    <span className="text-xs font-bold text-surface-700 dark:text-surface-200">
-                      Loading Historical Telemetry...
-                    </span>
-                    <span className="text-[10px] text-surface-400 mt-1 font-mono">
-                      Target: {node.name} • Range: {historyRange} • Variable: {historyVariable}
-                    </span>
+                {(isLoadingHistory || historyError || !historyDeviceId || !historySlaveId || historyMeta.sampleCount === 0) && (
+                  <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-6 text-center rounded-xl bg-surface-50/80 dark:bg-surface-950/80">
+                    {isLoadingHistory ? (
+                      <>
+                        <Loader2 className="w-8 h-8 animate-spin text-primary-500 mb-2" />
+                        <span className="text-xs font-bold text-surface-700 dark:text-surface-200">
+                          Loading Historical Telemetry...
+                        </span>
+                        <span className="text-[10px] text-surface-400 mt-1 font-mono">
+                          Target: {node.name} • Range: {historyRange} • Variable: {historyVariable}
+                        </span>
+                      </>
+                    ) : historyError ? (
+                      <>
+                        <AlertTriangle className="w-7 h-7 text-danger-500 mb-2" />
+                        <span className="text-xs font-bold text-danger-600 dark:text-danger-400">
+                          {historyError}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <AlertTriangle className="w-7 h-7 text-amber-500 mb-2" />
+                        <span className="text-xs font-bold text-surface-800 dark:text-surface-100">
+                          No Historical Records Found
+                        </span>
+                        <p className="text-[10.5px] text-surface-500 max-w-sm mt-1">
+                          {!historyDeviceId || !historySlaveId
+                            ? <>No database slave is linked to <strong className="text-surface-700 dark:text-surface-300">{node.name}</strong>, so there is no stored history.</>
+                            : <>No historical telemetry rows are stored for <strong className="text-surface-700 dark:text-surface-300">{node.name}</strong> for range <strong className="font-mono">{historyRange}</strong>. Unmetered or offline channels produce 0 records.</>}
+                        </p>
+                      </>
+                    )}
                   </div>
-                ) : chartData.length === 0 ? (
-                  <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center">
-                    <AlertTriangle className="w-7 h-7 text-amber-500 mb-2" />
-                    <span className="text-xs font-bold text-surface-800 dark:text-surface-100">
-                      No Historical Records Found
-                    </span>
-                    <p className="text-[10.5px] text-surface-500 max-w-sm mt-1">
-                      No historical telemetry rows are stored for <strong className="text-surface-700 dark:text-surface-300">{node.name}</strong> for range <strong className="font-mono">{historyRange}</strong>. Unmetered or offline channels produce 0 records.
-                    </p>
-                  </div>
-                ) : (
+                )}
                 <ResponsiveContainer width="100%" height="100%">
                   {chartType === 'bar' ? (
                     <BarChart data={chartData} margin={{ top: 8, right: 12, left: -15, bottom: 0 }}>
@@ -1950,6 +1647,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                       )}
 
                       <Tooltip
+                        filterNull={false}
                         content={({ active, payload, label }) => {
                           if (!active || !payload || !payload.length) return null
                           const point = chartData.find((d) => d.timestamp === label)
@@ -1986,7 +1684,9 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                                     {entry.name}{(point?.isToday || point?.isCurrentMonth) && (entry.name === 'Units' || entry.name.startsWith('Units')) ? ' (So Far)' : ''}:
                                   </span>
                                   <span className="font-mono font-bold text-white">
-                                    {typeof entry.value === 'number' ? entry.value.toLocaleString() : entry.value}
+                                    {typeof entry.value === 'number' && Number.isFinite(entry.value)
+                                      ? entry.value.toLocaleString()
+                                      : <span className="font-sans font-normal text-surface-500">No data</span>}
                                   </span>
                                 </div>
                               ))}
@@ -2103,6 +1803,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                       )}
 
                       <Tooltip
+                        filterNull={false}
                         content={({ active, payload, label }) => {
                           if (!active || !payload || !payload.length) return null
                           const point = chartData.find((d) => d.timestamp === label)
@@ -2139,7 +1840,9 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                                     {entry.name}{(point?.isToday || point?.isCurrentMonth) && (entry.name === 'Units' || entry.name.startsWith('Units')) ? ' (So Far)' : ''}:
                                   </span>
                                   <span className="font-mono font-bold text-white">
-                                    {typeof entry.value === 'number' ? entry.value.toLocaleString() : entry.value}
+                                    {typeof entry.value === 'number' && Number.isFinite(entry.value)
+                                      ? entry.value.toLocaleString()
+                                      : <span className="font-sans font-normal text-surface-500">No data</span>}
                                   </span>
                                 </div>
                               ))}
@@ -2201,7 +1904,6 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                     </AreaChart>
                   )}
                 </ResponsiveContainer>
-                )}
               </div>
             </div>
           )}

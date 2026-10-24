@@ -5,3 +5,7 @@ dist
 .env
 
 .vercel
+
+# Backup files
+*.bak
+*.bak.*
