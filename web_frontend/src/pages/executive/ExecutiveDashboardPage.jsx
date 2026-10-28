@@ -7,7 +7,7 @@ import { onSocketEvent } from '../../services/socketService'
 import { useAuth } from '../../context/AuthContext'
 
 const AMBITION_ORG_ID = 'b99129f8-85f2-44c2-81ca-cc2d876092ea'
-const CACHE_KEY = 'ems_exec_ambition_v13'
+const CACHE_KEY = 'ems_exec_ambition_v17'
 
 /**
  * Safely parse any metric value (number, string, or { value, displayValue, unit } object).
@@ -123,8 +123,16 @@ function build24Variables(slave, loadKw, ratedA = 100, buildingCode = 'B1') {
       else if (/power/i.test(normKey)) group = 'power'
 
       let numVal = safeExtractNumber(item, 0)
-      if ((k === 'Total Power' || k === 'Power' || k === 'ActivePower') && loadKw > 0) {
-        numVal = +loadKw.toFixed(1)
+      if (k === 'Total Power' || k === 'Power' || k === 'ActivePower') {
+        if (loadKw > 0) {
+          numVal = +loadKw.toFixed(1)
+        } else if (numVal === 0 || !Number.isFinite(numVal)) {
+          const pA = safeExtractNumber(metrics['PowerA'] ?? metrics['Power A'] ?? metrics['Power_A'] ?? metrics['P1'], 0)
+          const pB = safeExtractNumber(metrics['PowerB'] ?? metrics['Power B'] ?? metrics['Power_B'] ?? metrics['P2'], 0)
+          const pC = safeExtractNumber(metrics['PowerC'] ?? metrics['Power C'] ?? metrics['Power_C'] ?? metrics['P3'], 0)
+          const phaseSum = pA + pB + pC
+          if (phaseSum > 0) numVal = +phaseSum.toFixed(1)
+        }
       }
 
       return {
@@ -136,6 +144,40 @@ function build24Variables(slave, loadKw, ratedA = 100, buildingCode = 'B1') {
         group,
       }
     })
+
+    // Ensure Total Power is always present if multi-phase power exists
+    const hasTotalPower = directList.some((v) => v.key === 'Total Power' || v.key === 'ActivePower' || v.key === 'Power')
+    if (!hasTotalPower) {
+      const pA = safeExtractNumber(metrics['PowerA'] ?? metrics['Power A'] ?? metrics['Power_A'] ?? metrics['P1'], 0)
+      const pB = safeExtractNumber(metrics['PowerB'] ?? metrics['Power B'] ?? metrics['Power_B'] ?? metrics['P2'], 0)
+      const pC = safeExtractNumber(metrics['PowerC'] ?? metrics['Power C'] ?? metrics['Power_C'] ?? metrics['P3'], 0)
+      const derivedTotal = (Number.isFinite(loadKw) && loadKw > 0) ? loadKw : +(pA + pB + pC).toFixed(1)
+      directList.unshift({
+        key: 'Total Power',
+        name: 'Total Power',
+        shortName: 'Total Power',
+        value: derivedTotal,
+        unit: 'kW',
+        group: 'power',
+      })
+    }
+
+    // Ensure cumulative Units (kWh) is always present
+    const hasUnits = directList.some((v) => /^(units|active\s*energy|energy|power\s*consumption)$/i.test(v.key))
+    if (!hasUnits) {
+      const unitsVal = safeExtractNumber(
+        getMetricFromSlave(slave, ['Units', 'Active Energy', 'ActiveEnergy', 'Energy', 'Total Energy', 'TotalEnergy', 'Power Consumption', 'PowerConsumption', 'Total Units', 'Active Energy(kWh)', 'kWh', 'Import Energy', 'ImportEnergy']),
+        safeExtractNumber(slave?.currentUnits, 0.0)
+      )
+      directList.push({
+        key: 'Units',
+        name: 'Units',
+        shortName: 'Units (kWh)',
+        value: +unitsVal.toFixed(1),
+        unit: 'kWh',
+        group: 'energy',
+      })
+    }
 
     directList.sort(sortExecutiveVariables)
     return directList
@@ -154,21 +196,24 @@ function build24Variables(slave, loadKw, ratedA = 100, buildingCode = 'B1') {
 
   // If 15-variable slave, return only the 15 real electrical parameters without synthesizing fake per-phase powers
   if (is15Var) {
-    const rawNeutralA = getMetricFromSlave(slave, ['Voltage', 'VoltageA', 'Voltage A', 'Va', 'V1'], 230.0)
+    const isMeterDead = slave?.status === 'OFFLINE' || slave?.status === 'offline' || slave?.statusRaw === 'OFFLINE' || (pTotal === 0 && Object.keys(metrics).length === 0)
+    const defaultLN = isMeterDead ? 0.0 : 230.0
+    const defaultLL = isMeterDead ? 0.0 : 400.0
+    const rawNeutralA = getMetricFromSlave(slave, ['Voltage', 'VoltageA', 'Voltage A', 'Va', 'V1'], defaultLN)
     const rawNeutralB = getMetricFromSlave(slave, ['VoltageB', 'Voltage B', 'Vb', 'V2'], rawNeutralA)
     const rawNeutralC = getMetricFromSlave(slave, ['VoltageC', 'Voltage C', 'Vc', 'V3'], rawNeutralA)
-    const rawLineA = getMetricFromSlave(slave, ['Phase VoltageA', 'Phase Voltage A', 'PhaseVoltageA'], rawNeutralA * Math.sqrt(3))
+    const rawLineA = getMetricFromSlave(slave, ['Phase VoltageA', 'Phase Voltage A', 'PhaseVoltageA'], rawNeutralA > 0 ? rawNeutralA * Math.sqrt(3) : defaultLL)
     const rawLineB = getMetricFromSlave(slave, ['Phase VoltageB', 'Phase Voltage B', 'PhaseVoltageB'], rawLineA)
     const rawLineC = getMetricFromSlave(slave, ['Phase VoltageC', 'Phase Voltage C', 'PhaseVoltageC'], rawLineA)
-    const iAvg = readDeviceMetric(slave, 'current') || (pTotal > 0 ? (pTotal * 1000) / (Math.sqrt(3) * rawLineA * 0.95) : 0)
+    const iAvg = readDeviceMetric(slave, 'current') || ((pTotal > 0 && rawLineA > 0) ? (pTotal * 1000) / (Math.sqrt(3) * rawLineA * 0.95) : 0)
     const iA = getMetricFromSlave(slave, ['Current A', 'CurrentA'], iAvg * 0.98)
     const iB = getMetricFromSlave(slave, ['Current B', 'CurrentB'], iAvg * 1.01)
     const iC = getMetricFromSlave(slave, ['Current C', 'CurrentC'], iAvg * 1.01)
-    const pf = getMetricFromSlave(slave, ['Power Factor', 'PF'], 0.96)
-    const freq = getMetricFromSlave(slave, ['Frequency', 'Hz'], 50.02)
+    const pf = getMetricFromSlave(slave, ['Power Factor', 'PF'], isMeterDead ? 0.0 : 0.96)
+    const freq = getMetricFromSlave(slave, ['Frequency', 'Hz'], isMeterDead ? 0.0 : 50.02)
     const sTotal = getMetricFromSlave(slave, ['Total Apparent Power'], pf > 0 ? pTotal / pf : pTotal)
     const qTotal = getMetricFromSlave(slave, ['Total Reactive Power'], Math.sqrt(Math.max(0, sTotal * sTotal - pTotal * pTotal)))
-    const units = safeExtractNumber(getMetricFromSlave(slave, ['Units', 'Power Consumption']), pTotal > 0 ? +(pTotal * 240.5).toFixed(1) : 0.0)
+    const units = safeExtractNumber(getMetricFromSlave(slave, ['Units', 'Power Consumption']), 0.0)
 
     return [
       { key: 'Total Power', name: 'Total Power', shortName: 'Total Power', value: +pTotal.toFixed(1), unit: 'kW', group: 'power' },
@@ -205,29 +250,33 @@ function build24Variables(slave, loadKw, ratedA = 100, buildingCode = 'B1') {
   const rawLineC = getMetricFromSlave(slave, ['Phase VoltageC', 'Phase Voltage C', 'PhaseVoltageC', 'LineVoltageC', 'Line Voltage C', 'Vca', 'V31'], null)
 
   // Physical 3-phase derivation if either is missing: V_LL = V_LN * sqrt(3)
+  const isMeterDead = slave?.status === 'OFFLINE' || slave?.status === 'offline' || slave?.statusRaw === 'OFFLINE' || (pTotal === 0 && Object.keys(metrics).length === 0)
+  const defaultLN = isMeterDead ? 0.0 : 230.0
+  const defaultLL = isMeterDead ? 0.0 : 400.0
+
   const vNeutralA = rawNeutralA !== null
     ? rawNeutralA
-    : (rawLineA !== null ? rawLineA / Math.sqrt(3) : 230.0)
+    : (rawLineA !== null ? (rawLineA > 0 ? rawLineA / Math.sqrt(3) : 0.0) : defaultLN)
 
   const vLineA = rawLineA !== null
     ? rawLineA
-    : (rawNeutralA !== null ? rawNeutralA * Math.sqrt(3) : 400.0)
+    : (rawNeutralA !== null ? (rawNeutralA > 0 ? rawNeutralA * Math.sqrt(3) : 0.0) : defaultLL)
 
   const vNeutralB = rawNeutralB !== null
     ? rawNeutralB
-    : (rawLineB !== null ? rawLineB / Math.sqrt(3) : vNeutralA)
+    : (rawLineB !== null ? (rawLineB > 0 ? rawLineB / Math.sqrt(3) : 0.0) : vNeutralA)
 
   const vLineB = rawLineB !== null
     ? rawLineB
-    : (rawNeutralB !== null ? rawNeutralB * Math.sqrt(3) : vLineA)
+    : (rawNeutralB !== null ? (rawNeutralB > 0 ? rawNeutralB * Math.sqrt(3) : 0.0) : vLineA)
 
   const vNeutralC = rawNeutralC !== null
     ? rawNeutralC
-    : (rawLineC !== null ? rawLineC / Math.sqrt(3) : vNeutralA)
+    : (rawLineC !== null ? (rawLineC > 0 ? rawLineC / Math.sqrt(3) : 0.0) : vNeutralA)
 
   const vLineC = rawLineC !== null
     ? rawLineC
-    : (rawNeutralC !== null ? rawNeutralC * Math.sqrt(3) : vLineA)
+    : (rawNeutralC !== null ? (rawNeutralC > 0 ? rawNeutralC * Math.sqrt(3) : 0.0) : vLineA)
 
   // Phase Currents
   const iAvg = readDeviceMetric(slave, 'current') || (pTotal > 0 ? (pTotal * 1000) / (Math.sqrt(3) * vLineA * 0.95) : 0)
@@ -253,7 +302,7 @@ function build24Variables(slave, loadKw, ratedA = 100, buildingCode = 'B1') {
   // Cumulative Active Energy (Units in kWh)
   const units = safeExtractNumber(
     getMetricFromSlave(slave, ['Units', 'Active Energy', 'ActiveEnergy', 'Energy', 'Total Energy', 'TotalEnergy', 'Power Consumption', 'PowerConsumption', 'Total Units', 'Active Energy(kWh)', 'kWh', 'Import Energy', 'ImportEnergy']),
-    safeExtractNumber(slave?.currentUnits, pTotal > 0 ? +(pTotal * 240.5).toFixed(1) : 0.0)
+    safeExtractNumber(slave?.currentUnits, 0.0)
   )
 
   return [
@@ -343,17 +392,37 @@ function makeBreakerNode(id, fallbackName, defaultRatedA, slaveObj, buildingCode
     loadKw = 0.0
   }
 
+  const vars24 = slaveObj ? build24Variables(slaveObj, loadKw, ratedA, buildingCode) : null
+
+  // Extract real voltage without cosmetic fallback to 400 if reporting 0
+  const pVaObj = vars24 ? vars24.find((v) => v.key === 'Phase VoltageA') : null
+  const vaObj = vars24 ? vars24.find((v) => v.key === 'VoltageA' || v.key === 'Voltage') : null
+  let cardVoltage = 0.0
+  if (pVaObj != null && Number.isFinite(pVaObj.value) && pVaObj.value > 0) {
+    cardVoltage = pVaObj.value
+  } else if (vaObj != null && Number.isFinite(vaObj.value) && vaObj.value > 0) {
+    cardVoltage = +(vaObj.value * Math.sqrt(3)).toFixed(1)
+  }
+
+  const isZeroVoltage = cardVoltage === 0
+  const isMeterOffline = isExplicitOffline || !slaveObj || (!isSpare && !isTieLine && !isGenset && !isSolar && isZeroVoltage && loadKw === 0)
+
   let status = 'normal'
   if (isTieLine) status = 'tie-line'
   else if (isSpare) status = 'spare'
-  else if (!slaveObj || !isOnline) status = 'offline'
+  else if (isMeterOffline || !isOnline) status = 'offline'
   else if (isSolar) status = loadKw > 0 ? 'generating' : 'standby'
   else if (isGenset && loadKw === 0) status = 'standby'
   else if (loadKw >= 100) status = 'critical'
   else if (loadKw >= 70) status = 'heavy'
   else if (loadKw > maxKw * 0.8) status = 'heavy'
 
-  const vars24 = slaveObj ? build24Variables(slaveObj, loadKw, ratedA, buildingCode) : null
+  const currentVal = vars24 ? (vars24.find((v) => v.key === 'Current A')?.value || 0.0) : 0.0
+  const pfVal = vars24 ? (vars24.find((v) => v.key === 'Power Factor')?.value ?? (cardVoltage > 0 ? 0.96 : 0.0)) : 0.0
+  const unitsVal = safeExtractNumber(
+    vars24?.find((v) => /^(units|active\s*energy|energy|power\s*consumption)$/i.test(v.key))?.value,
+    safeExtractNumber(getMetricFromSlave(slaveObj, ['Units', 'Active Energy', 'ActiveEnergy', 'Energy', 'Total Energy', 'TotalEnergy', 'kWh', 'Power Consumption']), 0.0)
+  )
 
   return {
     id,
@@ -362,14 +431,15 @@ function makeBreakerNode(id, fallbackName, defaultRatedA, slaveObj, buildingCode
     loadKw,
     status,
     slaveId: slaveObj?.id || id,
+    rawSlaveId: slaveObj?.id || id,
     fullSlaveId: slaveObj?.id || null,
     deviceId: slaveObj?.deviceId,
-    deviceName: slaveObj?.deviceName,
+    rawDeviceId: slaveObj?.deviceId,
     buildingCode,
-    voltage: vars24 ? (vars24.find((v) => v.key === 'Phase VoltageA')?.value || (vars24.find((v) => v.key === 'VoltageA' || v.key === 'Voltage')?.value ? +(vars24.find((v) => v.key === 'VoltageA' || v.key === 'Voltage').value * Math.sqrt(3)).toFixed(1) : 400.0)) : 400.0,
-    current: vars24 ? (vars24.find((v) => v.key === 'Current A')?.value || 0.0) : 0.0,
-    powerFactor: vars24 ? (vars24.find((v) => v.key === 'Power Factor')?.value || 0.96) : 0.96,
-    units: vars24 ? (vars24.find((v) => v.key === 'Units')?.value || 0.0) : 0.0,
+    voltage: cardVoltage,
+    current: currentVal,
+    powerFactor: pfVal,
+    units: unitsVal,
     variables24: vars24,
     createdAt: slaveObj?.createdAtRaw || slaveObj?.createdAt || '2026-09-18T00:00:00.000Z',
   }
@@ -514,7 +584,7 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
       .filter((b) => b.status !== 'generating' && (b.loadKw > 0 || b.status !== 'spare') && !/genset|wapda|solar/i.test(b.name))
       .reduce((sum, b) => sum + (b.loadKw || 0), 0)
       .toFixed(1)
-  ) || 710.8
+  ) || 0.0
 
   // ─── BUILDING 1: AMBITION SOURCES ───
   const b1WapdaSlave = findSlave(['WAPDA-AMB', 'wapda-amb', 'wapda'])
@@ -533,7 +603,7 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
     return s && s.valueKw != null && Number.isFinite(Number(s.valueKw)) ? Number(s.valueKw) : null
   }
 
-  const b1WapdaKw = Number((findPfSrcKw('grid', 'site-1') ?? (b1WapdaSlave ? Math.abs(readDeviceMetric(b1WapdaSlave, 'power')) || b1WapdaSlave.currentKw || 432.6 : 432.6)).toFixed(1))
+  const b1WapdaKw = Number((findPfSrcKw('grid', 'site-1') ?? (b1WapdaSlave ? Math.abs(readDeviceMetric(b1WapdaSlave, 'power')) || b1WapdaSlave.currentKw || 0.0 : 0.0)).toFixed(1))
   const b1G1Kw = Number((findPfSrcKw('generator', 'site-1') ?? (b1G1Slave ? Math.abs(readDeviceMetric(b1G1Slave, 'power')) || b1G1Slave.currentKw || 0.0 : 0.0)).toFixed(1))
   const b1G2Kw = Number((findPfSrcKw('generator_1789717695565', 'site-1') ?? (b1G2Slave ? Math.abs(readDeviceMetric(b1G2Slave, 'power')) || b1G2Slave.currentKw || 0.0 : 0.0)).toFixed(1))
   const currentPktHour = (new Date().getUTCHours() + 5) % 24
@@ -546,19 +616,19 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
   )
   const b1SolarKw = isNight ? 0.0 : Number((findPfSrcKw('solar', 'site-1') ?? b1SolarLiveSum).toFixed(1))
 
-  const b1WapdaV = Number((readDeviceMetric(b1WapdaSlave, 'voltage') || 402.0).toFixed(1))
+  const b1WapdaV = Number((readDeviceMetric(b1WapdaSlave, 'voltage') || (b1WapdaKw > 0 ? 400.0 : 0.0)).toFixed(1))
   const b1WapdaPf = Number((readDeviceMetric(b1WapdaSlave, 'pf') || 0.98).toFixed(2))
   const b1WapdaI = Number((readDeviceMetric(b1WapdaSlave, 'current') || (b1WapdaKw > 0 ? (b1WapdaKw * 1000) / (Math.sqrt(3) * b1WapdaV * b1WapdaPf) : 0)).toFixed(1))
 
-  const b1SolarV = Number((readDeviceMetric(b1Solar1, 'voltage') || 405.0).toFixed(1))
+  const b1SolarV = Number((readDeviceMetric(b1Solar1, 'voltage') || (b1SolarKw > 0 ? 400.0 : 0.0)).toFixed(1))
   const b1SolarPf = Number((readDeviceMetric(b1Solar1, 'pf') || 0.99).toFixed(2))
   const b1SolarI = Number((readDeviceMetric(b1Solar1, 'current') || (b1SolarKw > 0 ? (b1SolarKw * 1000) / (Math.sqrt(3) * b1SolarV * b1SolarPf) : 0)).toFixed(1))
 
-  const b1G1V = Number((readDeviceMetric(b1G1Slave, 'voltage') || 400.0).toFixed(1))
+  const b1G1V = Number((readDeviceMetric(b1G1Slave, 'voltage') || (b1G1Kw > 0 ? 400.0 : 0.0)).toFixed(1))
   const b1G1Pf = Number((readDeviceMetric(b1G1Slave, 'pf') || 0.96).toFixed(2))
   const b1G1I = Number((readDeviceMetric(b1G1Slave, 'current') || (b1G1Kw > 0 ? (b1G1Kw * 1000) / (Math.sqrt(3) * b1G1V * b1G1Pf) : 0)).toFixed(1))
 
-  const b1G2V = Number((readDeviceMetric(b1G2Slave, 'voltage') || 400.0).toFixed(1))
+  const b1G2V = Number((readDeviceMetric(b1G2Slave, 'voltage') || (b1G2Kw > 0 ? 400.0 : 0.0)).toFixed(1))
   const b1G2Pf = Number((readDeviceMetric(b1G2Slave, 'pf') || 0.95).toFixed(2))
   const b1G2I = Number((readDeviceMetric(b1G2Slave, 'current') || (b1G2Kw > 0 ? (b1G2Kw * 1000) / (Math.sqrt(3) * b1G2V * b1G2Pf) : 0)).toFixed(1))
 
@@ -575,8 +645,10 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
       pf: b1WapdaPf,
       status: b1WapdaKw > 0 ? 'active' : 'standby',
       slaveId: b1WapdaSlave?.id,
+      rawSlaveId: b1WapdaSlave?.id,
       fullSlaveId: b1WapdaSlave?.id || null,
       deviceId: b1WapdaSlave?.deviceId,
+      rawDeviceId: b1WapdaSlave?.deviceId,
       deviceName: b1WapdaSlave?.deviceName,
       buildingCode: 'B1',
       units: b1WapdaSlave ? safeExtractNumber(getMetricFromSlave(b1WapdaSlave, ['Units', 'Active Energy', 'ActiveEnergy', 'Energy', 'Total Energy', 'TotalEnergy', 'kWh'])) : 369630.0,
@@ -595,11 +667,13 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
       pf: b1G1Pf,
       status: b1G1Kw > 0 ? 'active' : 'standby',
       slaveId: b1G1Slave?.id,
+      rawSlaveId: b1G1Slave?.id,
       fullSlaveId: b1G1Slave?.id || null,
       deviceId: b1G1Slave?.deviceId,
+      rawDeviceId: b1G1Slave?.deviceId,
       deviceName: b1G1Slave?.deviceName,
       buildingCode: 'B1',
-      units: b1G1Slave ? safeExtractNumber(getMetricFromSlave(b1G1Slave, ['Units', 'Active Energy', 'ActiveEnergy', 'Energy', 'Total Energy', 'TotalEnergy', 'kWh'])) : Number((b1G1Kw * 240.5).toFixed(1)),
+      units: b1G1Slave ? safeExtractNumber(getMetricFromSlave(b1G1Slave, ['Units', 'Active Energy', 'ActiveEnergy', 'Energy', 'Total Energy', 'TotalEnergy', 'kWh'])) : 16092.5,
       variables24: b1G1Slave ? build24Variables(b1G1Slave, b1G1Kw, 800) : null,
       createdAt: b1G1Slave?.createdAt || '2026-09-18T00:00:00.000Z',
     },
@@ -615,11 +689,13 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
       pf: b1G2Pf,
       status: b1G2Kw > 0 ? 'active' : 'standby',
       slaveId: b1G2Slave?.id,
+      rawSlaveId: b1G2Slave?.id,
       fullSlaveId: b1G2Slave?.id || null,
       deviceId: b1G2Slave?.deviceId,
+      rawDeviceId: b1G2Slave?.deviceId,
       deviceName: b1G2Slave?.deviceName,
       buildingCode: 'B1',
-      units: b1G2Slave ? safeExtractNumber(getMetricFromSlave(b1G2Slave, ['Units', 'Active Energy', 'ActiveEnergy', 'Energy', 'Total Energy', 'TotalEnergy', 'kWh'])) : Number((b1G2Kw * 240.5).toFixed(1)),
+      units: b1G2Slave ? safeExtractNumber(getMetricFromSlave(b1G2Slave, ['Units', 'Active Energy', 'ActiveEnergy', 'Energy', 'Total Energy', 'TotalEnergy', 'kWh'])) : 19652.8,
       variables24: b1G2Slave ? build24Variables(b1G2Slave, b1G2Kw, 800) : null,
       createdAt: b1G2Slave?.createdAt || '2026-09-18T00:00:00.000Z',
     },
@@ -635,11 +711,13 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
       pf: b1SolarPf,
       status: b1SolarKw > 0 ? 'generating' : 'standby',
       slaveId: b1Solar1?.id,
+      rawSlaveId: b1Solar1?.id,
       fullSlaveId: b1Solar1?.id || null,
       deviceId: b1Solar1?.deviceId,
+      rawDeviceId: b1Solar1?.deviceId,
       deviceName: b1Solar1?.deviceName,
       buildingCode: 'B1',
-      units: b1Solar1 ? safeExtractNumber(getMetricFromSlave(b1Solar1, ['Units', 'Active Energy', 'ActiveEnergy', 'Energy', 'Total Energy', 'TotalEnergy', 'kWh'])) : Number((b1SolarKw * 240.5).toFixed(1)),
+      units: b1Solar1 ? safeExtractNumber(getMetricFromSlave(b1Solar1, ['Units', 'Active Energy', 'ActiveEnergy', 'Energy', 'Total Energy', 'TotalEnergy', 'kWh'])) : 59168.0,
       variables24: b1Solar1 ? build24Variables(b1Solar1, b1SolarKw, 600) : null,
       createdAt: b1Solar1?.createdAt || '2026-09-18T00:00:00.000Z',
       contributingSlaves: [b1Solar1, b1Solar4, b1Solar5].filter(Boolean).map(s => ({ deviceId: s.deviceId, slaveId: s.id, name: s.name })),
@@ -696,7 +774,7 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
       .filter((b) => b.status !== 'generating' && (b.loadKw > 0 || b.status !== 'spare') && !/genset|wapda|solar/i.test(b.name))
       .reduce((sum, b) => sum + (b.loadKw || 0), 0)
       .toFixed(1)
-  ) || 298.4
+  ) || 0.0
 
   // ─── BUILDING 2: AFL SOURCES ───
   const b2WapdaSlave = findSlave(['WAPDA-AFL', 'wapda-afl', 'wafl'])
@@ -704,20 +782,20 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
   const b2G3Slave = findSlave(['G3 AFL', 'g3 afl', 'genafl'])
 
   const isB2SolarOffline = !b2SolarSlave || b2SolarSlave.status === 'OFFLINE' || b2SolarSlave.status === 'offline' || b2SolarSlave.statusRaw === 'OFFLINE'
-  const b2WapdaKw = Number((findPfSrcKw('grid_1789549696226', 'site_1789548714275') ?? (b2WapdaSlave ? Math.abs(readDeviceMetric(b2WapdaSlave, 'power')) || b2WapdaSlave.currentKw || 262.3 : 262.3)).toFixed(1))
+  const b2WapdaKw = Number((findPfSrcKw('grid_1789549696226', 'site_1789548714275') ?? (b2WapdaSlave ? Math.abs(readDeviceMetric(b2WapdaSlave, 'power')) || b2WapdaSlave.currentKw || 0.0 : 0.0)).toFixed(1))
   const b2SolarLive = (isB2SolarOffline || isNight) ? 0.0 : (Math.abs(readDeviceMetric(b2SolarSlave, 'power')) || Number(b2SolarSlave?.currentKw) || 0.0)
   const b2SolarKw = (isB2SolarOffline || isNight) ? 0.0 : Number((findPfSrcKw('solar_1789556025522', 'site_1789548714275') ?? b2SolarLive).toFixed(1))
   const b2G3Kw = Number((findPfSrcKw('generator_1790656690184', 'site_1789548714275') ?? (b2G3Slave ? Math.abs(readDeviceMetric(b2G3Slave, 'power')) || b2G3Slave.currentKw || 0.0 : 0.0)).toFixed(1))
 
-  const b2SolarV = Number((readDeviceMetric(b2SolarSlave, 'voltage') || 405.0).toFixed(1))
+  const b2SolarV = Number((readDeviceMetric(b2SolarSlave, 'voltage') || (b2SolarKw > 0 ? 400.0 : 0.0)).toFixed(1))
   const b2SolarPf = Number((readDeviceMetric(b2SolarSlave, 'pf') || 0.99).toFixed(2))
   const b2SolarI = Number((readDeviceMetric(b2SolarSlave, 'current') || (b2SolarKw > 0 ? (b2SolarKw * 1000) / (Math.sqrt(3) * b2SolarV * b2SolarPf) : 0)).toFixed(1))
 
-  const b2G3V = Number((readDeviceMetric(b2G3Slave, 'voltage') || 400.0).toFixed(1))
+  const b2G3V = Number((readDeviceMetric(b2G3Slave, 'voltage') || (b2G3Kw > 0 ? 400.0 : 0.0)).toFixed(1))
   const b2G3Pf = Number((readDeviceMetric(b2G3Slave, 'pf') || 0.96).toFixed(2))
   const b2G3I = Number((readDeviceMetric(b2G3Slave, 'current') || (b2G3Kw > 0 ? (b2G3Kw * 1000) / (Math.sqrt(3) * b2G3V * b2G3Pf) : 0)).toFixed(1))
 
-  const b2WapdaV = Number((readDeviceMetric(b2WapdaSlave, 'voltage') || 401.0).toFixed(1))
+  const b2WapdaV = Number((readDeviceMetric(b2WapdaSlave, 'voltage') || (b2WapdaKw > 0 ? 400.0 : 0.0)).toFixed(1))
   const b2WapdaPf = Number((readDeviceMetric(b2WapdaSlave, 'pf') || 0.98).toFixed(2))
   const b2WapdaI = Number((readDeviceMetric(b2WapdaSlave, 'current') || (b2WapdaKw > 0 ? (b2WapdaKw * 1000) / (Math.sqrt(3) * b2WapdaV * b2WapdaPf) : 0)).toFixed(1))
 
@@ -734,13 +812,16 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
       pf: b2SolarPf,
       status: isB2SolarOffline ? 'offline' : (b2SolarKw > 0 ? 'generating' : 'standby'),
       slaveId: b2SolarSlave?.id,
+      rawSlaveId: b2SolarSlave?.id,
       fullSlaveId: b2SolarSlave?.id || null,
       deviceId: b2SolarSlave?.deviceId,
+      rawDeviceId: b2SolarSlave?.deviceId,
       deviceName: b2SolarSlave?.deviceName,
       buildingCode: 'B2',
       units: b2SolarSlave ? safeExtractNumber(getMetricFromSlave(b2SolarSlave, ['Units', 'Active Energy', 'ActiveEnergy', 'Energy', 'Total Energy', 'TotalEnergy', 'kWh'])) : 21692.5,
       variables24: b2SolarSlave ? build24Variables(b2SolarSlave, b2SolarKw, 400) : null,
       createdAt: b2SolarSlave?.createdAt || '2026-09-18T00:00:00.000Z',
+      contributingSlaves: b2SolarSlave ? [{ deviceId: b2SolarSlave.deviceId, slaveId: b2SolarSlave.id, name: b2SolarSlave.name }] : [],
     },
     {
       id: 'b2-genset',
@@ -754,8 +835,10 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
       pf: b2G3Pf,
       status: b2G3Kw > 0 ? 'active' : 'standby',
       slaveId: b2G3Slave?.id,
+      rawSlaveId: b2G3Slave?.id,
       fullSlaveId: b2G3Slave?.id || null,
       deviceId: b2G3Slave?.deviceId,
+      rawDeviceId: b2G3Slave?.deviceId,
       deviceName: b2G3Slave?.deviceName,
       buildingCode: 'B2',
       units: b2G3Slave ? safeExtractNumber(getMetricFromSlave(b2G3Slave, ['Units', 'Active Energy', 'ActiveEnergy', 'Energy', 'Total Energy', 'TotalEnergy', 'kWh'])) : 7038.9,
@@ -774,8 +857,10 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
       pf: b2WapdaPf,
       status: b2WapdaKw > 0 ? 'active' : 'standby',
       slaveId: b2WapdaSlave?.id,
+      rawSlaveId: b2WapdaSlave?.id,
       fullSlaveId: b2WapdaSlave?.id || null,
       deviceId: b2WapdaSlave?.deviceId,
+      rawDeviceId: b2WapdaSlave?.deviceId,
       deviceName: b2WapdaSlave?.deviceName,
       buildingCode: 'B2',
       units: b2WapdaSlave ? safeExtractNumber(getMetricFromSlave(b2WapdaSlave, ['Units', 'Active Energy', 'ActiveEnergy', 'Energy', 'Total Energy', 'TotalEnergy', 'kWh'])) : 179728.5,
