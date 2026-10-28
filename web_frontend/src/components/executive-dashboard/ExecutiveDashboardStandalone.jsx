@@ -1929,7 +1929,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                   {chartType === 'bar' ? (
                     <BarChart data={chartData} margin={{ top: 8, right: 12, left: -15, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-                      <XAxis dataKey="timestamp" tick={{ fontSize: 9 }} stroke="#94A3B8" interval="preserveStartEnd" />
+                      <XAxis dataKey="timestamp" tick={{ fontSize: 8.5 }} stroke="#94A3B8" interval={historyRange === '30d' ? 0 : 'preserveStartEnd'} tickFormatter={(val) => (historyRange === '30d' && typeof val === 'string' ? val.split(' ')[0] : val)} />
 
                       {/* Left YAxis: Power (kW) */}
                       {(historyVariable === 'both' || historyVariable === 'Total Power') && (
@@ -2087,7 +2087,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-                      <XAxis dataKey="timestamp" tick={{ fontSize: 9 }} stroke="#94A3B8" interval="preserveStartEnd" />
+                      <XAxis dataKey="timestamp" tick={{ fontSize: 8.5 }} stroke="#94A3B8" interval={historyRange === '30d' ? 0 : 'preserveStartEnd'} tickFormatter={(val) => (historyRange === '30d' && typeof val === 'string' ? val.split(' ')[0] : val)} />
 
                       {/* Left YAxis: Power (kW) */}
                       {(historyVariable === 'both' || historyVariable === 'Total Power') && (
