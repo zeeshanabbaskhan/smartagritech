@@ -215,6 +215,7 @@ export function getAllBreakers(building) {
 // In-memory caches for instantaneous (0ms) slave telemetry variable rendering
 const varDefinitionsCache = new Map()
 const slaveRowsCache = new Map()
+const historyDataCache = new Map()
 
 export const FIFTEEN_VAR_SLAVE_NAMES = new Set([
   '1f back side db',
@@ -718,7 +719,13 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
 
     async function fetchRealHistory() {
       if (!node) return
-      setIsLoadingHistory(true)
+      const cacheKey = `${node.id || node.slaveId || node.name}:${historyRange}:${historyVariable}`
+      if (historyDataCache.has(cacheKey)) {
+        setDbHistoryData(historyDataCache.get(cacheKey))
+        setIsLoadingHistory(false)
+      } else {
+        setIsLoadingHistory(true)
+      }
       setHistoryError(null)
 
       try {
@@ -949,6 +956,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
             }
           })
 
+          historyDataCache.set(cacheKey, formattedPoints)
           setDbHistoryData(formattedPoints)
           setIsLoadingHistory(false)
           return
@@ -1066,6 +1074,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
             }
           })
 
+          historyDataCache.set(cacheKey, formattedPoints)
           setDbHistoryData(formattedPoints)
           setIsLoadingHistory(false)
           return

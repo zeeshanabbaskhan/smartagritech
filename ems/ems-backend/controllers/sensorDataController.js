@@ -320,9 +320,18 @@ const getAggregate = async (req, res, next) => {
       bucketMs = BUCKET_MS[timeRange]
     }
 
-    // Historical completed ranges (immutable) cached for 24h; active/live ranges for 15s
+    // Historical completed ranges (immutable) cached for 24h; multi-day/monthly aggregations cached for 5m; live ranges 30s
     const isHistorical = rangeEnd && rangeEnd.getTime() < (Date.now() - 3600_000)
-    const ttlSeconds = isHistorical ? 86400 : (timeRange === '1h' ? 10 : 20)
+    let ttlSeconds
+    if (isHistorical) {
+      ttlSeconds = 86400
+    } else if ((typeof span !== 'undefined' && span > 86_400_000) || timeRange === '30d' || timeRange === '7d' || timeRange === '1y') {
+      ttlSeconds = 300 // 5 minutes for multi-day/monthly historical aggregates
+    } else if (timeRange === '1h') {
+      ttlSeconds = 15
+    } else {
+      ttlSeconds = 30
+    }
 
     const sKey = parsedSlaveIds ? `multi:${parsedSlaveIds.sort().join('_')}` : (slaveId || 'all')
     const cacheKey = `agg:${deviceId}:${sKey}:${variableName}:${timeRange || `${startDate}_${endDate}`}`

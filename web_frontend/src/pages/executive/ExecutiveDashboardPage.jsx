@@ -1,4 +1,4 @@
-import { Component, useState, useEffect, useMemo, useCallback } from 'react'
+import { Component, useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import ExecutiveDashboard, { INITIAL_FLOW_DATA, isFifteenVarSlave } from '../../components/executive-dashboard/ExecutiveDashboardStandalone'
 import emsApi, { list, one } from '../../api/emsApi'
 import { mapDevice } from '../../utils/mappers'
@@ -1058,22 +1058,43 @@ export default function ExecutiveDashboardPage({ realData = null }) {
     }).catch(() => {})
   }, [orgId])
 
-  // Initial load and periodic polling every 5s
-  useEffect(() => {
-    refreshData()
-    const timer = setInterval(refreshData, 5000)
-    return () => clearInterval(timer)
+  // Throttled refresh to prevent socket event storms from freezing network & UI
+  const lastRefreshTimeRef = useRef(0)
+  const pendingRefreshTimerRef = useRef(null)
+
+  const throttledRefresh = useCallback(() => {
+    const now = Date.now()
+    if (now - lastRefreshTimeRef.current >= 4000) {
+      lastRefreshTimeRef.current = now
+      refreshData()
+    } else if (!pendingRefreshTimerRef.current) {
+      pendingRefreshTimerRef.current = setTimeout(() => {
+        pendingRefreshTimerRef.current = null
+        lastRefreshTimeRef.current = Date.now()
+        refreshData()
+      }, 4000)
+    }
   }, [refreshData])
 
-  // Real-time socket event subscription
+  // Initial load and steady background refresh every 8s
+  useEffect(() => {
+    refreshData()
+    const timer = setInterval(throttledRefresh, 8000)
+    return () => {
+      clearInterval(timer)
+      if (pendingRefreshTimerRef.current) clearTimeout(pendingRefreshTimerRef.current)
+    }
+  }, [refreshData, throttledRefresh])
+
+  // Real-time socket event subscription (throttled to at most once per 4s)
   useEffect(() => {
     const unsub = onSocketEvent((event) => {
       if (event === 'reading:new' || event === 'device:status') {
-        refreshData()
+        throttledRefresh()
       }
     })
     return () => unsub?.()
-  }, [refreshData])
+  }, [throttledRefresh])
 
   return (
     <div className="w-full h-full min-h-screen bg-slate-50 dark:bg-slate-950">
