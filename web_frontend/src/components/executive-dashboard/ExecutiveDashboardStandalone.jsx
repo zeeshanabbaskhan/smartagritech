@@ -8,14 +8,14 @@
 
  */
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import {
   Zap, Sun, Fuel, Activity, Radio, ArrowRight, Loader2,
   X, Gauge, AlertTriangle, ShieldCheck, Flame, Power,
   Maximize2, Minimize2, Download, Calendar, Layers,
   CheckSquare, Square, Check, BarChart2, TrendingUp,
   Cpu, Clock, RefreshCw, FileText, Play, Pause,
-  Moon, Minus, Plus
+  Moon, Minus, Plus, ChevronLeft, ChevronRight
 } from 'lucide-react'
 import {
   ResponsiveContainer, BarChart, Bar, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, Legend
@@ -546,6 +546,85 @@ function getResolvedVariables(node) {
   ]
 }
 
+// Pakistan Time (Asia/Karachi) is a fixed UTC+5 offset with no DST.
+const PKT_OFFSET_MS = 5 * 60 * 60 * 1000
+const HOUR_MS = 60 * 60 * 1000
+const DAY_MS = 24 * HOUR_MS
+const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const MONTH_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+// Wall-clock parts of a Date in Pakistan Time
+function pktParts(date) {
+  const d = new Date(date.getTime() + PKT_OFFSET_MS)
+  return { y: d.getUTCFullYear(), m: d.getUTCMonth(), d: d.getUTCDate(), h: d.getUTCHours(), min: d.getUTCMinutes(), dow: d.getUTCDay() }
+}
+
+// Instant for a Pakistan Time wall-clock (overflowing fields roll over like Date.UTC)
+function pktDate(y, m, d = 1, h = 0) {
+  return new Date(Date.UTC(y, m, d, h) - PKT_OFFSET_MS)
+}
+
+function pktDayLabel(date) {
+  const p = pktParts(date)
+  return `${p.d} ${MONTH_SHORT[p.m]} ${p.y}`
+}
+
+function pktTimeLabel(date) {
+  const p = pktParts(date)
+  return `${String(p.h).padStart(2, '0')}:${String(p.min).padStart(2, '0')}`
+}
+
+/**
+ * Period bounds for the historical graph. Each period is [start, end) so consecutive
+ * offsets tile with no gap and no overlap. Rolling ranges (1h, 7d) at offset 0 query
+ * by timeRange; every other period queries by explicit startDate/endDate.
+ */
+function computeHistoryPeriod(range, offset, now) {
+  const today = pktParts(now)
+
+  if (range === '1h') {
+    const end = new Date(now.getTime() + offset * HOUR_MS)
+    const start = new Date(end.getTime() - HOUR_MS)
+    const sameDay = pktDayLabel(start) === pktDayLabel(end)
+    const label = offset === 0
+      ? `Last hour (${pktTimeLabel(start)} - ${pktTimeLabel(end)})`
+      : `${pktTimeLabel(start)} - ${pktTimeLabel(end)}, ${sameDay ? pktDayLabel(end) : `${pktDayLabel(start)} - ${pktDayLabel(end)}`}`
+    return { start, end, useTimeRange: offset === 0, label }
+  }
+
+  if (range === '7d') {
+    const end = new Date(now.getTime() + offset * 7 * DAY_MS)
+    const start = new Date(end.getTime() - 7 * DAY_MS)
+    const s = pktParts(start)
+    const e = pktParts(end)
+    const label = s.y === e.y
+      ? `${s.d} ${MONTH_SHORT[s.m]} - ${e.d} ${MONTH_SHORT[e.m]} ${e.y}`
+      : `${s.d} ${MONTH_SHORT[s.m]} ${s.y} - ${e.d} ${MONTH_SHORT[e.m]} ${e.y}`
+    return { start, end, useTimeRange: offset === 0, label }
+  }
+
+  if (range === '30d') {
+    const start = pktDate(today.y, today.m + offset, 1)
+    const end = pktDate(today.y, today.m + offset + 1, 1)
+    const p = pktParts(start)
+    return { start, end, useTimeRange: false, label: `${MONTH_LONG[p.m]} ${p.y}`, year: p.y, month: p.m }
+  }
+
+  if (range === '1y') {
+    const start = pktDate(today.y + offset, 0, 1)
+    const end = pktDate(today.y + offset + 1, 0, 1)
+    return { start, end, useTimeRange: false, label: String(today.y + offset), year: today.y + offset }
+  }
+
+  // '24h' → calendar day in Pakistan Time
+  const start = pktDate(today.y, today.m, today.d + offset)
+  const end = pktDate(today.y, today.m, today.d + offset + 1)
+  const dayLabel = pktDayLabel(start)
+  const label = offset === 0 ? `Today, ${dayLabel}` : offset === -1 ? `Yesterday, ${dayLabel}` : dayLabel
+  return { start, end, useTimeRange: false, label }
+}
+
 function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
   if (!node) return null
 
@@ -554,6 +633,43 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
   const [historyRange, setHistoryRange] = useState('24h') // '1h' | '24h' | '7d' | '30d' | '1y'
   const [historyVariable, setHistoryVariable] = useState('both') // 'both' | 'Total Power' | 'Units' | any variable key
   const [chartType, setChartType] = useState('bar') // 'bar' (default bar graph) | 'area'
+
+  // Previous / next period navigation (0 = current period, -1 = previous, ...)
+  const [periodOffset, setPeriodOffset] = useState(0)
+  const [debouncedPeriodOffset, setDebouncedPeriodOffset] = useState(0)
+  const [historyRefreshTick, setHistoryRefreshTick] = useState(0)
+  const reqSeqRef = useRef(0)
+  const lastHistoryQueryKeyRef = useRef(null)
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedPeriodOffset(periodOffset), 350)
+    return () => clearTimeout(timer)
+  }, [periodOffset])
+
+  // Reset to the current period on range or node change (variable / chart type keep the offset)
+  useEffect(() => {
+    setPeriodOffset(0)
+    setDebouncedPeriodOffset(0)
+  }, [historyRange, node?.id, node?.slaveId])
+
+  const handleClose = () => {
+    setPeriodOffset(0)
+    setDebouncedPeriodOffset(0)
+    onClose()
+  }
+
+  // Only the current period auto-refreshes; past periods are fixed once loaded
+  useEffect(() => {
+    if (debouncedPeriodOffset !== 0 || activeTab !== 'history') return
+    const timer = setInterval(() => setHistoryRefreshTick((t) => t + 1), 60000)
+    return () => clearInterval(timer)
+  }, [debouncedPeriodOffset, activeTab])
+
+  const historyPeriod = useMemo(
+    () => computeHistoryPeriod(historyRange, periodOffset, new Date()),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [historyRange, periodOffset, historyRefreshTick]
+  )
 
   // CSV Export Date Range & Variable Selection
   const [dateFrom, setDateFrom] = useState('2026-10-02')
@@ -719,11 +835,17 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
 
     async function fetchRealHistory() {
       if (!node) return
-      const cacheKey = `${node.id || node.slaveId || node.name}:${historyRange}:${historyVariable}`
+      const reqId = ++reqSeqRef.current
+      const isStale = () => !isMounted || reqId !== reqSeqRef.current
+      const cacheKey = `${node.id || node.slaveId || node.name}:${historyRange}:${historyVariable}:${debouncedPeriodOffset}`
+      // Auto-refresh of the same period updates in place without the loading spinner
+      const queryKey = `${node.id}|${node.slaveId}|${historyRange}|${debouncedPeriodOffset}|${historyVariable}`
+      const isNewQuery = lastHistoryQueryKeyRef.current !== queryKey
+      lastHistoryQueryKeyRef.current = queryKey
       if (historyDataCache.has(cacheKey)) {
         setDbHistoryData(historyDataCache.get(cacheKey))
         setIsLoadingHistory(false)
-      } else {
+      } else if (isNewQuery) {
         setIsLoadingHistory(true)
       }
       setHistoryError(null)
@@ -759,7 +881,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
         }
 
         if (targetSlaves.length === 0) {
-          if (isMounted) {
+          if (!isStale()) {
             setDbHistoryData([])
             setIsLoadingHistory(false)
           }
@@ -782,27 +904,27 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                           : [historyVariable]))))
 
         const now = new Date()
+        const nowPkt = pktParts(now)
         const isDay = historyRange === '24h' || historyRange === 'day'
         const isMonth = historyRange === '30d' || historyRange === 'month'
         const isYear = historyRange === '1y' || historyRange === 'year'
+        const isCurrentPeriod = debouncedPeriodOffset === 0
 
-        // Determine calendar time bounds for API query
+        // Period bounds [start, end) in Pakistan Time; readings outside (or in the future) are ignored
+        const queryPeriod = computeHistoryPeriod(historyRange, debouncedPeriodOffset, now)
+        const periodStartMs = queryPeriod.useTimeRange ? -Infinity : queryPeriod.start.getTime()
+        const periodEndMs = queryPeriod.useTimeRange ? now.getTime() + 1 : Math.min(queryPeriod.end.getTime(), now.getTime() + 1)
+        const inPeriod = (tDate) => {
+          const t = tDate.getTime()
+          return t >= periodStartMs && t < periodEndMs
+        }
+
+        // Determine calendar time bounds for API query (rolling ranges at offset 0 use timeRange)
         let calStartDate = null
         let calEndDate = null
-
-        if (isDay) {
-          // Calendar day: 00:00:00 to 23:59:59 of today
-          calStartDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0)
-          calEndDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999)
-        } else if (isMonth) {
-          // Calendar month: 1st of month to month end
-          const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
-          calStartDate = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0)
-          calEndDate = new Date(now.getFullYear(), now.getMonth(), daysInMonth, 23, 59, 59, 999)
-        } else if (isYear) {
-          // Calendar year: Jan 1 to Dec 31
-          calStartDate = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0)
-          calEndDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999)
+        if (!queryPeriod.useTimeRange) {
+          calStartDate = queryPeriod.start
+          calEndDate = new Date(queryPeriod.end.getTime() - 1)
         }
 
         // Query each slave in parallel from database telemetry records with timeout guard
@@ -843,7 +965,10 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
         }
 
         const results = await Promise.all(queryTasks)
-        if (!isMounted) return
+        if (isStale()) return
+
+        // Jump filtering: meter deltas outside the physical bounds are skipped
+        let usableCount = 0
 
         // Device commissioning date awareness
         const rawComm = node.createdAt || node.registeredAt || '2026-09-18T00:00:00.000Z'
@@ -856,7 +981,8 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
         // CASE 1: DAY GRAPH — Starts from 0 hours till 24 hours (00:00 - 24:00)
         // ═════════════════════════════════════════════════════════════════════
         if (isDay) {
-          const currentHour = now.getHours()
+          // Past days: all 24 hours are completed
+          const currentHour = isCurrentPeriod ? nowPkt.h : 23
           const hourSlots = Array.from({ length: 24 }, (_, h) => {
             // Per-slave collector for this hour
             const slaveMap = new Map()
@@ -874,9 +1000,11 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                 if (!pt || !pt.timestamp) continue
                 const tDate = new Date(pt.timestamp)
                 if (isNaN(tDate.getTime())) continue
-                if (tDate > now) continue
+                if (!inPeriod(tDate)) continue
 
-                if (tDate.getHours() === h) {
+                if (pktParts(tDate).h === h) {
+                  if (!Number.isFinite(Number(pt.value))) continue
+                  usableCount++
                   let numVal = Number(pt.value) || 0
                   if (isPower) numVal = Math.abs(numVal)
                   if (res.isG1Power) numVal = Number((numVal * 3).toFixed(1))
@@ -947,7 +1075,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
               units: slot.units,
               cumulativeUnits: rollingCumulative,
               value: val,
-              isToday: h <= currentHour,
+              isToday: isCurrentPeriod && h <= currentHour,
               isCurrentMonth: false,
               isPreCommission: false,
               commissionDateLabel,
@@ -956,8 +1084,9 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
             }
           })
 
-          historyDataCache.set(cacheKey, formattedPoints)
-          setDbHistoryData(formattedPoints)
+          const historyPoints = usableCount > 0 ? formattedPoints : []
+          historyDataCache.set(cacheKey, historyPoints)
+          setDbHistoryData(historyPoints)
           setIsLoadingHistory(false)
           return
         }
@@ -966,11 +1095,13 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
         // CASE 2: MONTH GRAPH — Starts from 1st till month end as per calendar
         // ═════════════════════════════════════════════════════════════════════
         if (isMonth) {
-          const currentYear = now.getFullYear()
-          const currentMonthIdx = now.getMonth()
-          const daysInMonth = new Date(currentYear, currentMonthIdx + 1, 0).getDate()
-          const monthShort = now.toLocaleDateString('en-US', { month: 'short' })
-          const currentDate = now.getDate()
+          // Slots for the month being shown (current or past)
+          const currentYear = queryPeriod.year
+          const currentMonthIdx = queryPeriod.month
+          const daysInMonth = new Date(Date.UTC(currentYear, currentMonthIdx + 1, 0)).getUTCDate()
+          const monthShort = MONTH_SHORT[currentMonthIdx]
+          // Past months: every day is completed
+          const currentDate = isCurrentPeriod ? nowPkt.d : daysInMonth + 1
 
           const daySlots = Array.from({ length: daysInMonth }, (_, i) => {
             const d = i + 1
@@ -989,9 +1120,12 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                 if (!pt || !pt.timestamp) continue
                 const tDate = new Date(pt.timestamp)
                 if (isNaN(tDate.getTime())) continue
-                if (tDate > now) continue
+                if (!inPeriod(tDate)) continue
 
-                if (tDate.getFullYear() === currentYear && tDate.getMonth() === currentMonthIdx && tDate.getDate() === d) {
+                const tPkt = pktParts(tDate)
+                if (tPkt.y === currentYear && tPkt.m === currentMonthIdx && tPkt.d === d) {
+                  if (!Number.isFinite(Number(pt.value))) continue
+                  usableCount++
                   let numVal = Number(pt.value) || 0
                   if (isPower) numVal = Math.abs(numVal)
                   if (res.isG1Power) numVal = Number((numVal * 3).toFixed(1))
@@ -1066,16 +1200,17 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
               cumulativeUnits: rollingCumulative,
               value: val,
               isToday: d === currentDate,
-              isCurrentMonth: true,
+              isCurrentMonth: isCurrentPeriod,
               isPreCommission: false,
               commissionDateLabel,
-              elapsedHours: d === currentDate ? Math.max(0.1, Number((now.getHours() + now.getMinutes() / 60).toFixed(1))) : (d < currentDate ? 24 : 0),
+              elapsedHours: d === currentDate ? Math.max(0.1, Number((nowPkt.h + nowPkt.min / 60).toFixed(1))) : (d < currentDate ? 24 : 0),
               daysInMonth,
             }
           })
 
-          historyDataCache.set(cacheKey, formattedPoints)
-          setDbHistoryData(formattedPoints)
+          const historyPoints = usableCount > 0 ? formattedPoints : []
+          historyDataCache.set(cacheKey, historyPoints)
+          setDbHistoryData(historyPoints)
           setIsLoadingHistory(false)
           return
         }
@@ -1084,13 +1219,15 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
         // CASE 3: YEAR GRAPH — Starts from January to December as per calendar
         // ═════════════════════════════════════════════════════════════════════
         if (isYear) {
-          const currentYear = now.getFullYear()
-          const currentMonthIdx = now.getMonth()
-          const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+          // 12 month slots for the year being shown (current or past)
+          const currentYear = queryPeriod.year
+          // Past years: every month is completed
+          const currentMonthIdx = isCurrentPeriod ? nowPkt.m : 11
+          const monthNames = MONTH_SHORT
           const yShort = String(currentYear).slice(-2)
 
           const monthSlots = Array.from({ length: 12 }, (_, m) => {
-            const daysInThisM = new Date(currentYear, m + 1, 0).getDate()
+            const daysInThisM = new Date(Date.UTC(currentYear, m + 1, 0)).getUTCDate()
             const slaveMap = new Map()
             for (const s of targetSlaves) {
               slaveMap.set(s.slaveId, { powers: [], units: [], customs: [] })
@@ -1106,9 +1243,12 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                 if (!pt || !pt.timestamp) continue
                 const tDate = new Date(pt.timestamp)
                 if (isNaN(tDate.getTime())) continue
-                if (tDate > now) continue
+                if (!inPeriod(tDate)) continue
 
-                if (tDate.getFullYear() === currentYear && tDate.getMonth() === m) {
+                const tPkt = pktParts(tDate)
+                if (tPkt.y === currentYear && tPkt.m === m) {
+                  if (!Number.isFinite(Number(pt.value))) continue
+                  usableCount++
                   let numVal = Number(pt.value) || 0
                   if (isPower) numVal = Math.abs(numVal)
                   if (res.isG1Power) numVal = Number((numVal * 3).toFixed(1))
@@ -1184,7 +1324,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
               cumulativeUnits: rollingCumulative,
               value: val,
               isToday: false,
-              isCurrentMonth: m === currentMonthIdx,
+              isCurrentMonth: isCurrentPeriod && m === currentMonthIdx,
               isPreCommission: !isNaN(commissionDate.getTime()) && new Date(currentYear, m, 1) < new Date(commissionDate.getFullYear(), commissionDate.getMonth(), 1),
               commissionDateLabel,
               elapsedHours: 720,
@@ -1192,7 +1332,9 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
             }
           })
 
-          setDbHistoryData(formattedPoints)
+          const historyPoints = usableCount > 0 ? formattedPoints : []
+          historyDataCache.set(cacheKey, historyPoints)
+          setDbHistoryData(historyPoints)
           setIsLoadingHistory(false)
           return
         }
@@ -1209,7 +1351,9 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
             if (!pt || !pt.timestamp) continue
             const tDate = new Date(pt.timestamp)
             if (isNaN(tDate.getTime())) continue
-            if (tDate > now) continue
+            if (!inPeriod(tDate)) continue
+            if (!Number.isFinite(Number(pt.value))) continue
+            usableCount++
 
             const timeKey = tDate.toISOString()
             let entry = timeBucketMap.get(timeKey)
@@ -1235,25 +1379,23 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
         }
 
         const sortedKeys = Array.from(timeBucketMap.keys()).sort()
-        const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+        const todayStr = `${nowPkt.y}-${nowPkt.m}-${nowPkt.d}`
 
         let previousMeterUnits = null
         let rollingCumulative = 0
         const formattedPoints = sortedKeys.map((k) => {
           const item = timeBucketMap.get(k)
-          const d = item.date
+          const d = pktParts(item.date)
 
           let timestamp = ''
           let isToday = false
 
           if (historyRange === '1h') {
-            timestamp = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+            timestamp = `${String(d.h).padStart(2, '0')}:${String(d.min).padStart(2, '0')}`
           } else {
             // 7d
-            const dayName = d.toLocaleDateString('en-US', { weekday: 'short' })
-            timestamp = `${dayName} ${d.getDate()}`
-            const itemDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-            isToday = (itemDateStr === todayStr)
+            timestamp = `${WEEKDAY_SHORT[d.dow]} ${d.d}`
+            isToday = isCurrentPeriod && `${d.y}-${d.m}-${d.d}` === todayStr
           }
 
           let powerSum = 0
@@ -1303,10 +1445,12 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
             daysInMonth: 30,
           }
         })
-        setDbHistoryData(formattedPoints)
+        const historyPoints = usableCount > 0 ? formattedPoints : []
+        historyDataCache.set(cacheKey, historyPoints)
+        setDbHistoryData(historyPoints)
         setIsLoadingHistory(false)
       } catch (err) {
-        if (isMounted) {
+        if (!isStale()) {
           console.error('Failed to load real database historical records:', err)
           setHistoryError(err?.message || 'Database connection error')
           setDbHistoryData([])
@@ -1317,7 +1461,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
 
     fetchRealHistory()
     return () => { isMounted = false }
-  }, [node?.id, node?.slaveId, node?.rawSlaveId, node?.deviceId, node?.rawDeviceId, node?.contributingSlaves, historyRange, historyVariable])
+  }, [node?.id, node?.slaveId, node?.rawSlaveId, node?.deviceId, node?.rawDeviceId, node?.contributingSlaves, historyRange, historyVariable, debouncedPeriodOffset, historyRefreshTick])
 
   // Historical Telemetry Data: strictly consumes verified database records.
   // When no historical records exist, cleanly returns [] so the drawer displays the true empty state.
@@ -1529,7 +1673,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
             </button>
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleClose}
               className="p-1.5 rounded-lg text-surface-500 hover:text-surface-900 dark:hover:text-surface-100 hover:bg-surface-200 dark:hover:bg-surface-800 transition cursor-pointer"
               title="Close"
             >
@@ -1826,7 +1970,11 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                       <button
                         key={key}
                         type="button"
-                        onClick={() => setHistoryRange(key)}
+                        onClick={() => {
+                          setHistoryRange(key)
+                          setPeriodOffset(0)
+                          setDebouncedPeriodOffset(0)
+                        }}
                         className={`px-2.5 py-1 font-bold text-[10px] uppercase transition cursor-pointer ${
                           historyRange === key
                             ? 'bg-primary-600 text-white shadow-xs'
@@ -1837,6 +1985,45 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                         {label}
                       </button>
                     ))}
+                  </div>
+
+                  {/* Previous / Next Period Navigation */}
+                  <div className="flex items-center gap-1">
+                    <div className="flex rounded-lg border border-surface-200 dark:border-surface-800 overflow-hidden text-xs bg-white dark:bg-surface-900">
+                      <button
+                        type="button"
+                        onClick={() => setPeriodOffset((o) => o - 1)}
+                        className="px-1.5 py-1 font-bold text-[10px] uppercase transition cursor-pointer text-surface-600 dark:text-surface-400 hover:bg-surface-100 dark:hover:bg-surface-800"
+                        title="Previous period"
+                      >
+                        <ChevronLeft className="w-3 h-3" />
+                      </button>
+                      <span
+                        className="px-2 py-1 font-bold text-[10px] font-mono text-surface-700 dark:text-surface-200 border-x border-surface-200 dark:border-surface-800 whitespace-nowrap flex items-center"
+                        title="Period shown (Pakistan Time)"
+                      >
+                        {historyPeriod.label}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setPeriodOffset((o) => Math.min(0, o + 1))}
+                        disabled={periodOffset >= 0}
+                        className="px-1.5 py-1 font-bold text-[10px] uppercase transition cursor-pointer text-surface-600 dark:text-surface-400 hover:bg-surface-100 dark:hover:bg-surface-800 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                        title="Next period"
+                      >
+                        <ChevronRight className="w-3 h-3" />
+                      </button>
+                    </div>
+                    {periodOffset < 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setPeriodOffset(0)}
+                        className="px-2 py-1 rounded-lg border border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 font-bold text-[10px] uppercase transition cursor-pointer text-surface-600 dark:text-surface-400 hover:bg-surface-100 dark:hover:bg-surface-800"
+                        title="Jump back to the current period"
+                      >
+                        Today
+                      </button>
+                    )}
                   </div>
 
                   {/* Graph Format Toggle (Bar Graph by default) */}
@@ -1920,17 +2107,17 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                       Loading Historical Telemetry...
                     </span>
                     <span className="text-[10px] text-surface-400 mt-1 font-mono">
-                      Target: {node.name} • Range: {historyRange} • Variable: {historyVariable}
+                      Target: {node.name} • Period: {historyPeriod.label} • Variable: {historyVariable}
                     </span>
                   </div>
                 ) : chartData.length === 0 ? (
                   <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center">
                     <AlertTriangle className="w-7 h-7 text-amber-500 mb-2" />
                     <span className="text-xs font-bold text-surface-800 dark:text-surface-100">
-                      No Historical Records Found
+                      No data for this period
                     </span>
                     <p className="text-[10.5px] text-surface-500 max-w-sm mt-1">
-                      No historical telemetry rows are stored for <strong className="text-surface-700 dark:text-surface-300">{node.name}</strong> for range <strong className="font-mono">{historyRange}</strong>. Unmetered or offline channels produce 0 records.
+                      No usable telemetry rows are stored for <strong className="text-surface-700 dark:text-surface-300">{node.name}</strong> for <strong className="font-mono">{historyPeriod.label}</strong>. Unmetered or offline channels produce 0 records.
                     </p>
                   </div>
                 ) : (
@@ -2434,7 +2621,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
             </button>
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleClose}
               className="py-1.5 px-3 rounded-xl text-xs font-semibold bg-surface-200 dark:bg-surface-800 text-surface-700 dark:text-surface-300 hover:bg-surface-300 dark:hover:bg-surface-700 transition cursor-pointer"
             >
               Close
