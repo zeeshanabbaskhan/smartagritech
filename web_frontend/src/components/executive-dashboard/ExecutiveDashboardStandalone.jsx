@@ -24,6 +24,7 @@ import emsApi, { list } from '../../api/emsApi'
 import { latestToReadings } from '../../utils/sensorReadings'
 import { formatMetricValue } from '../shared/dashboardFormatters'
 import { labelFor, sortLegacy } from '../shared/DeviceSlaveMetricsPanel'
+import RunningLoadPies from './RunningLoadPies'
 
 
 /**
@@ -3117,6 +3118,7 @@ function EnergyFlowOverview({ data, onSelectNode }) {
           </div>
         </div>
       </div>
+      <RunningLoadPies data={data} />
     </div>
   )
 }
