@@ -3202,9 +3202,12 @@ function EnergyFlowOverview({ data, onSelectNode }) {
         {/* ─── RIGHT: BUILDING 2 (AFL) ────────────────────────────────── */}
         {/* ============================================================== */}
         <div className="p-1.5 sm:p-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xs flex flex-col justify-between">
-          {/* B2 Header Row with Donut */}
+          {/* B2 Header Row with Donut (Mirrored: Donut inner-left, Total Card outer-right) */}
           <div className="flex items-center justify-between gap-2 mb-1 px-1">
-            <div className="flex flex-col items-start">
+            {/* Embedded AFL Donut Card */}
+            <Building2RunningLoadDonut data={data} />
+
+            <div className="flex flex-col items-end">
               <span className="text-[8.5px] sm:text-[9px] font-bold text-slate-500 uppercase tracking-widest leading-none mb-1">
                 Building 2 (AFL)
               </span>
@@ -3226,9 +3229,6 @@ function EnergyFlowOverview({ data, onSelectNode }) {
                 </span>
               </div>
             </div>
-
-            {/* Embedded AFL Donut Card */}
-            <Building2RunningLoadDonut data={data} />
           </div>
 
           {/* B2 Sources Row (3 Boxes from Sketch: Solar 2 Inv, Genset 1, Wapda - B2) */}
