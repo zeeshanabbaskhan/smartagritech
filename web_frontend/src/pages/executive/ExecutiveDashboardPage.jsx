@@ -413,9 +413,7 @@ function makeBreakerNode(id, fallbackName, defaultRatedA, slaveObj, buildingCode
   else if (isMeterOffline || !isOnline) status = 'offline'
   else if (isSolar) status = loadKw > 0 ? 'generating' : 'standby'
   else if (isGenset && loadKw === 0) status = 'standby'
-  else if (loadKw >= 100) status = 'critical'
-  else if (loadKw >= 70) status = 'heavy'
-  else if (loadKw > maxKw * 0.8) status = 'heavy'
+  else status = 'normal'
 
   const currentVal = vars24 ? (vars24.find((v) => v.key === 'Current A')?.value || 0.0) : 0.0
   const pfVal = vars24 ? (vars24.find((v) => v.key === 'Power Factor')?.value ?? (cardVoltage > 0 ? 0.96 : 0.0)) : 0.0

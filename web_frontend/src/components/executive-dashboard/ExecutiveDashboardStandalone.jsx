@@ -2714,18 +2714,29 @@ function EnergyFlowOverview({ data, onSelectNode }) {
     const isGenset = b.type === 'genset' || /^(g1|g2|g3|genset)/i.test(name)
     const isOffline = b.status === 'offline' || (!isSpare && !isGenerating && !isGenset && !isTieLine && Number(b.voltage || 0) === 0 && loadKwVal === 0)
 
-    // Threshold evaluation: checks slave override, then global default, falling back to 70 / 100
-    const slaveThresh = b.slaveId ? slaveThresholds[b.slaveId] : null
+    // Threshold evaluation: checks slave override, then global default
+    const slaveThresh = (b.slaveId && slaveThresholds[b.slaveId]) ||
+      (b.rawSlaveId && slaveThresholds[b.rawSlaveId]) ||
+      (b.fullSlaveId && slaveThresholds[b.fullSlaveId]) ||
+      (b.id && slaveThresholds[b.id]) ||
+      Object.values(slaveThresholds).find((st) => st.slaveName && st.slaveName.toLowerCase() === (b.name || '').toLowerCase()) ||
+      null
+
     const hasCustomThresh = !!slaveThresh
     const isRuleEnabled = hasCustomThresh
       ? slaveThresh.enabled !== false
-      : (slaveDefault?.enabled !== false && slaveDefault?.warningValue !== undefined)
+      : (slaveDefault?.enabled === true)
+
     const warnLimit = Number(hasCustomThresh ? slaveThresh.warningValue : (slaveDefault?.warningValue || 70))
     const critLimit = Number(hasCustomThresh ? slaveThresh.criticalValue : (slaveDefault?.criticalValue || 100))
 
-    // Alert thresholds: >= critLimit turns RED (critical load), >= warnLimit turns YELLOW (warning/heavy load)
-    const isCritical = isRuleEnabled && (b.status === 'critical' || (loadKwVal >= critLimit && !isSpare && !isOffline))
-    const isHeavy = isRuleEnabled && !isCritical && (b.status === 'heavy' || (loadKwVal >= warnLimit && !isSpare && !isOffline))
+    const isCurrentMetric = slaveThresh?.metricKey === 'current'
+    const evalValue = isCurrentMetric ? Number(b.current || 0) : loadKwVal
+
+    // Alert thresholds evaluated strictly against the configured limits
+    // Never show Red or Yellow unless the measured value (kW or A) is >= the limit
+    const isCritical = isRuleEnabled && !isSpare && !isOffline && Number.isFinite(critLimit) && critLimit > 0 && (evalValue >= critLimit)
+    const isHeavy = isRuleEnabled && !isSpare && !isOffline && !isCritical && Number.isFinite(warnLimit) && warnLimit > 0 && (evalValue >= warnLimit)
     const isTripped = b.status === 'tripped' && loadKwVal === 0
 
     // All normal/remaining breakers: clean white card with white/light neutral border, NO color at all
