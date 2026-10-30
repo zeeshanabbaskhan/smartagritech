@@ -134,6 +134,18 @@ export default function AdminControllerPage() {
         if (err) return err
       }
     }
+    if (localLimits?.sourceThresholds) {
+      for (const [sourceId, conf] of Object.entries(localLimits.sourceThresholds)) {
+        const err = validateThresholdRule(`source-${sourceId}`, conf)
+        if (err) return err
+      }
+    }
+    if (localLimits?.totalThresholds) {
+      for (const [totalId, conf] of Object.entries(localLimits.totalThresholds)) {
+        const err = validateThresholdRule(`total-${totalId}`, conf)
+        if (err) return err
+      }
+    }
     if (localLimits?.slaveThresholds) {
       for (const [slaveId, conf] of Object.entries(localLimits.slaveThresholds)) {
         const err = validateThresholdRule(`slave-${slaveId}`, conf)
@@ -338,6 +350,8 @@ export default function AdminControllerPage() {
               executiveLimits={localLimits}
               onChange={handleLimitsChange}
               devices={liveDevices}
+              sources={localSources}
+              sites={localSites}
             />
           )}
 

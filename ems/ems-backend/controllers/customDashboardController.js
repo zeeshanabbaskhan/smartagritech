@@ -983,7 +983,9 @@ async function buildPowerFlowData(req, orgId, config) {
 
 const ALLOWED_METRIC_KEYS = new Set([
   'totalLoad', 'solarPower', 'generatorPower', 'gridPower',
-  'currentA', 'currentB', 'currentC', 'powerFactor'
+  'currentA', 'currentB', 'currentC', 'powerFactor',
+  'totalRunningLoad', 'totalWapda', 'solarTotal', 'totalGenset',
+  'totalRunningLoadB1', 'totalRunningLoadB2',
 ])
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -1026,6 +1028,18 @@ const validateExecutiveLimitsPayload = async (limits, orgId, dbClient = prisma) 
     for (const [key, conf] of Object.entries(limits.thresholds)) {
       if (!ALLOWED_METRIC_KEYS.has(key)) throw new AppError(`Invalid metric key: ${key}`, 400)
       validateRule(key, conf)
+    }
+  }
+
+  if (limits.sourceThresholds && typeof limits.sourceThresholds === 'object') {
+    for (const [sourceId, conf] of Object.entries(limits.sourceThresholds)) {
+      validateRule(`source-${sourceId}`, conf)
+    }
+  }
+
+  if (limits.totalThresholds && typeof limits.totalThresholds === 'object') {
+    for (const [totalId, conf] of Object.entries(limits.totalThresholds)) {
+      validateRule(`total-${totalId}`, conf)
     }
   }
 

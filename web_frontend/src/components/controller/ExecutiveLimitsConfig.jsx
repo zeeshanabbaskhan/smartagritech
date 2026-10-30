@@ -1,6 +1,8 @@
 import { useState, useMemo } from 'react'
 import {
   ALLOWED_EXECUTIVE_METRICS,
+  PLANT_TOTALS_METRICS,
+  STANDARD_ENERGY_SOURCES,
   validateThresholdRule,
 } from '../../utils/thresholdUtils'
 import { TextInput, ToggleInput } from '../ui/FormFields'
@@ -20,16 +22,23 @@ import {
   Building2,
   Layers,
   ArrowUpDown,
+  Activity,
+  Sun,
+  Fuel,
 } from 'lucide-react'
 
 export default function ExecutiveLimitsConfig({
   executiveLimits = {},
   onChange,
   devices = [],
+  sources = [],
+  sites = [],
   readOnly = false,
 }) {
-  // Top-level thresholds & slave configurations
+  // Top-level thresholds & configurations
   const thresholds = executiveLimits?.thresholds || {}
+  const sourceThresholds = executiveLimits?.sourceThresholds || {}
+  const totalThresholds = executiveLimits?.totalThresholds || {}
   const slaveThresholds = executiveLimits?.slaveThresholds || {}
   const slaveDefault = executiveLimits?.slaveDefault || {
     enabled: false,
@@ -38,11 +47,11 @@ export default function ExecutiveLimitsConfig({
     unit: 'kW',
   }
 
-  // Top Section Navigation Tab: 'kpis' | 'equipment'
-  const [activeSection, setActiveSection] = useState('equipment') // default to equipment since user is configuring slaves
+  // Top Section Navigation Tab: 'equipment' | 'sources' | 'totals'
+  const [activeSection, setActiveSection] = useState('equipment')
 
   // Equipment Filtering & Search
-  const [activePlantTab, setActivePlantTab] = useState('all') // 'all' | 'Ambition' | 'AFL' | deviceId
+  const [activePlantTab, setActivePlantTab] = useState('all') // 'all' | plantName
   const [searchQuery, setSearchQuery] = useState('')
   const [filterMode, setFilterMode] = useState('all') // 'all' | 'custom' | 'default' | 'active'
 
@@ -55,17 +64,28 @@ export default function ExecutiveLimitsConfig({
   const [batchAppliedMsg, setBatchAppliedMsg] = useState('')
 
   // Flatten and normalize all slaves across all devices
+  // Strictly assign every machine into its physical factory site (Ambition B1 vs AFL B2)
   const allSlaves = useMemo(() => {
     return devices.flatMap((d) => {
       const slvs = d.slaves || d.configSlaves || d._raw?.configSlaves || []
       const devName = d.name || 'Gateway'
-      let plantName = d.org && d.org !== '—' ? `${d.org} Plant` : 'Main Plant'
-      if (/afl/i.test(devName) || d.id === 'cdd6d1b1-6fd8-48a5-9984-5e220328571d') {
+      const devLower = devName.toLowerCase()
+      const dId = d.id || ''
+
+      // Automatic physical site mapping:
+      // AFL gateways -> AFL Plant (B2)
+      // Ambition, Solar, Washing, Drying -> Ambition Plant (B1)
+      let plantName = 'Ambition Plant (B1)'
+      if (
+        devLower.includes('afl') ||
+        dId === 'cdd6d1b1-6fd8-48a5-9984-5e220328571d' ||
+        dId === '3a3636fa-05ed-4b3c-94de-2637d1292b4b' ||
+        dId === '6f8725c8-e15a-43e8-a340-c30d5ed7e8ac'
+      ) {
         plantName = 'AFL Plant (B2)'
-      } else if (/solar/i.test(devName) || d.id === 'b9e024c1-2fbb-4b53-bc2b-f1bab8fc7f12') {
-        plantName = 'Solar Plant (AMB)'
-      } else if (/ambition/i.test(devName) || /ambition/i.test(d.org || '')) {
-        plantName = 'Ambition Plant (B1)'
+      } else if (sites && sites.length > 0) {
+        const matchedSite = sites.find((st) => st.id === d.siteId || st.name?.toLowerCase() === devLower)
+        if (matchedSite) plantName = matchedSite.name
       }
 
       return slvs.map((s) => {
@@ -78,16 +98,23 @@ export default function ExecutiveLimitsConfig({
           if (p != null && Number.isFinite(Number(p))) liveKw = Number(p)
         }
 
+        // Check if individual slave has AFL in name
+        const sNameLower = (s.name || '').toLowerCase()
+        let slavePlant = plantName
+        if (sNameLower.includes('afl')) {
+          slavePlant = 'AFL Plant (B2)'
+        }
+
         return {
           ...s,
           deviceId: d.id,
           deviceName: devName,
-          plantName,
+          plantName: slavePlant,
           liveKw: liveKw != null ? Math.abs(+liveKw.toFixed(1)) : null,
         }
       })
     })
-  }, [devices])
+  }, [devices, sites])
 
   // Plant groupings for tabs
   const plants = useMemo(() => {
@@ -99,27 +126,178 @@ export default function ExecutiveLimitsConfig({
     return Array.from(map.entries()).map(([name, count]) => ({ name, count }))
   }, [allSlaves])
 
-  // Update Plant-Level KPI Metric
-  const updateMetric = (metricKey, patch) => {
+  // Normalize all Energy Sources (standard plant supply + user-configured sources)
+  const allSources = useMemo(() => {
+    const std = STANDARD_ENERGY_SOURCES.map((s) => {
+      // Find live kW from devices/slaves if possible
+      let liveKw = null
+      const matchedSlave = allSlaves.find((slv) => {
+        const sName = (slv.name || '').toLowerCase()
+        if (s.id === 'b1-wapda') return sName.includes('wapda-amb') || sName.includes('wapda amb')
+        if (s.id === 'b1-solar') return sName.includes('solar amb') || sName.includes('solar-invt')
+        if (s.id === 'b1-genset1') return sName === 'g1'
+        if (s.id === 'b1-genset2') return sName === 'g2'
+        if (s.id === 'b2-wapda') return sName.includes('wapda-afl') || sName.includes('wapda afl')
+        if (s.id === 'b2-solar') return sName.includes('solar afl')
+        if (s.id === 'b2-genset') return sName.includes('g3 afl') || sName.includes('gen afl')
+        return false
+      })
+      if (matchedSlave && matchedSlave.liveKw != null) liveKw = matchedSlave.liveKw
+
+      return {
+        ...s,
+        liveKw,
+      }
+    })
+
+    // Also incorporate custom sources from the Energy Sources tab
+    const customList = (sources || []).map((s) => {
+      const exists = std.find((x) => x.id === s.id || x.name.toLowerCase() === (s.name || '').toLowerCase())
+      if (exists) return null
+
+      const siteObj = sites.find((st) => st.id === s.siteId)
+      const plant = siteObj?.name || (s.siteId === 'site-1' ? 'Ambition Plant (B1)' : 'AFL Plant (B2)')
+
+      return {
+        id: s.id,
+        name: s.name,
+        plant,
+        type: s.type || 'custom',
+        unit: 'kW',
+        defaultWarn: '500',
+        defaultCrit: '800',
+        liveKw: s.valueKw != null ? Number(s.valueKw) : null,
+      }
+    }).filter(Boolean)
+
+    return [...std, ...customList]
+  }, [allSlaves, sources, sites])
+
+  // Normalize all Plant Totals (Dual facility, WAPDA, Solar, Generators, Building 1, Building 2)
+  const allTotals = useMemo(() => {
+    return PLANT_TOTALS_METRICS.map((tm) => {
+      let liveKw = null
+      if (tm.key === 'totalWapda') {
+        const b1W = allSlaves.find((s) => (s.name || '').toLowerCase().includes('wapda-amb'))?.liveKw || 0
+        const b2W = allSlaves.find((s) => (s.name || '').toLowerCase().includes('wapda-afl'))?.liveKw || 0
+        if (b1W || b2W) liveKw = +(b1W + b2W).toFixed(1)
+      } else if (tm.key === 'solarTotal') {
+        const sSum = allSlaves.filter((s) => (s.name || '').toLowerCase().includes('solar')).reduce((sum, s) => sum + (s.liveKw || 0), 0)
+        if (sSum) liveKw = +sSum.toFixed(1)
+      } else if (tm.key === 'totalGenset') {
+        const gSum = allSlaves
+          .filter((s) => {
+            const n = (s.name || '').toLowerCase()
+            return n === 'g1' || n === 'g2' || n.includes('g3 afl')
+          })
+          .reduce((sum, s) => sum + (s.liveKw || 0), 0)
+        if (gSum) liveKw = +gSum.toFixed(1)
+      } else if (tm.key === 'totalRunningLoadB1') {
+        const b1Sum = allSlaves.filter((s) => s.plantName === 'Ambition Plant (B1)').reduce((sum, s) => sum + (s.liveKw || 0), 0)
+        if (b1Sum) liveKw = +b1Sum.toFixed(1)
+      } else if (tm.key === 'totalRunningLoadB2') {
+        const b2Sum = allSlaves.filter((s) => s.plantName === 'AFL Plant (B2)').reduce((sum, s) => sum + (s.liveKw || 0), 0)
+        if (b2Sum) liveKw = +b2Sum.toFixed(1)
+      } else if (tm.key === 'totalRunningLoad') {
+        const allSum = allSlaves.reduce((sum, s) => sum + (s.liveKw || 0), 0)
+        if (allSum) liveKw = +allSum.toFixed(1)
+      }
+
+      return {
+        ...tm,
+        liveKw,
+      }
+    })
+  }, [allSlaves])
+
+  // ─── CHANGE HANDLERS ────────────────────────────────────────────────────────
+
+  // Update Single Energy Source Threshold (WAPDA-AMB, Solar AMB, Genset, etc.)
+  const updateSourceThreshold = (sourceId, patch) => {
     if (readOnly) return
-    const current = thresholds[metricKey] || {
-      enabled: false,
-      direction: metricKey === 'powerFactor' ? 'below' : 'above',
-      warningValue: '',
-      criticalValue: '',
-      unit: ALLOWED_EXECUTIVE_METRICS.find((m) => m.key === metricKey)?.unit || 'kW',
+    const src = allSources.find((s) => s.id === sourceId)
+    const current = sourceThresholds[sourceId] || {
+      enabled: true,
+      direction: 'above',
+      warningValue: src?.defaultWarn || '500',
+      criticalValue: src?.defaultCrit || '800',
+      unit: 'kW',
+      sourceName: src?.name || '',
+      plantName: src?.plant || '',
     }
+
     const updated = {
       ...executiveLimits,
+      sourceThresholds: {
+        ...sourceThresholds,
+        [sourceId]: {
+          ...current,
+          ...patch,
+          sourceName: src?.name || current.sourceName,
+          plantName: src?.plant || current.plantName,
+        },
+      },
+    }
+    onChange?.(updated)
+  }
+
+  // Remove Source Threshold
+  const removeSourceThreshold = (sourceId) => {
+    if (readOnly) return
+    const next = { ...sourceThresholds }
+    delete next[sourceId]
+    onChange?.({
+      ...executiveLimits,
+      sourceThresholds: next,
+    })
+  }
+
+  // Update Plant Total / Inflow Threshold (Total Running Load, Total WAPDA, etc.)
+  const updateTotalThreshold = (totalKey, patch) => {
+    if (readOnly) return
+    const tm = allTotals.find((t) => t.key === totalKey)
+    const current = totalThresholds[totalKey] || thresholds[totalKey] || {
+      enabled: true,
+      direction: 'above',
+      warningValue: tm?.defaultWarn || '800',
+      criticalValue: tm?.defaultCrit || '1200',
+      unit: 'kW',
+      totalName: tm?.label || '',
+    }
+
+    const updated = {
+      ...executiveLimits,
+      totalThresholds: {
+        ...totalThresholds,
+        [totalKey]: {
+          ...current,
+          ...patch,
+          totalName: tm?.label || current.totalName,
+        },
+      },
       thresholds: {
         ...thresholds,
-        [metricKey]: {
+        [totalKey]: {
           ...current,
           ...patch,
         },
       },
     }
     onChange?.(updated)
+  }
+
+  // Remove Total Threshold
+  const removeTotalThreshold = (totalKey) => {
+    if (readOnly) return
+    const nextTot = { ...totalThresholds }
+    delete nextTot[totalKey]
+    const nextThresh = { ...thresholds }
+    delete nextThresh[totalKey]
+    onChange?.({
+      ...executiveLimits,
+      totalThresholds: nextTot,
+      thresholds: nextThresh,
+    })
   }
 
   // Update Global Baseline Default for Slaves
@@ -165,7 +343,7 @@ export default function ExecutiveLimitsConfig({
     onChange?.(updated)
   }
 
-  // Remove Custom Threshold (reverts to baseline default or disabled)
+  // Remove Custom Threshold
   const removeSlaveThreshold = (slaveId) => {
     if (readOnly) return
     const next = { ...slaveThresholds }
@@ -258,22 +436,18 @@ export default function ExecutiveLimitsConfig({
 
   // Summary counts
   const customSlavesCount = Object.keys(slaveThresholds).length
-  const defaultSlavesCount = Math.max(0, allSlaves.length - customSlavesCount)
-  const activeRulesCount = allSlaves.filter((slv) => {
-    const custom = slaveThresholds[slv.id]
-    if (custom) return custom.enabled !== false
-    return slaveDefault.enabled
-  }).length
+  const activeSourcesCount = Object.values(sourceThresholds).filter((s) => s.enabled).length
+  const activeTotalsCount = Object.values(totalThresholds).filter((t) => t.enabled).length
 
   return (
     <div className="space-y-6">
-      {/* ─── Top Switcher: Plant-Level KPIs vs Equipment Limits ─── */}
+      {/* ─── Top Switcher: Slaves vs Energy Sources vs Plant Totals ─── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-2 rounded-2xl bg-surface-100 dark:bg-surface-800/80 border border-surface-200 dark:border-surface-700">
-        <div className="flex items-center gap-1.5 p-1 rounded-xl bg-white dark:bg-surface-900 shadow-2xs">
+        <div className="flex items-center gap-1.5 p-1 rounded-xl bg-white dark:bg-surface-900 shadow-2xs flex-wrap">
           <button
             type="button"
             onClick={() => setActiveSection('equipment')}
-            className={`py-2 px-4 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
+            className={`py-2 px-3.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
               activeSection === 'equipment'
                 ? 'bg-primary-600 text-white shadow-xs'
                 : 'text-surface-600 dark:text-surface-400 hover:text-surface-900 dark:hover:text-surface-100'
@@ -285,15 +459,38 @@ export default function ExecutiveLimitsConfig({
 
           <button
             type="button"
-            onClick={() => setActiveSection('kpis')}
-            className={`py-2 px-4 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
-              activeSection === 'kpis'
+            onClick={() => setActiveSection('sources')}
+            className={`py-2 px-3.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
+              activeSection === 'sources'
                 ? 'bg-primary-600 text-white shadow-xs'
                 : 'text-surface-600 dark:text-surface-400 hover:text-surface-900 dark:hover:text-surface-100'
             }`}
           >
-            <ShieldAlert size={15} />
-            Plant-Wide KPI Limits
+            <Zap size={15} />
+            Energy Sources ({allSources.length})
+            {activeSourcesCount > 0 && (
+              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-bold">
+                {activeSourcesCount} Active
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveSection('totals')}
+            className={`py-2 px-3.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
+              activeSection === 'totals'
+                ? 'bg-primary-600 text-white shadow-xs'
+                : 'text-surface-600 dark:text-surface-400 hover:text-surface-900 dark:hover:text-surface-100'
+            }`}
+          >
+            <Activity size={15} />
+            Plant Totals & Inflow ({allTotals.length})
+            {activeTotalsCount > 0 && (
+              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-bold">
+                {activeTotalsCount} Active
+              </span>
+            )}
           </button>
         </div>
 
@@ -314,104 +511,425 @@ export default function ExecutiveLimitsConfig({
         </div>
       </div>
 
-      {/* ─── TAB 1: PLANT-WIDE KPI LIMITS ─── */}
-      {activeSection === 'kpis' && (
+      {/* ─── SECTION 1: ENERGY SUPPLY SOURCES ─── */}
+      {activeSection === 'sources' && (
         <div className="space-y-4 animate-fadeIn">
-          <div>
-            <h3 className="text-sm font-bold text-surface-900 dark:text-surface-100">
-              Plant-Wide & Feeder Alert Thresholds
-            </h3>
-            <p className="text-xs text-surface-500">
-              Configure global warning (Yellow) and critical (Red) alert limits for high-level plant power flow and grid intake.
-            </p>
+          <div className="p-3.5 rounded-xl bg-blue-50/60 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/40 flex items-start gap-2.5 text-xs text-blue-900 dark:text-blue-200">
+            <Info size={16} className="text-blue-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold">Set Warning (Yellow) & Critical (Red) Thresholds for Supply Sources</p>
+              <p className="text-[11px] text-blue-700 dark:text-blue-300 mt-0.5">
+                Configure limits for incoming WAPDA grid feeders, solar inverters, and backup generators. Cards on the Executive Dashboard turn yellow or red when telemetry reaches these limits.
+              </p>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {ALLOWED_EXECUTIVE_METRICS.map((metric) => {
-              const conf = thresholds[metric.key] || {
-                enabled: false,
-                direction: metric.defaultDirection,
-                warningValue: '',
-                criticalValue: '',
-                unit: metric.unit,
-              }
-              const isLowAlarm = metric.defaultDirection === 'below' || metric.key === 'powerFactor'
-              const error = validateThresholdRule(metric.key, conf)
+          <div className="overflow-x-auto rounded-xl border border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 shadow-xs">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-surface-50 dark:bg-surface-800/80 text-surface-600 dark:text-surface-400 uppercase text-[10px] tracking-wider border-b border-surface-200 dark:border-surface-800">
+                <tr>
+                  <th className="py-2.5 px-3">Source Name</th>
+                  <th className="py-2.5 px-3">Plant Site</th>
+                  <th className="py-2.5 px-3">Live Telemetry</th>
+                  <th className="py-2.5 px-3 text-amber-700 dark:text-amber-400 font-bold">Warning (Yellow)</th>
+                  <th className="py-2.5 px-3 text-red-700 dark:text-red-400 font-bold">Critical (Red)</th>
+                  <th className="py-2.5 px-3">Status</th>
+                  <th className="py-2.5 px-3 text-right">Active / Reset</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-surface-100 dark:divide-surface-800">
+                {allSources.map((src) => {
+                  const conf = sourceThresholds[src.id] || {
+                    enabled: false,
+                    warningValue: src.defaultWarn || '500',
+                    criticalValue: src.defaultCrit || '800',
+                    unit: 'kW',
+                  }
+                  const isEnabled = !!conf.enabled
+                  const warnVal = conf.warningValue ?? src.defaultWarn
+                  const critVal = conf.criticalValue ?? src.defaultCrit
+                  const liveKw = src.liveKw
+                  const isCrit = isEnabled && liveKw != null && Number(critVal) > 0 && liveKw >= Number(critVal)
+                  const isWarn = isEnabled && !isCrit && liveKw != null && Number(warnVal) > 0 && liveKw >= Number(warnVal)
+                  const error = validateThresholdRule(`source-${src.id}`, conf)
 
-              return (
-                <div
-                  key={metric.key}
-                  className="p-4 rounded-xl border bg-white dark:bg-surface-900 border-surface-200 dark:border-surface-800 shadow-xs"
-                >
-                  <div className="flex items-center justify-between pb-3 border-b border-surface-100 dark:border-surface-800">
-                    <div>
-                      <span className="text-xs font-bold text-surface-900 dark:text-surface-100 flex items-center gap-1.5">
-                        {metric.label}
-                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-surface-100 dark:bg-surface-800 text-surface-600 dark:text-surface-300 font-mono">
-                          {metric.unit || 'ratio'}
+                  const isWapda = src.type === 'grid' || /wapda|grid/i.test(src.name)
+                  const isSolar = src.type === 'solar' || /solar/i.test(src.name)
+                  const isGenset = src.type === 'generator' || /genset|gen/i.test(src.name)
+
+                  return (
+                    <tr
+                      key={src.id}
+                      className={`hover:bg-surface-50 dark:hover:bg-surface-800/50 transition-colors ${
+                        isCrit
+                          ? 'bg-red-50/50 dark:bg-red-950/20'
+                          : isWarn
+                          ? 'bg-amber-50/50 dark:bg-amber-950/20'
+                          : ''
+                      }`}
+                    >
+                      {/* Name & Type */}
+                      <td className="py-2.5 px-3">
+                        <div className="flex items-center gap-2">
+                          <div className={`p-1.5 rounded-lg shrink-0 ${
+                            isWapda
+                              ? 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
+                              : isSolar
+                              ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
+                              : 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300'
+                          }`}>
+                            {isWapda && <Zap size={14} />}
+                            {isSolar && <Sun size={14} />}
+                            {isGenset && <Fuel size={14} />}
+                          </div>
+                          <div>
+                            <span className="font-bold text-surface-900 dark:text-surface-100 block">
+                              {src.name}
+                            </span>
+                            <span className="text-[10px] text-surface-400 capitalize">
+                              {src.type || 'Source'} Supply
+                            </span>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Plant / Site */}
+                      <td className="py-2.5 px-3">
+                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-surface-100 dark:bg-surface-800 text-surface-700 dark:text-surface-300">
+                          <Building2 size={11} className="text-surface-400" />
+                          {src.plant}
                         </span>
-                      </span>
-                      <p className="text-[10px] text-surface-400 mt-0.5">
-                        {isLowAlarm ? 'Alarms when dropping below limits' : 'Alarms when exceeding limits'}
-                      </p>
-                    </div>
+                      </td>
 
-                    <ToggleInput
-                      label=""
-                      checked={!!conf.enabled}
-                      onChange={(val) => updateMetric(metric.key, { enabled: val })}
-                    />
-                  </div>
+                      {/* Live Telemetry */}
+                      <td className="py-2.5 px-3">
+                        {liveKw != null ? (
+                          <span className={`font-mono font-bold text-xs ${
+                            isCrit
+                              ? 'text-red-700 dark:text-red-400'
+                              : isWarn
+                              ? 'text-amber-700 dark:text-amber-400'
+                              : 'text-surface-900 dark:text-surface-100'
+                          }`}>
+                            {liveKw.toFixed(1)} <span className="text-[10px] text-surface-400">kW</span>
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-surface-400 font-mono">—</span>
+                        )}
+                      </td>
 
-                  <div className="grid grid-cols-2 gap-3 mt-3">
-                    <div>
-                      <label className="label text-[11px] text-amber-700 dark:text-amber-400 font-bold mb-1 flex items-center gap-1">
-                        <span className="w-2 h-2 rounded-full bg-amber-400" />
-                        {isLowAlarm ? 'Warning Min' : 'Warning Max'}
-                      </label>
-                      <TextInput
-                        type="number"
-                        step={metric.key === 'powerFactor' ? '0.01' : '1'}
-                        min={metric.min}
-                        max={metric.max}
-                        placeholder={metric.key === 'powerFactor' ? '0.90' : '800'}
-                        disabled={!conf.enabled || readOnly}
-                        value={conf.warningValue ?? ''}
-                        onChange={(e) => updateMetric(metric.key, { warningValue: e.target.value })}
-                      />
-                    </div>
+                      {/* Yellow Warning Limit */}
+                      <td className="py-2.5 px-3">
+                        <div className="flex items-center gap-1">
+                          <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
+                          <input
+                            type="number"
+                            step="1"
+                            min="0"
+                            placeholder={src.defaultWarn || '500'}
+                            disabled={!isEnabled || readOnly}
+                            value={warnVal}
+                            onChange={(e) => {
+                              updateSourceThreshold(src.id, {
+                                warningValue: e.target.value,
+                                enabled: true,
+                                criticalValue: critVal || '800',
+                              })
+                            }}
+                            className="input py-1 px-2 text-xs font-mono w-28"
+                          />
+                          <span className="text-[10px] text-surface-400 font-bold">kW</span>
+                        </div>
+                      </td>
 
-                    <div>
-                      <label className="label text-[11px] text-red-700 dark:text-red-400 font-bold mb-1 flex items-center gap-1">
-                        <span className="w-2 h-2 rounded-full bg-red-500" />
-                        {isLowAlarm ? 'Critical Min' : 'Critical Max'}
-                      </label>
-                      <TextInput
-                        type="number"
-                        step={metric.key === 'powerFactor' ? '0.01' : '1'}
-                        min={metric.min}
-                        max={metric.max}
-                        placeholder={metric.key === 'powerFactor' ? '0.85' : '1000'}
-                        disabled={!conf.enabled || readOnly}
-                        value={conf.criticalValue ?? ''}
-                        onChange={(e) => updateMetric(metric.key, { criticalValue: e.target.value })}
-                      />
-                    </div>
-                  </div>
+                      {/* Red Critical Limit */}
+                      <td className="py-2.5 px-3">
+                        <div className="flex items-center gap-1">
+                          <span className="w-2 h-2 rounded-full bg-red-500 shrink-0" />
+                          <input
+                            type="number"
+                            step="1"
+                            min="0"
+                            placeholder={src.defaultCrit || '800'}
+                            disabled={!isEnabled || readOnly}
+                            value={critVal}
+                            onChange={(e) => {
+                              updateSourceThreshold(src.id, {
+                                criticalValue: e.target.value,
+                                enabled: true,
+                                warningValue: warnVal || '500',
+                              })
+                            }}
+                            className="input py-1 px-2 text-xs font-mono w-28"
+                          />
+                          <span className="text-[10px] text-surface-400 font-bold">kW</span>
+                        </div>
+                        {error && (
+                          <p className="text-[10px] text-danger-600 font-semibold mt-0.5">{error}</p>
+                        )}
+                      </td>
 
-                  {error && conf.enabled && (
-                    <p className="text-[11px] text-danger-600 dark:text-danger-400 font-semibold mt-2 flex items-center gap-1">
-                      <span>⚠</span> {error}
-                    </p>
-                  )}
-                </div>
-              )
-            })}
+                      {/* Status Badge */}
+                      <td className="py-2.5 px-3">
+                        {isCrit ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300 border border-red-300 dark:border-red-800">
+                            <span className="w-1.5 h-1.5 rounded-full bg-red-600 animate-pulse" />
+                            Critical Exceeded
+                          </span>
+                        ) : isWarn ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                            Warning Level
+                          </span>
+                        ) : isEnabled ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                            Active Monitor
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-surface-400 font-medium">Unmonitored</span>
+                        )}
+                      </td>
+
+                      {/* Action Toggle & Reset */}
+                      <td className="py-2.5 px-3 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <ToggleInput
+                            label=""
+                            checked={isEnabled}
+                            onChange={(val) => {
+                              updateSourceThreshold(src.id, {
+                                enabled: val,
+                                warningValue: warnVal || src.defaultWarn || '500',
+                                criticalValue: critVal || src.defaultCrit || '800',
+                              })
+                            }}
+                          />
+                          {isEnabled && !readOnly && (
+                            <button
+                              type="button"
+                              onClick={() => removeSourceThreshold(src.id)}
+                              className="text-surface-400 hover:text-danger-600 p-1 transition-colors"
+                              title="Reset source limit"
+                            >
+                              <RotateCcw size={13} />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
 
-      {/* ─── TAB 2: INDIVIDUAL EQUIPMENT & BREAKER LIMITS ─── */}
+      {/* ─── SECTION 2: PLANT TOTALS & INFLOW LIMITS ─── */}
+      {activeSection === 'totals' && (
+        <div className="space-y-4 animate-fadeIn">
+          <div className="p-3.5 rounded-xl bg-blue-50/60 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/40 flex items-start gap-2.5 text-xs text-blue-900 dark:text-blue-200">
+            <Info size={16} className="text-blue-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold">Set Warning (Yellow) & Critical (Red) Thresholds for Factory Totals</p>
+              <p className="text-[11px] text-blue-700 dark:text-blue-300 mt-0.5">
+                Configure high-level plant thresholds including Total Running Load (B1 + B2), Total WAPDA Inflow, Solar Total Generation, Total Genset, and Individual Building Total Substation loads.
+              </p>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto rounded-xl border border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 shadow-xs">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-surface-50 dark:bg-surface-800/80 text-surface-600 dark:text-surface-400 uppercase text-[10px] tracking-wider border-b border-surface-200 dark:border-surface-800">
+                <tr>
+                  <th className="py-2.5 px-3">Total / KPI Name</th>
+                  <th className="py-2.5 px-3">Scope</th>
+                  <th className="py-2.5 px-3">Live Total Reading</th>
+                  <th className="py-2.5 px-3 text-amber-700 dark:text-amber-400 font-bold">Warning (Yellow)</th>
+                  <th className="py-2.5 px-3 text-red-700 dark:text-red-400 font-bold">Critical (Red)</th>
+                  <th className="py-2.5 px-3">Status</th>
+                  <th className="py-2.5 px-3 text-right">Active / Reset</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-surface-100 dark:divide-surface-800">
+                {allTotals.map((tm) => {
+                  const conf = totalThresholds[tm.key] || thresholds[tm.key] || {
+                    enabled: false,
+                    warningValue: tm.defaultWarn || '800',
+                    criticalValue: tm.defaultCrit || '1200',
+                    unit: 'kW',
+                  }
+                  const isEnabled = !!conf.enabled
+                  const warnVal = conf.warningValue ?? tm.defaultWarn
+                  const critVal = conf.criticalValue ?? tm.defaultCrit
+                  const liveKw = tm.liveKw
+                  const isCrit = isEnabled && liveKw != null && Number(critVal) > 0 && liveKw >= Number(critVal)
+                  const isWarn = isEnabled && !isCrit && liveKw != null && Number(warnVal) > 0 && liveKw >= Number(warnVal)
+                  const error = validateThresholdRule(`total-${tm.key}`, conf)
+
+                  return (
+                    <tr
+                      key={tm.key}
+                      className={`hover:bg-surface-50 dark:hover:bg-surface-800/50 transition-colors ${
+                        isCrit
+                          ? 'bg-red-50/50 dark:bg-red-950/20'
+                          : isWarn
+                          ? 'bg-amber-50/50 dark:bg-amber-950/20'
+                          : ''
+                      }`}
+                    >
+                      {/* Name */}
+                      <td className="py-2.5 px-3">
+                        <div className="flex items-center gap-2">
+                          <div className="p-1.5 rounded-lg bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 shrink-0">
+                            <Activity size={14} />
+                          </div>
+                          <div>
+                            <span className="font-bold text-surface-900 dark:text-surface-100 block">
+                              {tm.label}
+                            </span>
+                            <span className="text-[10px] text-surface-400 font-mono">
+                              Key: {tm.key}
+                            </span>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Scope Category */}
+                      <td className="py-2.5 px-3">
+                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-surface-100 dark:bg-surface-800 text-surface-700 dark:text-surface-300">
+                          <Layers size={11} className="text-surface-400" />
+                          {tm.category}
+                        </span>
+                      </td>
+
+                      {/* Live Reading */}
+                      <td className="py-2.5 px-3">
+                        {liveKw != null ? (
+                          <span className={`font-mono font-bold text-xs ${
+                            isCrit
+                              ? 'text-red-700 dark:text-red-400'
+                              : isWarn
+                              ? 'text-amber-700 dark:text-amber-400'
+                              : 'text-surface-900 dark:text-surface-100'
+                          }`}>
+                            {liveKw.toFixed(1)} <span className="text-[10px] text-surface-400">kW</span>
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-surface-400 font-mono">—</span>
+                        )}
+                      </td>
+
+                      {/* Warning (Yellow) */}
+                      <td className="py-2.5 px-3">
+                        <div className="flex items-center gap-1">
+                          <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
+                          <input
+                            type="number"
+                            step="1"
+                            min="0"
+                            placeholder={tm.defaultWarn || '800'}
+                            disabled={!isEnabled || readOnly}
+                            value={warnVal}
+                            onChange={(e) => {
+                              updateTotalThreshold(tm.key, {
+                                warningValue: e.target.value,
+                                enabled: true,
+                                criticalValue: critVal || '1200',
+                              })
+                            }}
+                            className="input py-1 px-2 text-xs font-mono w-28"
+                          />
+                          <span className="text-[10px] text-surface-400 font-bold">kW</span>
+                        </div>
+                      </td>
+
+                      {/* Critical (Red) */}
+                      <td className="py-2.5 px-3">
+                        <div className="flex items-center gap-1">
+                          <span className="w-2 h-2 rounded-full bg-red-500 shrink-0" />
+                          <input
+                            type="number"
+                            step="1"
+                            min="0"
+                            placeholder={tm.defaultCrit || '1200'}
+                            disabled={!isEnabled || readOnly}
+                            value={critVal}
+                            onChange={(e) => {
+                              updateTotalThreshold(tm.key, {
+                                criticalValue: e.target.value,
+                                enabled: true,
+                                warningValue: warnVal || '800',
+                              })
+                            }}
+                            className="input py-1 px-2 text-xs font-mono w-28"
+                          />
+                          <span className="text-[10px] text-surface-400 font-bold">kW</span>
+                        </div>
+                        {error && (
+                          <p className="text-[10px] text-danger-600 font-semibold mt-0.5">{error}</p>
+                        )}
+                      </td>
+
+                      {/* Status Badge */}
+                      <td className="py-2.5 px-3">
+                        {isCrit ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300 border border-red-300 dark:border-red-800">
+                            <span className="w-1.5 h-1.5 rounded-full bg-red-600 animate-pulse" />
+                            Critical Exceeded
+                          </span>
+                        ) : isWarn ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                            Warning Level
+                          </span>
+                        ) : isEnabled ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                            Active Monitor
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-surface-400 font-medium">Unmonitored</span>
+                        )}
+                      </td>
+
+                      {/* Action Toggle & Reset */}
+                      <td className="py-2.5 px-3 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <ToggleInput
+                            label=""
+                            checked={isEnabled}
+                            onChange={(val) => {
+                              updateTotalThreshold(tm.key, {
+                                enabled: val,
+                                warningValue: warnVal || tm.defaultWarn || '800',
+                                criticalValue: critVal || tm.defaultCrit || '1200',
+                              })
+                            }}
+                          />
+                          {isEnabled && !readOnly && (
+                            <button
+                              type="button"
+                              onClick={() => removeTotalThreshold(tm.key)}
+                              className="text-surface-400 hover:text-danger-600 p-1 transition-colors"
+                              title="Reset total limit"
+                            >
+                              <RotateCcw size={13} />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ─── SECTION 3: INDIVIDUAL EQUIPMENT & BREAKER LIMITS ─── */}
       {activeSection === 'equipment' && (
         <div className="space-y-4 animate-fadeIn">
           {/* Quick Informational Notice */}
@@ -420,7 +938,7 @@ export default function ExecutiveLimitsConfig({
             <div>
               <p className="font-bold">Set Custom Alert Limits for Any Machine or Breaker</p>
               <p className="text-[11px] text-blue-700 dark:text-blue-300 mt-0.5">
-                Each machine can have its own unique Yellow Warning and Red Critical limits. Change the values directly in the table below, then click &quot;Save Configuration&quot; at the top.
+                Every machine has its own unique Yellow Warning and Red Critical limits. All Ambition solar inverters are organized inside the Ambition Plant (B1) tab, and Solar AFL is organized inside AFL Plant (B2). Change the values directly in the table below, then click &quot;Save Configuration&quot; at the top.
               </p>
             </div>
           </div>
@@ -581,90 +1099,93 @@ export default function ExecutiveLimitsConfig({
                       type="button"
                       disabled={selectedSlaveIds.length === 0}
                       onClick={handleApplyToSelected}
-                      className="btn-primary py-1.5 px-3 text-xs font-bold flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                      className="btn-primary text-xs py-1.5 px-3 flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
                     >
-                      <Check size={14} /> Apply to {selectedSlaveIds.length} Selected
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => selectAllInView(filteredSlaves)}
-                      className="py-1.5 px-2.5 rounded text-xs font-bold text-surface-600 dark:text-surface-400 hover:bg-surface-200 dark:hover:bg-surface-800 cursor-pointer"
-                    >
-                      Check All in View
+                      <Check size={14} /> Apply to Selected ({selectedSlaveIds.length})
                     </button>
 
                     <button
                       type="button"
                       onClick={() => setSelectedSlaveIds([])}
-                      className="py-1.5 px-2.5 rounded text-xs font-medium text-surface-500 hover:text-surface-700 cursor-pointer"
+                      disabled={selectedSlaveIds.length === 0}
+                      className="btn-secondary text-xs py-1.5 px-2.5 disabled:opacity-50"
                     >
-                      Clear Checks
+                      Clear Selection
                     </button>
                   </div>
                 </div>
               </div>
             )}
 
-            {/* Search and Quick Filters */}
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+            {/* Search and Filter Row */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="relative flex-1 max-w-sm">
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400" />
                 <input
                   type="text"
+                  placeholder="Search machine name, gateway, or slave..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search machine (e.g. WAPDA, Sewing, Generator)..."
-                  className="input pl-9 py-1.5 text-xs w-full"
+                  className="input pl-8 py-1.5 text-xs w-full"
                 />
-                {searchQuery && (
-                  <button
-                    type="button"
-                    onClick={() => setSearchQuery('')}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-surface-400 hover:text-surface-600 text-xs"
-                  >
-                    ✕
-                  </button>
-                )}
               </div>
 
-              <div className="flex items-center gap-1 text-[11px]">
-                <span className="text-surface-400 font-bold mr-1">Show:</span>
-                {[
-                  { key: 'all', label: `All (${allSlaves.length})` },
-                  { key: 'custom', label: `Custom (${customSlavesCount})` },
-                  { key: 'default', label: `Default (${defaultSlavesCount})` },
-                  { key: 'active', label: `Active (${activeRulesCount})` },
-                ].map((f) => (
-                  <button
-                    key={f.key}
-                    type="button"
-                    onClick={() => setFilterMode(f.key)}
-                    className={`px-2 py-0.5 rounded-md font-bold transition-colors cursor-pointer ${
-                      filterMode === f.key
-                        ? 'bg-surface-900 dark:bg-surface-100 text-white dark:text-surface-900 shadow-2xs'
-                        : 'bg-white dark:bg-surface-900 text-surface-600 dark:text-surface-400 border border-surface-200 dark:border-surface-800'
-                    }`}
-                  >
-                    {f.label}
-                  </button>
-                ))}
+              {/* Status Filter */}
+              <div className="flex items-center gap-1.5 text-xs">
+                <Filter size={13} className="text-surface-400" />
+                <span className="text-surface-500 font-bold text-[11px]">Filter:</span>
+
+                <button
+                  type="button"
+                  onClick={() => setFilterMode('all')}
+                  className={`py-1 px-2.5 rounded text-[11px] font-bold transition-all cursor-pointer ${
+                    filterMode === 'all'
+                      ? 'bg-surface-800 text-white dark:bg-surface-200 dark:text-surface-900 shadow-2xs'
+                      : 'bg-white dark:bg-surface-900 text-surface-600 dark:text-surface-400 border border-surface-200 dark:border-surface-800'
+                  }`}
+                >
+                  All ({allSlaves.length})
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setFilterMode('custom')}
+                  className={`py-1 px-2.5 rounded text-[11px] font-bold transition-all cursor-pointer ${
+                    filterMode === 'custom'
+                      ? 'bg-blue-600 text-white shadow-2xs'
+                      : 'bg-white dark:bg-surface-900 text-surface-600 dark:text-surface-400 border border-surface-200 dark:border-surface-800'
+                  }`}
+                >
+                  Custom Limits ({customSlavesCount})
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setFilterMode('default')}
+                  className={`py-1 px-2.5 rounded text-[11px] font-bold transition-all cursor-pointer ${
+                    filterMode === 'default'
+                      ? 'bg-emerald-600 text-white shadow-2xs'
+                      : 'bg-white dark:bg-surface-900 text-surface-600 dark:text-surface-400 border border-surface-200 dark:border-surface-800'
+                  }`}
+                >
+                  Using Default ({defaultSlavesCount})
+                </button>
               </div>
             </div>
           </div>
 
-          {/* 3. The Clean Master Equipment Table */}
-          <div className="rounded-xl border border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 overflow-hidden shadow-xs">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-surface-50 dark:bg-surface-950/60 border-b border-surface-200 dark:border-surface-800 text-[11px] font-bold text-surface-500 uppercase tracking-wider">
-                  <tr>
+          {/* 3. The Master Equipment Table */}
+          <div className="overflow-x-auto rounded-xl border border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-900 shadow-xs">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-surface-50 dark:bg-surface-800/80 text-surface-600 dark:text-surface-400 uppercase text-[10px] tracking-wider border-b border-surface-200 dark:border-surface-800">
+                <tr>
+                  {!readOnly && (
                     <th className="py-2.5 px-3 w-8">
                       <button
                         type="button"
                         onClick={() => selectAllInView(filteredSlaves)}
-                        className="text-surface-400 hover:text-primary-600"
-                        title="Select All"
+                        className="text-surface-500 hover:text-surface-800 dark:hover:text-surface-200"
+                        title="Select/Deselect all visible equipment"
                       >
                         {filteredSlaves.length > 0 && filteredSlaves.every((s) => selectedSlaveIds.includes(s.id)) ? (
                           <CheckSquare size={15} className="text-primary-600" />
@@ -673,66 +1194,83 @@ export default function ExecutiveLimitsConfig({
                         )}
                       </button>
                     </th>
-                    <th className="py-2.5 px-3">Equipment / Breaker</th>
-                    <th className="py-2.5 px-3">Plant Location</th>
-                    <th className="py-2.5 px-3">Current Live Load</th>
-                    <th className="py-2.5 px-3">Yellow Warning Limit</th>
-                    <th className="py-2.5 px-3">Red Critical Limit</th>
-                    <th className="py-2.5 px-3">Limit Status</th>
-                    <th className="py-2.5 px-3 text-right">Rule Action</th>
+                  )}
+                  <th className="py-2.5 px-3">Equipment / Machine Name</th>
+                  <th className="py-2.5 px-3">Plant & Gateway</th>
+                  <th className="py-2.5 px-3">Live Power</th>
+                  <th className="py-2.5 px-3 text-amber-700 dark:text-amber-400 font-bold">
+                    Warning Limit (Yellow)
+                  </th>
+                  <th className="py-2.5 px-3 text-red-700 dark:text-red-400 font-bold">
+                    Critical Limit (Red)
+                  </th>
+                  <th className="py-2.5 px-3">Rule Type</th>
+                  <th className="py-2.5 px-3 text-right">Active / Reset</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-surface-100 dark:divide-surface-800">
+                {filteredSlaves.length === 0 ? (
+                  <tr>
+                    <td colSpan={readOnly ? 7 : 8} className="py-8 text-center text-surface-400">
+                      No machines found matching the selected filter or search term.
+                    </td>
                   </tr>
-                </thead>
+                ) : (
+                  filteredSlaves.map((slv) => {
+                    const isSelected = selectedSlaveIds.includes(slv.id)
+                    const conf = slaveThresholds[slv.id]
+                    const hasCustom = !!conf
+                    const isRuleEnabled = hasCustom ? conf.enabled !== false : !!slaveDefault.enabled
 
-                <tbody className="divide-y divide-surface-100 dark:divide-surface-800 font-sans">
-                  {filteredSlaves.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} className="py-8 text-center text-surface-400 text-xs">
-                        No equipment found matching current filter or search.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredSlaves.map((slv) => {
-                      const conf = slaveThresholds[slv.id]
-                      const hasCustom = !!conf
-                      const isSelected = selectedSlaveIds.includes(slv.id)
-                      const isRuleEnabled = hasCustom ? conf.enabled !== false : slaveDefault.enabled
+                    // Evaluate values
+                    const currentWarn = hasCustom
+                      ? conf.warningValue
+                      : slaveDefault.enabled
+                      ? slaveDefault.warningValue
+                      : ''
+                    const currentCrit = hasCustom
+                      ? conf.criticalValue
+                      : slaveDefault.enabled
+                      ? slaveDefault.criticalValue
+                      : ''
+                    const currentUnit = conf?.unit || 'kW'
 
-                      const currentWarn = hasCustom
-                        ? (conf.warningValue ?? '')
-                        : (slaveDefault.enabled ? slaveDefault.warningValue : '')
-                      const currentCrit = hasCustom
-                        ? (conf.criticalValue ?? '')
-                        : (slaveDefault.enabled ? slaveDefault.criticalValue : '')
-                      const currentUnit = hasCustom
-                        ? (conf.unit || (conf.metricKey === 'current' ? 'A' : 'kW'))
-                        : (slaveDefault.unit || 'kW')
+                    // Live evaluation
+                    const liveKw = slv.liveKw
+                    const isCriticalAlarm =
+                      isRuleEnabled &&
+                      liveKw != null &&
+                      Number(currentCrit) > 0 &&
+                      liveKw >= Number(currentCrit)
+                    const isWarningAlarm =
+                      isRuleEnabled &&
+                      !isCriticalAlarm &&
+                      liveKw != null &&
+                      Number(currentWarn) > 0 &&
+                      liveKw >= Number(currentWarn)
 
-                      // Live load alert evaluation
-                      const liveVal = slv.liveKw
-                      const isExceedingCrit = isRuleEnabled && liveVal != null && Number(currentCrit) > 0 && liveVal >= Number(currentCrit)
-                      const isExceedingWarn = isRuleEnabled && liveVal != null && !isExceedingCrit && Number(currentWarn) > 0 && liveVal >= Number(currentWarn)
+                    const error = hasCustom && conf.enabled ? validateThresholdRule(`slave-${slv.id}`, conf) : null
 
-                      const error = hasCustom && conf.enabled ? validateThresholdRule(`slave-${slv.id}`, conf) : null
-
-                      return (
-                        <tr
-                          key={slv.id}
-                          className={`transition-colors ${
-                            isSelected
-                              ? 'bg-primary-50/40 dark:bg-primary-950/20'
-                              : isExceedingCrit
-                                ? 'bg-red-50/40 dark:bg-red-950/20'
-                                : isExceedingWarn
-                                  ? 'bg-amber-50/40 dark:bg-amber-950/20'
-                                  : 'hover:bg-surface-50 dark:hover:bg-surface-800/40'
-                          }`}
-                        >
-                          {/* Checkbox */}
+                    return (
+                      <tr
+                        key={slv.id}
+                        className={`hover:bg-surface-50 dark:hover:bg-surface-800/50 transition-colors ${
+                          isSelected ? 'bg-primary-50/40 dark:bg-primary-950/20' : ''
+                        } ${
+                          isCriticalAlarm
+                            ? 'bg-red-50/60 dark:bg-red-950/20'
+                            : isWarningAlarm
+                            ? 'bg-amber-50/60 dark:bg-amber-950/20'
+                            : ''
+                        }`}
+                      >
+                        {/* Checkbox */}
+                        {!readOnly && (
                           <td className="py-2.5 px-3">
                             <button
                               type="button"
                               onClick={() => toggleSelectSlave(slv.id)}
-                              className="text-surface-400 hover:text-primary-600"
+                              className="text-surface-400 hover:text-surface-700 dark:hover:text-surface-200 cursor-pointer"
                             >
                               {isSelected ? (
                                 <CheckSquare size={15} className="text-primary-600" />
@@ -741,159 +1279,166 @@ export default function ExecutiveLimitsConfig({
                               )}
                             </button>
                           </td>
+                        )}
 
-                          {/* Equipment Name & Slave ID */}
-                          <td className="py-2.5 px-3">
-                            <div className="flex items-center gap-1.5">
-                              <span className="font-bold text-surface-900 dark:text-surface-100">
-                                {slv.name}
-                              </span>
-                              {slv.slaveId && (
-                                <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-surface-100 dark:bg-surface-800 text-surface-500">
-                                  {slv.slaveId}
-                                </span>
-                              )}
+                        {/* Equipment Name */}
+                        <td className="py-2.5 px-3">
+                          <div className="flex items-center gap-2">
+                            <div className="p-1 rounded bg-surface-100 dark:bg-surface-800 text-surface-600 dark:text-surface-300">
+                              <Cpu size={13} />
                             </div>
-                            <span className="text-[10px] text-surface-400">{slv.deviceName}</span>
-                          </td>
+                            <div>
+                              <span className="font-bold text-surface-900 dark:text-surface-100 block">
+                                {slv.name || 'Unnamed Machine'}
+                              </span>
+                              <span className="text-[10px] text-surface-400 font-mono">
+                                ID: {slv.id.slice(0, 8)}...
+                              </span>
+                            </div>
+                          </div>
+                        </td>
 
-                          {/* Plant Location */}
-                          <td className="py-2.5 px-3">
-                            <span className="text-[11px] text-surface-600 dark:text-surface-300 font-medium">
+                        {/* Plant & Gateway */}
+                        <td className="py-2.5 px-3">
+                          <div>
+                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-surface-700 dark:text-surface-300">
+                              <Building2 size={11} className="text-surface-400" />
                               {slv.plantName}
                             </span>
-                          </td>
+                            <span className="text-[10px] text-surface-400 block">
+                              Gateway: {slv.deviceName}
+                            </span>
+                          </div>
+                        </td>
 
-                          {/* Current Live Load */}
-                          <td className="py-2.5 px-3">
-                            {liveVal != null ? (
-                              <div className="flex items-center gap-1.5">
-                                <span className={`w-2 h-2 rounded-full shrink-0 ${
-                                  isExceedingCrit
-                                    ? 'bg-red-500 animate-pulse'
-                                    : isExceedingWarn
-                                      ? 'bg-amber-400 animate-pulse'
-                                      : 'bg-emerald-500'
-                                }`} />
-                                <span className="font-mono font-bold text-surface-900 dark:text-surface-100">
-                                  {liveVal} kW
-                                </span>
-                              </div>
-                            ) : (
-                              <span className="text-surface-400 font-mono text-[11px]">0.0 kW</span>
-                            )}
-                          </td>
+                        {/* Live Telemetry */}
+                        <td className="py-2.5 px-3">
+                          {liveKw != null ? (
+                            <span
+                              className={`font-mono font-bold text-xs ${
+                                isCriticalAlarm
+                                  ? 'text-red-700 dark:text-red-400'
+                                  : isWarningAlarm
+                                  ? 'text-amber-700 dark:text-amber-400'
+                                  : 'text-surface-900 dark:text-surface-100'
+                              }`}
+                            >
+                              {liveKw.toFixed(1)} <span className="text-[10px] text-surface-400">kW</span>
+                            </span>
+                          ) : (
+                            <span className="text-[11px] text-surface-400 font-mono">—</span>
+                          )}
+                        </td>
 
-                          {/* Yellow Warning Limit */}
-                          <td className="py-2.5 px-3">
-                            <div className="flex items-center gap-1">
-                              <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
-                              <input
-                                type="number"
-                                step="1"
-                                min="0"
-                                placeholder="70"
-                                disabled={!isRuleEnabled || readOnly}
-                                value={currentWarn}
-                                onChange={(e) => {
+                        {/* Yellow Warning Limit */}
+                        <td className="py-2.5 px-3">
+                          <div className="flex items-center gap-1">
+                            <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
+                            <input
+                              type="number"
+                              step="1"
+                              min="0"
+                              placeholder="70"
+                              disabled={!isRuleEnabled || readOnly}
+                              value={currentWarn}
+                              onChange={(e) => {
+                                updateSlaveThreshold(slv.id, {
+                                  warningValue: e.target.value,
+                                  enabled: true,
+                                  criticalValue: currentCrit || '100',
+                                })
+                              }}
+                              className="input py-1 px-2 text-xs font-mono w-24"
+                            />
+                            <span className="text-[10px] text-surface-400 font-bold">{currentUnit}</span>
+                          </div>
+                        </td>
+
+                        {/* Red Critical Limit */}
+                        <td className="py-2.5 px-3">
+                          <div className="flex items-center gap-1">
+                            <span className="w-2 h-2 rounded-full bg-red-500 shrink-0" />
+                            <input
+                              type="number"
+                              step="1"
+                              min="0"
+                              placeholder="100"
+                              disabled={!isRuleEnabled || readOnly}
+                              value={currentCrit}
+                              onChange={(e) => {
+                                updateSlaveThreshold(slv.id, {
+                                  criticalValue: e.target.value,
+                                  enabled: true,
+                                  warningValue: currentWarn || '70',
+                                })
+                              }}
+                              className="input py-1 px-2 text-xs font-mono w-24"
+                            />
+                            <span className="text-[10px] text-surface-400 font-bold">{currentUnit}</span>
+                          </div>
+                          {error && (
+                            <p className="text-[10px] text-danger-600 font-semibold mt-0.5">{error}</p>
+                          )}
+                        </td>
+
+                        {/* Limit Status Badge */}
+                        <td className="py-2.5 px-3">
+                          {hasCustom ? (
+                            <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              conf.enabled
+                                ? 'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800'
+                                : 'bg-surface-100 dark:bg-surface-800 text-surface-500'
+                            }`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${conf.enabled ? 'bg-blue-600' : 'bg-surface-400'}`} />
+                              {conf.enabled ? 'Custom Limit' : 'Disabled'}
+                            </span>
+                          ) : slaveDefault.enabled ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                              Baseline Default
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-surface-400 font-medium">Unmonitored</span>
+                          )}
+                        </td>
+
+                        {/* Rule Action Toggle & Reset */}
+                        <td className="py-2.5 px-3 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <ToggleInput
+                              label=""
+                              checked={isRuleEnabled}
+                              onChange={(val) => {
+                                if (hasCustom) {
+                                  updateSlaveThreshold(slv.id, { enabled: val })
+                                } else {
                                   updateSlaveThreshold(slv.id, {
-                                    warningValue: e.target.value,
-                                    enabled: true,
-                                    criticalValue: currentCrit || '100',
+                                    enabled: val,
+                                    warningValue: slaveDefault.warningValue || '70',
+                                    criticalValue: slaveDefault.criticalValue || '100',
                                   })
-                                }}
-                                className="input py-1 px-2 text-xs font-mono w-24"
-                              />
-                              <span className="text-[10px] text-surface-400 font-bold">{currentUnit}</span>
-                            </div>
-                          </td>
+                                }
+                              }}
+                            />
 
-                          {/* Red Critical Limit */}
-                          <td className="py-2.5 px-3">
-                            <div className="flex items-center gap-1">
-                              <span className="w-2 h-2 rounded-full bg-red-500 shrink-0" />
-                              <input
-                                type="number"
-                                step="1"
-                                min="0"
-                                placeholder="100"
-                                disabled={!isRuleEnabled || readOnly}
-                                value={currentCrit}
-                                onChange={(e) => {
-                                  updateSlaveThreshold(slv.id, {
-                                    criticalValue: e.target.value,
-                                    enabled: true,
-                                    warningValue: currentWarn || '70',
-                                  })
-                                }}
-                                className="input py-1 px-2 text-xs font-mono w-24"
-                              />
-                              <span className="text-[10px] text-surface-400 font-bold">{currentUnit}</span>
-                            </div>
-                            {error && (
-                              <p className="text-[10px] text-danger-600 font-semibold mt-0.5">{error}</p>
+                            {hasCustom && !readOnly && (
+                              <button
+                                type="button"
+                                onClick={() => removeSlaveThreshold(slv.id)}
+                                className="text-surface-400 hover:text-danger-600 p-1 transition-colors"
+                                title="Reset to default baseline"
+                              >
+                                <RotateCcw size={13} />
+                              </button>
                             )}
-                          </td>
-
-                          {/* Limit Status Badge */}
-                          <td className="py-2.5 px-3">
-                            {hasCustom ? (
-                              <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                                conf.enabled
-                                  ? 'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800'
-                                  : 'bg-surface-100 dark:bg-surface-800 text-surface-500'
-                              }`}>
-                                <span className={`w-1.5 h-1.5 rounded-full ${conf.enabled ? 'bg-blue-600' : 'bg-surface-400'}`} />
-                                {conf.enabled ? 'Custom Limit' : 'Disabled'}
-                              </span>
-                            ) : slaveDefault.enabled ? (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                                Baseline Default
-                              </span>
-                            ) : (
-                              <span className="text-[10px] text-surface-400 font-medium">Unmonitored</span>
-                            )}
-                          </td>
-
-                          {/* Rule Action Toggle & Reset */}
-                          <td className="py-2.5 px-3 text-right">
-                            <div className="flex items-center justify-end gap-2">
-                              <ToggleInput
-                                label=""
-                                checked={isRuleEnabled}
-                                onChange={(val) => {
-                                  if (hasCustom) {
-                                    updateSlaveThreshold(slv.id, { enabled: val })
-                                  } else {
-                                    updateSlaveThreshold(slv.id, {
-                                      enabled: val,
-                                      warningValue: slaveDefault.warningValue || '70',
-                                      criticalValue: slaveDefault.criticalValue || '100',
-                                    })
-                                  }
-                                }}
-                              />
-
-                              {hasCustom && !readOnly && (
-                                <button
-                                  type="button"
-                                  onClick={() => removeSlaveThreshold(slv.id)}
-                                  className="text-surface-400 hover:text-danger-600 p-1 transition-colors"
-                                  title="Reset to default baseline"
-                                >
-                                  <RotateCcw size={13} />
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      )
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
