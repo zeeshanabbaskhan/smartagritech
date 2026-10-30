@@ -11,6 +11,7 @@ import PowerFlowSourcesConfig from '../../components/controller/PowerFlowSources
 import SitesConfig from '../../components/controller/SitesConfig'
 import TariffsSavingsConfig from '../../components/controller/TariffsSavingsConfig'
 import Modal from '../../components/ui/Modal'
+import ErrorBoundary from '../../components/ui/ErrorBoundary'
 import {
   SlidersHorizontal,
   Zap,
@@ -285,39 +286,41 @@ export default function OrgControllerPage() {
 
         {/* Active Tab View */}
         <div className="bg-surface-50/30 dark:bg-surface-950/20 p-1 sm:p-2 rounded-2xl">
-          {activeTab === 'executive-limits' && (
-            <ExecutiveLimitsConfig
-              executiveLimits={localLimits}
-              onChange={handleLimitsChange}
-              devices={liveDevices}
-              sources={localSources}
-              sites={localSites}
-            />
-          )}
+          <ErrorBoundary title="Failed to render EMS Controller Tab">
+            {activeTab === 'executive-limits' && (
+              <ExecutiveLimitsConfig
+                executiveLimits={localLimits}
+                onChange={handleLimitsChange}
+                devices={liveDevices}
+                sources={localSources}
+                sites={localSites}
+              />
+            )}
 
-          {activeTab === 'sources' && (
-            <PowerFlowSourcesConfig
-              sources={localSources}
-              sites={localSites}
-              devices={liveDevices}
-              onChange={handleSourcesChange}
-            />
-          )}
+            {activeTab === 'sources' && (
+              <PowerFlowSourcesConfig
+                sources={localSources}
+                sites={localSites}
+                devices={liveDevices}
+                onChange={handleSourcesChange}
+              />
+            )}
 
-          {activeTab === 'sites' && (
-            <SitesConfig
-              sites={localSites}
-              sources={localSources}
-              onChange={handleSitesChange}
-            />
-          )}
+            {activeTab === 'sites' && (
+              <SitesConfig
+                sites={localSites}
+                sources={localSources}
+                onChange={handleSitesChange}
+              />
+            )}
 
-          {activeTab === 'tariffs' && (
-            <TariffsSavingsConfig
-              savings={localSavings}
-              onChange={handleSavingsChange}
-            />
-          )}
+            {activeTab === 'tariffs' && (
+              <TariffsSavingsConfig
+                savings={localSavings}
+                onChange={handleSavingsChange}
+              />
+            )}
+          </ErrorBoundary>
         </div>
       </div>
 

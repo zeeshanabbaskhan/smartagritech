@@ -88,7 +88,8 @@ export default function ExecutiveLimitsConfig({
         if (matchedSite) plantName = matchedSite.name
       }
 
-      return slvs.map((s) => {
+      return slvs.map((s, idx) => {
+        const sId = s.id || s._id || `slave-${d.id || 'dev'}-${s.slaveId || idx}`
         // Extract live load if available
         let liveKw = null
         if (s.currentKw != null && Number.isFinite(Number(s.currentKw))) {
@@ -107,6 +108,7 @@ export default function ExecutiveLimitsConfig({
 
         return {
           ...s,
+          id: sId,
           deviceId: d.id,
           deviceName: devName,
           plantName: slavePlant,
@@ -436,6 +438,7 @@ export default function ExecutiveLimitsConfig({
 
   // Summary counts
   const customSlavesCount = Object.keys(slaveThresholds).length
+  const defaultSlavesCount = Math.max(0, allSlaves.length - customSlavesCount)
   const activeSourcesCount = Object.values(sourceThresholds).filter((s) => s.enabled).length
   const activeTotalsCount = Object.values(totalThresholds).filter((t) => t.enabled).length
 
@@ -1292,7 +1295,7 @@ export default function ExecutiveLimitsConfig({
                                 {slv.name || 'Unnamed Machine'}
                               </span>
                               <span className="text-[10px] text-surface-400 font-mono">
-                                ID: {slv.id.slice(0, 8)}...
+                                ID: {String(slv.id || '').slice(0, 8)}...
                               </span>
                             </div>
                           </div>
