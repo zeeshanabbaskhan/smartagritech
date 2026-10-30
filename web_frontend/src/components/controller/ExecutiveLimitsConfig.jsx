@@ -59,11 +59,13 @@ export default function ExecutiveLimitsConfig({
     return devices.flatMap((d) => {
       const slvs = d.slaves || d.configSlaves || d._raw?.configSlaves || []
       const devName = d.name || 'Gateway'
-      let plantName = 'Ambition Plant (B1)'
+      let plantName = d.org && d.org !== '—' ? `${d.org} Plant` : 'Main Plant'
       if (/afl/i.test(devName) || d.id === 'cdd6d1b1-6fd8-48a5-9984-5e220328571d') {
         plantName = 'AFL Plant (B2)'
       } else if (/solar/i.test(devName) || d.id === 'b9e024c1-2fbb-4b53-bc2b-f1bab8fc7f12') {
         plantName = 'Solar Plant (AMB)'
+      } else if (/ambition/i.test(devName) || /ambition/i.test(d.org || '')) {
+        plantName = 'Ambition Plant (B1)'
       }
 
       return slvs.map((s) => {

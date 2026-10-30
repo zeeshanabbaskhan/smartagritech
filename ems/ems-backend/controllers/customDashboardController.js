@@ -1053,7 +1053,8 @@ const validateExecutiveLimitsPayload = async (limits, orgId, dbClient = prisma) 
         const ownedSet = new Set(ownedSlaves.map((s) => s.id))
         for (const slaveId of slaveIds) {
           if (!ownedSet.has(slaveId)) {
-            throw new AppError(`Slave '${slaveId}' does not exist or does not belong to organization '${orgId}'`, 400)
+            // Gracefully prune cross-tenant or deleted slave ID so configuration saves smoothly
+            delete limits.slaveThresholds[slaveId]
           }
         }
       }

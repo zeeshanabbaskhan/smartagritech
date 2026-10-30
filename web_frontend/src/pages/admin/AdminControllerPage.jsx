@@ -56,7 +56,8 @@ export default function AdminControllerPage() {
         const orgs = list(res)
         setOrganizations(orgs)
         if (orgs.length > 0 && !selectedOrgId) {
-          setSelectedOrgId(orgs[0].id)
+          const ambitionOrg = orgs.find((o) => /ambition/i.test(o.name))
+          setSelectedOrgId(ambitionOrg ? ambitionOrg.id : orgs[0].id)
         }
       })
       .catch((err) => {
@@ -85,7 +86,10 @@ export default function AdminControllerPage() {
       setLastUpdatedAt(payload.updatedAt || null)
       setIsDirty(false)
 
-      setLiveDevices(list(devRes).map(mapDevice))
+      const mappedDevices = list(devRes)
+        .map(mapDevice)
+        .filter((d) => !orgId || d.organizationId === orgId)
+      setLiveDevices(mappedDevices)
     } catch (err) {
       setConfigError(err)
       showToast(err.message || 'Failed to load organization configuration', 'error')
@@ -150,12 +154,31 @@ export default function AdminControllerPage() {
 
     setSaving(true)
     try {
+      // Sanitize slaveThresholds: strictly keep only slaves belonging to the active organization
+      const validSlaveIds = new Set(
+        liveDevices.flatMap((d) => {
+          const slvs = d.slaves || d.configSlaves || d._raw?.configSlaves || []
+          return slvs.map((s) => s.id)
+        })
+      )
+
+      const sanitizedLimits = { ...localLimits }
+      if (localLimits?.slaveThresholds) {
+        const sanitizedSlaveThresholds = {}
+        for (const [slaveId, conf] of Object.entries(localLimits.slaveThresholds)) {
+          if (validSlaveIds.has(slaveId)) {
+            sanitizedSlaveThresholds[slaveId] = conf
+          }
+        }
+        sanitizedLimits.slaveThresholds = sanitizedSlaveThresholds
+      }
+
       const res = await emsApi.updatePowerFlow({
         organizationId: selectedOrgId,
         sources: localSources,
         sites: localSites,
         savings: localSavings,
-        executiveLimits: localLimits,
+        executiveLimits: sanitizedLimits,
         expectedVersion: currentVersion,
       })
 

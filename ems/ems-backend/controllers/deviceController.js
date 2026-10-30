@@ -187,9 +187,9 @@ const filterSlavesForUser = async (devices, user) => {
 const getDevices = async (req, res, next) => {
   try {
     const { page, limit, skip }    = paginate(req.query)
-    const { search, status, gatewayId, withMetrics } = req.query
+    const { search, status, gatewayId, withMetrics, organizationId } = req.query
 
-    const where = await deviceWhereForUser(req.user, { ...orgScope(req.user) })
+    const where = await deviceWhereForUser(req.user, { ...orgScope(req.user, organizationId) })
     if (status)    where.status    = status
     if (gatewayId) where.gatewayId = gatewayId
     if (search)    where.name      = { contains: search, mode: 'insensitive' }

@@ -119,11 +119,30 @@ export default function OrgControllerPage() {
 
     setSaving(true)
     try {
+      // Sanitize slaveThresholds: strictly keep only slaves belonging to this organization's live devices
+      const validSlaveIds = new Set(
+        liveDevices.flatMap((d) => {
+          const slvs = d.slaves || d.configSlaves || d._raw?.configSlaves || []
+          return slvs.map((s) => s.id)
+        })
+      )
+
+      const sanitizedLimits = { ...localLimits }
+      if (localLimits?.slaveThresholds && validSlaveIds.size > 0) {
+        const sanitizedSlaveThresholds = {}
+        for (const [slaveId, conf] of Object.entries(localLimits.slaveThresholds)) {
+          if (validSlaveIds.has(slaveId)) {
+            sanitizedSlaveThresholds[slaveId] = conf
+          }
+        }
+        sanitizedLimits.slaveThresholds = sanitizedSlaveThresholds
+      }
+
       const res = await emsApi.updatePowerFlow({
         sources: localSources,
         sites: localSites,
         savings: localSavings,
-        executiveLimits: localLimits,
+        executiveLimits: sanitizedLimits,
         expectedVersion: currentVersion,
       })
 
