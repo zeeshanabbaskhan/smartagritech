@@ -35,7 +35,7 @@ const COLUMN_ALIASES = {
   Temperature: ['temperature', 'temp', 'tempc'],
 }
 
-const IDENTITY_COLUMNS = ['Device Name', 'Slave Name', 'Received Time']
+const IDENTITY_COLUMNS = ['Device Name', 'Slave Name', 'Received Time (PKT)']
 
 function normalizeVarName(name) {
   return String(name || '')
@@ -65,12 +65,14 @@ function pad2(n) {
   return String(n).padStart(2, '0')
 }
 
-/** DD-MM-YYYY or DD-MM-YYYY HH:mm:ss (always include time for readings). */
+/** DD-MM-YYYY HH:mm:ss in Pakistan Standard Time (PKT / UTC+5). */
+const PKT_OFFSET_MS = 5 * 60 * 60 * 1000
 function formatReceivedTime(ts) {
-  const d = ts instanceof Date ? ts : new Date(ts)
-  if (Number.isNaN(d.getTime())) return ''
-  const date = `${pad2(d.getDate())}-${pad2(d.getMonth() + 1)}-${d.getFullYear()}`
-  const time = `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`
+  const raw = ts instanceof Date ? ts : new Date(ts)
+  if (Number.isNaN(raw.getTime())) return ''
+  const pkt = new Date(raw.getTime() + PKT_OFFSET_MS)
+  const date = `${pad2(pkt.getUTCDate())}-${pad2(pkt.getUTCMonth() + 1)}-${pkt.getUTCFullYear()}`
+  const time = `${pad2(pkt.getUTCHours())}:${pad2(pkt.getUTCMinutes())}:${pad2(pkt.getUTCSeconds())}`
   return `${date} ${time}`
 }
 

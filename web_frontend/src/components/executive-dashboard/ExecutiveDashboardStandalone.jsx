@@ -558,7 +558,41 @@ const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 // Wall-clock parts of a Date in Pakistan Time
 function pktParts(date) {
   const d = new Date(date.getTime() + PKT_OFFSET_MS)
-  return { y: d.getUTCFullYear(), m: d.getUTCMonth(), d: d.getUTCDate(), h: d.getUTCHours(), min: d.getUTCMinutes(), dow: d.getUTCDay() }
+  return { y: d.getUTCFullYear(), m: d.getUTCMonth(), d: d.getUTCDate(), h: d.getUTCHours(), min: d.getUTCMinutes(), s: d.getUTCSeconds(), dow: d.getUTCDay() }
+}
+
+// Format timestamp into Pakistan Standard Time string (YYYY-MM-DD HH:mm:ss)
+function formatPktTimestamp(ts) {
+  if (!ts) return ''
+  const d = ts instanceof Date ? ts : new Date(ts)
+  if (Number.isNaN(d.getTime())) return String(ts)
+  const pkt = new Date(d.getTime() + PKT_OFFSET_MS)
+  const y = pkt.getUTCFullYear()
+  const m = String(pkt.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(pkt.getUTCDate()).padStart(2, '0')
+  const h = String(pkt.getUTCHours()).padStart(2, '0')
+  const min = String(pkt.getUTCMinutes()).padStart(2, '0')
+  const s = String(pkt.getUTCSeconds()).padStart(2, '0')
+  return `${y}-${m}-${day} ${h}:${min}:${s}`
+}
+
+function getPktDateString(date = new Date()) {
+  const p = pktParts(date)
+  return `${p.y}-${String(p.m + 1).padStart(2, '0')}-${String(p.d).padStart(2, '0')}`
+}
+
+function pktDayBoundsToUtcIso(fromDateStr, toDateStr) {
+  const [fy, fm, fd] = (fromDateStr || '').split('-').map(Number)
+  const [ty, tm, td] = (toDateStr || '').split('-').map(Number)
+  if (!Number.isFinite(fy) || !Number.isFinite(fm) || !Number.isFinite(fd)) {
+    return { startDateIso: fromDateStr, endDateIso: toDateStr }
+  }
+  const startUtc = new Date(Date.UTC(fy, fm - 1, fd, 0, 0, 0) - PKT_OFFSET_MS)
+  const endUtc = new Date(Date.UTC(ty, tm - 1, td, 23, 59, 59, 999) - PKT_OFFSET_MS)
+  return {
+    startDateIso: startUtc.toISOString(),
+    endDateIso: endUtc.toISOString(),
+  }
 }
 
 // Instant for a Pakistan Time wall-clock (overflowing fields roll over like Date.UTC)
@@ -672,9 +706,9 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
     [historyRange, periodOffset, historyRefreshTick]
   )
 
-  // CSV Export Date Range & Variable Selection
-  const [dateFrom, setDateFrom] = useState('2026-10-02')
-  const [dateTo, setDateTo] = useState('2026-10-09')
+  // CSV Export Date Range & Variable Selection (defaults to today in Pakistan Time)
+  const [dateFrom, setDateFrom] = useState(() => getPktDateString(new Date()))
+  const [dateTo, setDateTo] = useState(() => getPktDateString(new Date()))
   const [downloadSuccess, setDownloadSuccess] = useState('')
   const [isExportingCsv, setIsExportingCsv] = useState(false)
 
@@ -1526,6 +1560,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
 
     if (targetDeviceId) {
       try {
+        const { startDateIso, endDateIso } = pktDayBoundsToUtcIso(dateFrom, dateTo)
         const results = await Promise.all(
           selectedVars.map(async (v) => {
             const apiVar = v.key === 'Total Power' ? 'ActivePower' : (v.key === 'Units' ? 'PowerConsumption' : v.key)
@@ -1533,8 +1568,8 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
               deviceId: targetDeviceId,
               slaveId: targetSlaveId,
               variableName: apiVar,
-              startDate: dateFrom,
-              endDate: dateTo,
+              startDate: startDateIso,
+              endDate: endDateIso,
             }).catch(() => ({ data: [] }))
             return { key: v.key, data: Array.isArray(res?.data) ? res.data : [] }
           })
@@ -1544,8 +1579,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
         results.forEach(({ key, data }) => {
           data.forEach((row) => {
             if (!row?.timestamp) return
-            const d = new Date(row.timestamp)
-            const ts = d.toISOString().replace('T', ' ').slice(0, 19)
+            const ts = formatPktTimestamp(row.timestamp)
             if (!tsMap.has(ts)) tsMap.set(ts, {})
             tsMap.get(ts)[key] = Number(Number(row.value).toFixed(2))
           })
@@ -1553,7 +1587,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
 
         const sortedTs = Array.from(tsMap.keys()).sort()
         const header = [
-          'Timestamp',
+          'Timestamp (PKT)',
           'Device Name',
           'Slave ID',
           'Gateway',
@@ -1579,8 +1613,8 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
             await emsApi.downloadSensorCsv({
               deviceId: targetDeviceId,
               slaveId: targetSlaveId,
-              startDate: dateFrom,
-              endDate: dateTo,
+              startDate: startDateIso,
+              endDate: endDateIso,
             })
             setDownloadSuccess(`Exported database CSV for ${node.name}`)
             setTimeout(() => setDownloadSuccess(''), 4000)
@@ -2476,8 +2510,9 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                     <button
                       type="button"
                       onClick={() => {
-                        setDateFrom('2026-10-09')
-                        setDateTo('2026-10-09')
+                        const today = getPktDateString(new Date())
+                        setDateFrom(today)
+                        setDateTo(today)
                       }}
                       className="px-2 py-0.5 rounded border border-surface-200 dark:border-surface-700 hover:bg-surface-200 dark:hover:bg-surface-800 font-medium cursor-pointer"
                     >
@@ -2486,8 +2521,10 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                     <button
                       type="button"
                       onClick={() => {
-                        setDateFrom('2026-10-02')
-                        setDateTo('2026-10-09')
+                        const today = getPktDateString(new Date())
+                        const sevenAgo = getPktDateString(new Date(Date.now() - 7 * DAY_MS))
+                        setDateFrom(sevenAgo)
+                        setDateTo(today)
                       }}
                       className="px-2 py-0.5 rounded border border-surface-200 dark:border-surface-700 hover:bg-surface-200 dark:hover:bg-surface-800 font-medium cursor-pointer"
                     >
@@ -2496,8 +2533,10 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                     <button
                       type="button"
                       onClick={() => {
-                        setDateFrom('2026-09-09')
-                        setDateTo('2026-10-09')
+                        const today = getPktDateString(new Date())
+                        const thirtyAgo = getPktDateString(new Date(Date.now() - 30 * DAY_MS))
+                        setDateFrom(thirtyAgo)
+                        setDateTo(today)
                       }}
                       className="px-2 py-0.5 rounded border border-surface-200 dark:border-surface-700 hover:bg-surface-200 dark:hover:bg-surface-800 font-medium cursor-pointer"
                     >
