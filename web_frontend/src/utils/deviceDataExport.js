@@ -80,10 +80,20 @@ export function pktDayBoundsToUtcIso(fromDateStr, toDateStr) {
   }
 }
 
-export function formatReceivedTime(ts) {
+const TEN_MIN_MS = 10 * 60 * 1000
+
+export function roundTo10Min(rawDate) {
+  const time = rawDate instanceof Date ? rawDate.getTime() : new Date(rawDate).getTime()
+  if (Number.isNaN(time)) return rawDate
+  const snapped = Math.round(time / TEN_MIN_MS) * TEN_MIN_MS
+  return new Date(snapped)
+}
+
+export function formatReceivedTime(ts, { snap10Min = true } = {}) {
   const raw = ts instanceof Date ? ts : new Date(ts)
   if (Number.isNaN(raw.getTime())) return String(ts || '')
-  const pkt = new Date(raw.getTime() + PKT_OFFSET_MS)
+  const target = snap10Min ? roundTo10Min(raw) : raw
+  const pkt = new Date(target.getTime() + PKT_OFFSET_MS)
   const date = `${pad2(pkt.getUTCDate())}-${pad2(pkt.getUTCMonth() + 1)}-${pkt.getUTCFullYear()}`
   const time = `${pad2(pkt.getUTCHours())}:${pad2(pkt.getUTCMinutes())}:${pad2(pkt.getUTCSeconds())}`
   return `${date} ${time}`
@@ -157,7 +167,14 @@ export function downloadDeviceDataCsv(rows, {
   const usedPreferred = new Set()
   const extraKeys = new Set()
 
+  const seenBuckets = new Set()
   for (const row of rows || []) {
+    const sName = row.slaveName ?? slaveName
+    const receivedTime = row.receivedTime ?? formatReceivedTime(row.timestamp)
+    const bucketKey = `${sName}||${receivedTime}`
+    if (seenBuckets.has(bucketKey)) continue
+    seenBuckets.add(bucketKey)
+
     let metrics = row.metrics
     let extras = row.extras
     if (!metrics) {
@@ -173,8 +190,8 @@ export function downloadDeviceDataCsv(rows, {
     }
     wideRows.push({
       deviceName: row.deviceName ?? deviceName,
-      slaveName: row.slaveName ?? slaveName,
-      receivedTime: row.receivedTime ?? formatReceivedTime(row.timestamp),
+      slaveName: sName,
+      receivedTime,
       metrics: metrics || {},
       extras: extras || {},
     })

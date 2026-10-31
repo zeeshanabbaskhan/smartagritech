@@ -163,10 +163,12 @@ export default function OrgHistoricalData() {
       )
 
       const byTime = new Map()
+      const TEN_MIN_MS = 10 * 60 * 1000
       series.forEach(({ key, points }) => {
         ;[...points].reverse().forEach((p) => {
-          const ts = new Date(p.receivedTime ?? p.timestamp).getTime()
-          if (Number.isNaN(ts)) return
+          const rawTs = new Date(p.receivedTime ?? p.timestamp).getTime()
+          if (Number.isNaN(rawTs)) return
+          const ts = Math.round(rawTs / TEN_MIN_MS) * TEN_MIN_MS
           if (!byTime.has(ts)) {
             byTime.set(ts, {
               time: new Date(ts).toLocaleString([], {

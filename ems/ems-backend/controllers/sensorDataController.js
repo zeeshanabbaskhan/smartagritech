@@ -695,6 +695,7 @@ const downloadCSV = async (req, res, next) => {
     const collected = []
     const usedPreferred = new Set()
     const extraKeys = new Set()
+    const seenBuckets = new Set()
     let skip = 0
     const BATCH = 500
 
@@ -714,6 +715,12 @@ const downloadCSV = async (req, res, next) => {
       })
       if (!rows.length) break
       for (const row of rows) {
+        const slaveName = row.configSlave?.name || ''
+        const receivedTime = formatReceivedTime(row.timestamp)
+        const bucketKey = `${slaveName}||${receivedTime}`
+        if (seenBuckets.has(bucketKey)) continue
+        seenBuckets.add(bucketKey)
+
         // Stored readings are already formulated at ingest — re-applying would double-scale.
         const { metrics, extras } = pivotReadingsArray(row.readings)
         for (const [k, v] of Object.entries(metrics)) {
@@ -724,8 +731,8 @@ const downloadCSV = async (req, res, next) => {
         }
         collected.push({
           deviceName: device.name || '',
-          slaveName: row.configSlave?.name || '',
-          receivedTime: formatReceivedTime(row.timestamp),
+          slaveName,
+          receivedTime,
           metrics,
           extras,
         })

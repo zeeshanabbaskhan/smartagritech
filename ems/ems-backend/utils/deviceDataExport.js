@@ -65,12 +65,22 @@ function pad2(n) {
   return String(n).padStart(2, '0')
 }
 
-/** DD-MM-YYYY HH:mm:ss in Pakistan Standard Time (PKT / UTC+5). */
+/** DD-MM-YYYY HH:mm:ss in Pakistan Standard Time (PKT / UTC+5), aligned to 10-minute resolution. */
 const PKT_OFFSET_MS = 5 * 60 * 60 * 1000
-function formatReceivedTime(ts) {
+const TEN_MIN_MS = 10 * 60 * 1000
+
+function roundTo10Min(rawDate) {
+  const time = rawDate instanceof Date ? rawDate.getTime() : new Date(rawDate).getTime()
+  if (Number.isNaN(time)) return rawDate
+  const snapped = Math.round(time / TEN_MIN_MS) * TEN_MIN_MS
+  return new Date(snapped)
+}
+
+function formatReceivedTime(ts, { snap10Min = true } = {}) {
   const raw = ts instanceof Date ? ts : new Date(ts)
   if (Number.isNaN(raw.getTime())) return ''
-  const pkt = new Date(raw.getTime() + PKT_OFFSET_MS)
+  const target = snap10Min ? roundTo10Min(raw) : raw
+  const pkt = new Date(target.getTime() + PKT_OFFSET_MS)
   const date = `${pad2(pkt.getUTCDate())}-${pad2(pkt.getUTCMonth() + 1)}-${pkt.getUTCFullYear()}`
   const time = `${pad2(pkt.getUTCHours())}:${pad2(pkt.getUTCMinutes())}:${pad2(pkt.getUTCSeconds())}`
   return `${date} ${time}`
@@ -135,8 +145,15 @@ function buildDeviceDataCsv({
   const wideRows = []
   const usedPreferred = new Set()
   const extraKeys = new Set()
+  const seenBuckets = new Set()
 
   for (const row of rows) {
+    const sName = row.slaveName ?? slaveNameFallback ?? ''
+    const receivedTime = formatReceivedTime(row.timestamp)
+    const bucketKey = `${sName}||${receivedTime}`
+    if (seenBuckets.has(bucketKey)) continue
+    seenBuckets.add(bucketKey)
+
     const { metrics, extras } = pivotReadingsArray(row.readings)
     for (const k of Object.keys(metrics)) {
       if (metrics[k] !== undefined && metrics[k] !== '') usedPreferred.add(k)
@@ -146,8 +163,8 @@ function buildDeviceDataCsv({
     }
     wideRows.push({
       deviceName: row.deviceName ?? deviceName ?? '',
-      slaveName: row.slaveName ?? slaveNameFallback ?? '',
-      receivedTime: formatReceivedTime(row.timestamp),
+      slaveName: sName,
+      receivedTime,
       metrics,
       extras,
     })
@@ -177,6 +194,7 @@ module.exports = {
   PREFERRED_METRIC_COLUMNS,
   IDENTITY_COLUMNS,
   mapVariableToColumn,
+  roundTo10Min,
   formatReceivedTime,
   deviceDataFilename,
   csvEscape,
