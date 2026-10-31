@@ -2887,9 +2887,8 @@ function EnergyFlowOverview({ data, onSelectNode }) {
         </h1>
       </div>
 
-      {/* ─── 2. TOP CENTER SUMMARY CARDS (4 Boxes from Sketch) ─── */}
-      <div className="flex justify-center mb-0.5">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-1.5 w-full max-w-2xl">
+      {/* ─── 2. TOP KPI CARDS & TOTAL DONUT (Centered Plant Summary) ─── */}
+      <div className="flex items-center justify-center gap-1.5 sm:gap-2 mb-1 flex-wrap">
           {/* Total WAPDA */}
           <div
             onClick={() =>
@@ -2914,7 +2913,7 @@ function EnergyFlowOverview({ data, onSelectNode }) {
                 'B1+B2'
               )
             }
-            className={`py-0.5 px-2 rounded-lg border-2 text-center shadow-2xs cursor-pointer hover:scale-[1.02] transition relative ${wapdaAlert.cardStyle}`}
+            className={`py-0.5 px-2 rounded-lg border-2 text-center shadow-2xs cursor-pointer hover:scale-[1.02] transition relative w-[163.5px] shrink-0 ${wapdaAlert.cardStyle}`}
             title="Click to view Total WAPDA live telemetry, historical graph & export"
           >
             {wapdaAlert.badgeText && (
@@ -2960,7 +2959,7 @@ function EnergyFlowOverview({ data, onSelectNode }) {
                 'B1+B2'
               )
             }
-            className={`py-0.5 px-2 rounded-lg border-2 text-center shadow-2xs ring-1 ring-blue-500/30 cursor-pointer hover:scale-[1.02] transition relative ${totalRunningAlert.cardStyle}`}
+            className={`py-0.5 px-2 rounded-lg border-2 text-center shadow-2xs ring-1 ring-blue-500/30 cursor-pointer hover:scale-[1.02] transition relative w-[163.5px] shrink-0 ${totalRunningAlert.cardStyle}`}
             title="Click to view Total Running Load live telemetry, historical graph & export"
           >
             {totalRunningAlert.badgeText && (
@@ -2981,6 +2980,9 @@ function EnergyFlowOverview({ data, onSelectNode }) {
               <span className="text-[8px] font-bold text-slate-400">kW</span>
             </div>
           </div>
+
+          {/* Total Running Load Donut (Center) */}
+          <TotalPlantRunningLoadDonut data={data} />
 
           {/* Solar Total */}
           <div
@@ -3006,7 +3008,7 @@ function EnergyFlowOverview({ data, onSelectNode }) {
                 'B1+B2'
               )
             }
-            className={`py-0.5 px-2 rounded-lg border-2 text-center shadow-2xs cursor-pointer hover:scale-[1.02] transition relative ${solarAlert.cardStyle}`}
+            className={`py-0.5 px-2 rounded-lg border-2 text-center shadow-2xs cursor-pointer hover:scale-[1.02] transition relative w-[163.5px] shrink-0 ${solarAlert.cardStyle}`}
             title="Click to view Solar Total live telemetry, historical graph & export"
           >
             {solarAlert.badgeText && (
@@ -3052,7 +3054,7 @@ function EnergyFlowOverview({ data, onSelectNode }) {
                 'B1+B2'
               )
             }
-            className={`py-0.5 px-2 rounded-lg border-2 text-center shadow-2xs cursor-pointer hover:scale-[1.02] transition relative ${gensetAlert.cardStyle}`}
+            className={`py-0.5 px-2 rounded-lg border-2 text-center shadow-2xs cursor-pointer hover:scale-[1.02] transition relative w-[163.5px] shrink-0 ${gensetAlert.cardStyle}`}
             title="Click to view Total Genset live telemetry, historical graph & export"
           >
             {gensetAlert.badgeText && (
@@ -3073,12 +3075,6 @@ function EnergyFlowOverview({ data, onSelectNode }) {
               <span className="text-[8px] font-bold text-slate-400">kW</span>
             </div>
           </div>
-        </div>
-      </div>
-
-      {/* ─── 2.5 TOTAL RUNNING LOAD DONUT (TOP CENTER) ─── */}
-      <div className="flex justify-center my-1.5 sm:my-2">
-        <TotalPlantRunningLoadDonut data={data} />
       </div>
 
       {/* ─── 3. HORIZONTAL SCHEMATIC BUS CONNECTOR LINE ─── */}
