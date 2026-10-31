@@ -13,7 +13,7 @@ import emsApi, { list } from '../../api/emsApi'
 import { mapOrganization, mapDevice } from '../../utils/mappers'
 import { useToast } from '../../context/ToastContext'
 import { fetchDeviceVariables } from '../../utils/sensorReadings'
-import { downloadDeviceDataCsv, pivotLongRowsToWide } from '../../utils/deviceDataExport'
+import { downloadDeviceDataCsv, pivotLongRowsToWide, pktDayBoundsToUtcIso } from '../../utils/deviceDataExport'
 
 const CHART_COLORS = ['#F5A623', '#3B82F6', '#EF4444', '#10B981', '#06b6d4', '#8B5CF6']
 
@@ -148,14 +148,15 @@ export default function AdminHistoricalData() {
     setLoading(true)
     setError(null)
     try {
+      const { startDateIso, endDateIso } = pktDayBoundsToUtcIso(dateFrom, dateTo)
       const series = await Promise.all(
         selectedVars.map(async (variableName) => {
           const res = await emsApi.getSensorHistory({
             deviceId: deviceFilter,
             slaveId: slaveId || undefined,
             variableName,
-            startDate: dateFrom,
-            endDate: dateTo ? `${dateTo}T23:59:59.999` : dateTo,
+            startDate: startDateIso,
+            endDate: endDateIso,
             limit: 200,
           })
           const points = Array.isArray(res?.data) ? res.data : list(res)
@@ -213,11 +214,12 @@ export default function AdminHistoricalData() {
       return
     }
     try {
+      const { startDateIso, endDateIso } = pktDayBoundsToUtcIso(dateFrom, dateTo)
       await emsApi.downloadSensorCsv({
         deviceId: deviceFilter,
         slaveId: slaveId || undefined,
-        startDate: dateFrom,
-        endDate: dateTo ? `${dateTo}T23:59:59.999` : dateTo,
+        startDate: startDateIso,
+        endDate: endDateIso,
       })
       showToast('Download started', 'success')
     } catch (e) {

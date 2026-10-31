@@ -11,7 +11,7 @@ import { Download, Trash2 } from 'lucide-react'
 import emsApi, { list } from '../../api/emsApi'
 import { mapDevice, mapGateway } from '../../utils/mappers'
 import { fetchDeviceVariables } from '../../utils/sensorReadings'
-import { downloadDeviceDataCsv } from '../../utils/deviceDataExport'
+import { downloadDeviceDataCsv, pktDayBoundsToUtcIso } from '../../utils/deviceDataExport'
 import { useToast } from '../../context/ToastContext'
 
 const CHART_COLORS = ['#F5A623', '#3B82F6', '#EF4444', '#10B981', '#06b6d4', '#8B5CF6']
@@ -146,14 +146,15 @@ export default function OrgHistoricalData() {
     }
     setChartLoading(true)
     try {
+      const { startDateIso, endDateIso } = pktDayBoundsToUtcIso(dateFrom, dateTo)
       const series = await Promise.all(
         selectedVars.map(async (variableName) => {
           const res = await emsApi.getSensorHistory({
             deviceId,
             slaveId: slaveId || undefined,
             variableName,
-            startDate: dateFrom,
-            endDate: `${dateTo}T23:59:59.999`,
+            startDate: startDateIso,
+            endDate: endDateIso,
             limit: 200,
           })
           const points = Array.isArray(res?.data) ? res.data : list(res)
@@ -215,11 +216,12 @@ export default function OrgHistoricalData() {
       return
     }
     try {
+      const { startDateIso, endDateIso } = pktDayBoundsToUtcIso(dateFrom, dateTo)
       await emsApi.downloadSensorCsv({
         deviceId,
         slaveId: slaveId || undefined,
-        startDate: dateFrom || undefined,
-        endDate: dateTo ? `${dateTo}T23:59:59.999` : undefined,
+        startDate: startDateIso,
+        endDate: endDateIso,
       })
       showToast('Download started', 'success')
     } catch (e) {

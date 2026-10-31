@@ -66,6 +66,20 @@ function pad2(n) {
 
 /** DD-MM-YYYY HH:mm:ss in Pakistan Standard Time (PKT / UTC+5) */
 const PKT_OFFSET_MS = 5 * 60 * 60 * 1000
+export function pktDayBoundsToUtcIso(fromDateStr, toDateStr) {
+  const [fy, fm, fd] = (fromDateStr || '').split('-').map(Number)
+  const [ty, tm, td] = (toDateStr || '').split('-').map(Number)
+  if (!Number.isFinite(fy) || !Number.isFinite(fm) || !Number.isFinite(fd)) {
+    return { startDateIso: fromDateStr, endDateIso: toDateStr }
+  }
+  const startUtc = new Date(Date.UTC(fy, fm - 1, fd, 0, 0, 0) - PKT_OFFSET_MS)
+  const endUtc = new Date(Date.UTC(ty, tm - 1, td, 23, 59, 59, 999) - PKT_OFFSET_MS)
+  return {
+    startDateIso: startUtc.toISOString(),
+    endDateIso: endUtc.toISOString(),
+  }
+}
+
 export function formatReceivedTime(ts) {
   const raw = ts instanceof Date ? ts : new Date(ts)
   if (Number.isNaN(raw.getTime())) return String(ts || '')
