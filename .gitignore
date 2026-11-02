@@ -9,3 +9,7 @@ scratch/
 wapda_amb_drawer_*.png
 dryer_hall_drawer_*.png
 sewing_3f_amb_drawer_*.png
+
+# Backups
+backups/
+*.sql.gz
