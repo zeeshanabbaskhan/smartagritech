@@ -152,13 +152,11 @@ export const INITIAL_FLOW_DATA = {
       { id: 'b1-r3-4', name: 'Dryer Hall', ratedA: 350, loadKw: 89.4, status: 'normal' },
       { id: 'b1-r3-5', name: 'WashingLTPanel', ratedA: 400, loadKw: 241.9, status: 'heavy' },
       { id: 'b1-r3-6', name: 'Spare-1', ratedA: 100, loadKw: 0.0, status: 'spare' },
-      { id: 'b1-r3-7', name: 'Spare-2', ratedA: 100, loadKw: 0.0, status: 'spare' },
     ],
     row4: [
       { id: 'b1-r4-1', name: 'G1', ratedA: 100, loadKw: 0.0, status: 'standby', units: 16092.5, slaveId: 'da855b14-7cdc-4232-87ba-35a6d1b2b460', deviceId: '04fa70be-06e8-423b-bc22-fa76178a909f' },
       { id: 'b1-r4-2', name: 'G2', ratedA: 100, loadKw: 0.0, status: 'standby', units: 19652.8, slaveId: '52ac59ba-95a7-49a5-bb09-4bec736e2cb9', deviceId: '04fa70be-06e8-423b-bc22-fa76178a909f' },
       { id: 'b1-r4-3', name: 'WAPDA-AMB', ratedA: 400, loadKw: 432.6, status: 'heavy', units: 369630.0, slaveId: '70fbfe31-667a-45cc-86e4-1c25bf4607dd', deviceId: '04fa70be-06e8-423b-bc22-fa76178a909f' },
-      { id: 'b1-r4-4', name: 'Tie-Feeder to AFL', ratedA: 350, loadKw: 0.0, status: 'tie-line' },
     ],
   },
   building2: {
@@ -204,7 +202,6 @@ export const INITIAL_FLOW_DATA = {
     row4: [
       { id: 'b2-r4-1', name: 'G3 AFL', ratedA: 150, loadKw: 0.0, status: 'normal', units: 7038.9, slaveId: 'aa419c5c-27e5-460c-b9a4-ad4be67184f9', deviceId: 'cdd6d1b1-6fd8-48a5-9984-5e220328571d' },
       { id: 'b2-r4-2', name: 'WAPDA-AFL', ratedA: 200, loadKw: 262.3, status: 'critical', units: 179728.5, slaveId: '27b7fd32-1ac6-480c-82eb-280abf6d0636', deviceId: 'cdd6d1b1-6fd8-48a5-9984-5e220328571d' },
-      { id: 'b2-r4-3', name: 'From Ambition (Tie-Line)', ratedA: 300, loadKw: 0.0, status: 'tie-line' },
     ],
   },
 }
@@ -3197,15 +3194,18 @@ function EnergyFlowOverview({ data, onSelectNode }) {
             <div className="grid grid-cols-7 gap-1">
               {(building1.row2 || []).map((b) => renderBreakerBox(b, 'B1'))}
             </div>
-            {/* Row 3 (7 boxes) */}
+            {/* Row 3 (boxes) */}
             <div className="grid grid-cols-7 gap-1">
               {(building1.row3 || []).map((b) => renderBreakerBox(b, 'B1'))}
+              {(building1.row3?.length || 0) < 7 && (
+                <div style={{ gridColumn: `span ${Math.max(1, 7 - (building1.row3?.length || 0))}` }} />
+              )}
             </div>
-            {/* Row 4 (4 boxes) */}
+            {/* Row 4 (boxes) */}
             <div className="grid grid-cols-7 gap-1">
               {(building1.row4 || []).map((b) => renderBreakerBox(b, 'B1'))}
-              {/* 3 blank fillers to align properly */}
-              <div className="col-span-3" />
+              {/* Dynamic blank fillers to maintain 7-col alignment */}
+              <div style={{ gridColumn: `span ${Math.max(1, 7 - (building1.row4?.length || 0))}` }} />
             </div>
           </div>
         </div>
@@ -3305,11 +3305,11 @@ function EnergyFlowOverview({ data, onSelectNode }) {
             <div className="grid grid-cols-7 gap-1">
               {(building2.row3 || []).map((b) => renderBreakerBox(b, 'B2'))}
             </div>
-            {/* Row 4 (3 boxes) */}
+            {/* Row 4 (boxes) */}
             <div className="grid grid-cols-7 gap-1">
               {(building2.row4 || []).map((b) => renderBreakerBox(b, 'B2'))}
-              {/* 4 blank fillers to align properly */}
-              <div className="col-span-4" />
+              {/* Dynamic blank fillers to maintain 7-col alignment */}
+              <div style={{ gridColumn: `span ${Math.max(1, 7 - (building2.row4?.length || 0))}` }} />
             </div>
           </div>
         </div>

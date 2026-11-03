@@ -571,14 +571,12 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
     makeBreakerNode('b1-r3-4', 'Dryer Hall', 350, findSlave(['Dryer Hall', 'dryer hall', 'dryerhall']), 'B1'),
     makeBreakerNode('b1-r3-5', 'WashingLTPanel', 400, findSlave(['WashingLTPanel', 'washing lt panel', 'washingltpanel']), 'B1'),
     makeBreakerNode('b1-r3-6', 'Spare-1', 100, findSlave(['Spare-1', 'spare-1', 'rm']), 'B1'),
-    makeBreakerNode('b1-r3-7', 'Spare-2', 100, findSlave(['4c5934e4-469d-45e4-bd79-1c069edbd287', 'Spare-2', 'spare-2']), 'B1'),
   ]
 
   const b1Row4 = [
     makeBreakerNode('b1-r4-1', 'G1', 100, findSlave(['G1', 'g1', 'genset 01', 'genset 1']), 'B1'),
     makeBreakerNode('b1-r4-2', 'G2', 100, findSlave(['G2', 'g2', 'genset 02', 'genset 2']), 'B1'),
     makeBreakerNode('b1-r4-3', 'WAPDA-AMB', 400, findSlave(['WAPDA-AMB', 'wapda-amb', 'wapda']), 'B1'),
-    makeBreakerNode('b1-r4-4', 'Tie-Feeder to AFL', 350, null, 'B1'),
   ]
 
   const b1ConsumerLoad = Number(
@@ -768,7 +766,6 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
   const b2Row4 = [
     makeBreakerNode('b2-r4-1', 'G3 AFL', 150, findSlave(['G3 AFL', 'g3 afl', 'genafl', 'gen afl']), 'B2'),
     makeBreakerNode('b2-r4-2', 'WAPDA-AFL', 200, findSlave(['WAPDA-AFL', 'wapda-afl', 'wafl', 'w afl']), 'B2'),
-    makeBreakerNode('b2-r4-3', 'From Ambition (Tie-Line)', 300, null, 'B2'),
   ]
 
   const b2ConsumerLoad = Number(
