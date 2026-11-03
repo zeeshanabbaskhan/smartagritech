@@ -152,6 +152,7 @@ export const INITIAL_FLOW_DATA = {
       { id: 'b1-r3-4', name: 'Dryer Hall', ratedA: 350, loadKw: 89.4, status: 'normal' },
       { id: 'b1-r3-5', name: 'WashingLTPanel', ratedA: 400, loadKw: 241.9, status: 'heavy' },
       { id: 'b1-r3-6', name: 'Spare-1', ratedA: 100, loadKw: 0.0, status: 'spare' },
+      { id: 'b1-r3-7', name: 'Spare-2', ratedA: 100, loadKw: 0.0, status: 'standby', slaveId: '4c5934e4-469d-45e4-bd79-1c069edbd287', deviceId: 'b9e024c1-2fbb-4b53-bc2b-f1bab8fc7f12' },
     ],
     row4: [
       { id: 'b1-r4-1', name: 'G1', ratedA: 100, loadKw: 0.0, status: 'standby', units: 16092.5, slaveId: 'da855b14-7cdc-4232-87ba-35a6d1b2b460', deviceId: '04fa70be-06e8-423b-bc22-fa76178a909f' },
@@ -197,7 +198,6 @@ export const INITIAL_FLOW_DATA = {
       { id: 'b2-r3-4', name: 'LT Panel Room-AFL', ratedA: 160, loadKw: 4.3, status: 'normal' },
       { id: 'b2-r3-5', name: 'Ozone UPS', ratedA: 100, loadKw: 2.6, status: 'normal' },
       { id: 'b2-r3-6', name: 'Spare', ratedA: 100, loadKw: 0.0, status: 'spare' },
-      { id: 'b2-r3-7', name: 'Spare Feeder 2', ratedA: 100, loadKw: 0.0, status: 'spare' },
     ],
     row4: [
       { id: 'b2-r4-1', name: 'G3 AFL', ratedA: 150, loadKw: 0.0, status: 'normal', units: 7038.9, slaveId: 'aa419c5c-27e5-460c-b9a4-ad4be67184f9', deviceId: 'cdd6d1b1-6fd8-48a5-9984-5e220328571d' },
@@ -3301,9 +3301,12 @@ function EnergyFlowOverview({ data, onSelectNode }) {
             <div className="grid grid-cols-7 gap-1">
               {(building2.row2 || []).map((b) => renderBreakerBox(b, 'B2'))}
             </div>
-            {/* Row 3 (7 boxes) */}
+            {/* Row 3 (boxes) */}
             <div className="grid grid-cols-7 gap-1">
               {(building2.row3 || []).map((b) => renderBreakerBox(b, 'B2'))}
+              {(building2.row3?.length || 0) < 7 && (
+                <div style={{ gridColumn: `span ${Math.max(1, 7 - (building2.row3?.length || 0))}` }} />
+              )}
             </div>
             {/* Row 4 (boxes) */}
             <div className="grid grid-cols-7 gap-1">

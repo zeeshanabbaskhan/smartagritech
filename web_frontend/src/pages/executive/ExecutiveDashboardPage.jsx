@@ -571,6 +571,7 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
     makeBreakerNode('b1-r3-4', 'Dryer Hall', 350, findSlave(['Dryer Hall', 'dryer hall', 'dryerhall']), 'B1'),
     makeBreakerNode('b1-r3-5', 'WashingLTPanel', 400, findSlave(['WashingLTPanel', 'washing lt panel', 'washingltpanel']), 'B1'),
     makeBreakerNode('b1-r3-6', 'Spare-1', 100, findSlave(['Spare-1', 'spare-1', 'rm']), 'B1'),
+    makeBreakerNode('b1-r3-7', 'Spare-2', 100, findSlave(['4c5934e4-469d-45e4-bd79-1c069edbd287', 'Spare-2', 'spare-2']), 'B1'),
   ]
 
   const b1Row4 = [
@@ -760,7 +761,6 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
     makeBreakerNode('b2-r3-4', 'LT Panel Room-AFL', 160, findSlave(['LT Panel Room-AFL', 'lt panel room-afl', 'lt panel room', 'lt']), 'B2'),
     makeBreakerNode('b2-r3-5', 'Ozone UPS', 100, findSlave(['Ozone UPS', 'ozone ups', 'oups']), 'B2'),
     makeBreakerNode('b2-r3-6', 'Spare', 100, findSlave(['Spare', 'spare']), 'B2'),
-    makeBreakerNode('b2-r3-7', 'Spare Feeder 2', 100, findSlave(['Spare Feeder 2', 'spare feeder 2', 'spare-feeder-2', 'spare feeder', 'Spare-2', 'spare-2', 'Spare 2', 'spare 2']), 'B2'),
   ]
 
   const b2Row4 = [
