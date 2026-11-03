@@ -355,7 +355,7 @@ function makeBreakerNode(id, fallbackName, defaultRatedA, slaveObj, buildingCode
 
   // 2. Direct Power extraction from latestMetrics / currentKw / readDeviceMetric
   let metricKw = 0
-  if (slaveObj && !isNamedSpare) {
+  if (slaveObj) {
     const metrics = slaveObj.latestMetrics || {}
     const tpRaw = metrics['Total Power'] ?? metrics['ActivePower'] ?? metrics['Power'] ?? metrics['TotalPower']
     if (tpRaw != null) {
@@ -373,11 +373,10 @@ function makeBreakerNode(id, fallbackName, defaultRatedA, slaveObj, buildingCode
   metricKw = Math.abs(Number.isFinite(metricKw) ? metricKw : 0)
 
   // 3. Active status: Determine real online/offline/standby status
-  const isSpare = isNamedSpare
   const isExplicitOffline = slaveObj && (slaveObj.status === 'OFFLINE' || slaveObj.status === 'offline' || slaveObj.statusRaw === 'OFFLINE')
-  const hasLiveReading = slaveObj && !isSpare && !isExplicitOffline && (metricKw > 0)
+  const hasLiveReading = slaveObj && !isExplicitOffline && (metricKw > 0)
   const isOnline = slaveObj ? (!isExplicitOffline && (slaveObj.status === 'Online' || slaveObj.status === 'ONLINE' || slaveObj.statusRaw === 'ONLINE' || hasLiveReading)) : false
-  let loadKw = (isOnline && !isSpare) ? +metricKw.toFixed(1) : 0.0
+  let loadKw = isOnline ? +metricKw.toFixed(1) : 0.0
 
   const ratedA = defaultRatedA || 100
   const maxKw = Math.round((ratedA * 400 * Math.sqrt(3) * 0.95) / 1000)
@@ -405,14 +404,17 @@ function makeBreakerNode(id, fallbackName, defaultRatedA, slaveObj, buildingCode
   }
 
   const isZeroVoltage = cardVoltage === 0
-  const isMeterOffline = isExplicitOffline || !slaveObj || (!isSpare && !isTieLine && !isGenset && !isSolar && isZeroVoltage && loadKw === 0)
+  const isMeterOffline = isExplicitOffline || !slaveObj || (!isTieLine && !isGenset && !isSolar && isZeroVoltage && loadKw === 0)
 
   let status = 'normal'
   if (isTieLine) status = 'tie-line'
-  else if (isSpare) status = 'spare'
+  else if (loadKw > 0) status = isSolar ? 'generating' : 'normal'
+  else if (isSolar) status = 'standby'
+  else if (isGenset) status = 'standby'
+  else if (isNamedSpare) {
+    status = (isOnline && cardVoltage > 0) ? 'standby' : 'spare'
+  }
   else if (isMeterOffline || !isOnline) status = 'offline'
-  else if (isSolar) status = loadKw > 0 ? 'generating' : 'standby'
-  else if (isGenset && loadKw === 0) status = 'standby'
   else status = 'normal'
 
   const currentVal = vars24 ? (vars24.find((v) => v.key === 'Current A')?.value || 0.0) : 0.0
@@ -468,6 +470,8 @@ const KNOWN_SLAVE_ALIASES = {
   sb2: ['solar-invt-5', 'sb2'],
   incoming: ['office-amb', 'incoming'],
   rm: ['spare-1', 'rm'],
+  sparefeeder2: ['spare feeder 2', 'spare-feeder-2', 'spare-2', 'spare 2', 'spare2'],
+  spare: ['spare', 'spare-afl', 'spareafl'],
   genafl: ['g3 afl', 'gen afl', 'genafl'],
   wafl: ['wapda-afl', 'w afl', 'wafl'],
   '132kwcomp': ['comp-132kw', '132 kw comp', '132kwcomp'],
@@ -758,7 +762,7 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
     makeBreakerNode('b2-r3-4', 'LT Panel Room-AFL', 160, findSlave(['LT Panel Room-AFL', 'lt panel room-afl', 'lt panel room', 'lt']), 'B2'),
     makeBreakerNode('b2-r3-5', 'Ozone UPS', 100, findSlave(['Ozone UPS', 'ozone ups', 'oups']), 'B2'),
     makeBreakerNode('b2-r3-6', 'Spare', 100, findSlave(['Spare', 'spare']), 'B2'),
-    makeBreakerNode('b2-r3-7', 'Spare Feeder 2', 100, null, 'B2'),
+    makeBreakerNode('b2-r3-7', 'Spare Feeder 2', 100, findSlave(['Spare Feeder 2', 'spare feeder 2', 'spare-feeder-2', 'spare feeder', 'Spare-2', 'spare-2', 'Spare 2', 'spare 2']), 'B2'),
   ]
 
   const b2Row4 = [

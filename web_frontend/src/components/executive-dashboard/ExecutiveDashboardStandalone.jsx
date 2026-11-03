@@ -849,10 +849,12 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
   }, [variables])
 
   const loadKwVal = Number.isFinite(Number(node.loadKw)) ? Number(node.loadKw) : 0
-  const isSpare = (node.status === 'spare' || node.name?.toLowerCase().includes('spare')) && loadKwVal === 0
+  const hasVoltage = Number(node.voltage || 0) > 0
+  const isStandby = node.status === 'standby' || (loadKwVal === 0 && hasVoltage && node.status !== 'offline')
+  const isSpare = (node.status === 'spare' || (!node.slaveId && node.name?.toLowerCase().includes('spare'))) && loadKwVal === 0 && !hasVoltage
   const isGenerating = (node.status === 'generating' || node.name?.toLowerCase().includes('solar') || node.type === 'solar' || node.category?.toLowerCase().includes('solar')) && loadKwVal > 0
   const isGenset = node.type === 'genset' || /genset|genafl|gen\s*afl|g[1-3]\s*afl|\bg[1-3]\b/i.test(node.name) || /generator/i.test(node.category || '')
-  const isOffline = node.status === 'offline' || (!isSpare && !isGenerating && !isGenset && Number(node.voltage || 0) === 0 && loadKwVal === 0)
+  const isOffline = node.status === 'offline' || (!isSpare && !isGenerating && !isGenset && !isStandby && Number(node.voltage || 0) === 0 && loadKwVal === 0)
   const isCritical = node.status === 'critical' || (loadKwVal >= 100 && !isSpare && !isOffline)
   const isHeavy = !isCritical && (node.status === 'heavy' || (loadKwVal >= 70 && !isSpare && !isOffline))
   const isTripped = node.status === 'tripped' && loadKwVal === 0
@@ -1776,11 +1778,13 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                   ? 'bg-danger-600 animate-ping'
                   : isSpare
                   ? 'bg-surface-400'
+                  : isStandby
+                  ? 'bg-emerald-500'
                   : 'bg-emerald-500'
               }`}
             />
             <span className="font-bold text-surface-700 dark:text-surface-300">
-              {isCritical ? 'CRITICAL' : isHeavy ? 'WARNING' : isTripped ? 'TRIPPED' : isSpare ? 'SPARE' : isOffline ? 'OFFLINE' : 'ONLINE'}
+              {isCritical ? 'CRITICAL' : isHeavy ? 'WARNING' : isTripped ? 'TRIPPED' : isSpare ? 'SPARE' : isStandby ? 'STANDBY' : isOffline ? 'OFFLINE' : 'ONLINE'}
             </span>
           </div>
         </div>
@@ -1805,7 +1809,9 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                         ? 'bg-amber-500 animate-pulse'
                         : isTripped
                         ? 'bg-danger-600 animate-ping'
-                        : (isSpare || isOffline)
+                        : isSpare
+                        ? 'bg-surface-400'
+                        : isOffline
                         ? 'bg-surface-400'
                         : 'bg-emerald-500'
                     }`}
@@ -1820,7 +1826,9 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                       : isGenerating
                       ? 'ACTIVE SOLAR GENERATION'
                       : isSpare
-                      ? 'SPARE FEEDER'
+                      ? 'SPARE FEEDER (UNMONITORED)'
+                      : isStandby
+                      ? 'CIRCUIT ENERGIZED (STANDBY)'
                       : isOffline
                       ? 'METER OFFLINE (NO TELEMETRY)'
                       : 'NORMAL THREE-PHASE OPERATION'}
@@ -2643,10 +2651,12 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                 ? 'bg-amber-500/10 text-amber-600 border-amber-500/20'
                 : node?.status === 'spare'
                 ? 'bg-slate-500/10 text-slate-500 border-slate-500/20'
+                : (node?.status === 'standby' || isStandby)
+                ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/20'
                 : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
             }`}>
-              <span className={`w-2 h-2 rounded-full ${node?.status === 'offline' ? 'bg-danger-500' : 'bg-emerald-500 animate-pulse'}`} />
-              <span>{node?.status === 'offline' ? 'Offline' : node?.status === 'generating' ? 'Solar Generating' : node?.status === 'spare' ? 'Spare Breaker' : 'Live Feeder Active'}</span>
+              <span className={`w-2 h-2 rounded-full ${node?.status === 'offline' ? 'bg-danger-500' : (node?.status === 'standby' || isStandby) ? 'bg-sky-500 animate-pulse' : 'bg-emerald-500 animate-pulse'}`} />
+              <span>{node?.status === 'offline' ? 'Offline' : node?.status === 'generating' ? 'Solar Generating' : node?.status === 'spare' ? 'Spare Breaker' : (node?.status === 'standby' || isStandby) ? 'Energized Standby' : 'Live Feeder Active'}</span>
             </div>
 
             <span className="text-[10px] text-surface-400 hidden sm:inline">
@@ -2791,11 +2801,13 @@ function EnergyFlowOverview({ data, onSelectNode }) {
     if (!b) return null
     const name = b.name || ''
     const loadKwVal = Number.isFinite(Number(b.loadKw)) ? Number(b.loadKw) : 0
-    const isSpare = (b.status === 'spare' || name.toLowerCase().includes('spare')) && loadKwVal === 0
+    const hasVoltage = Number(b.voltage || 0) > 0
+    const isStandby = b.status === 'standby' || (loadKwVal === 0 && hasVoltage && b.status !== 'offline')
+    const isSpare = (b.status === 'spare' || (!b.slaveId && name.toLowerCase().includes('spare'))) && loadKwVal === 0 && !hasVoltage
     const isGenerating = (b.status === 'generating' || name.toLowerCase().includes('solar')) && loadKwVal > 0
     const isTieLine = b.status === 'tie-line' || name.toLowerCase().includes('ambition') || name.toLowerCase().includes('tie')
     const isGenset = b.type === 'genset' || /^(g1|g2|g3|genset)/i.test(name)
-    const isOffline = b.status === 'offline' || (!isSpare && !isGenerating && !isGenset && !isTieLine && Number(b.voltage || 0) === 0 && loadKwVal === 0)
+    const isOffline = b.status === 'offline' || (!isSpare && !isGenerating && !isGenset && !isTieLine && !isStandby && Number(b.voltage || 0) === 0 && loadKwVal === 0)
 
     // Threshold evaluation: checks slave override, then global default
     const slaveThresh = (b.slaveId && slaveThresholds[b.slaveId]) ||
@@ -2843,6 +2855,10 @@ function EnergyFlowOverview({ data, onSelectNode }) {
       cardStyle = 'bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-slate-400 opacity-75'
       dotClass = 'bg-slate-400 dark:bg-slate-500'
       valueClass = 'text-slate-500 dark:text-slate-400 font-medium'
+    } else if (isStandby) {
+      cardStyle = 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-slate-300'
+      dotClass = 'bg-emerald-500/80 dark:bg-emerald-400/80'
+      valueClass = 'text-slate-700 dark:text-slate-300 font-medium'
     }
 
     return (
@@ -2850,7 +2866,7 @@ function EnergyFlowOverview({ data, onSelectNode }) {
         key={b.id || `${buildingCode}-${name}`}
         onClick={() => onSelectNode?.(b, buildingCode)}
         className={`group relative p-1 sm:p-1.5 rounded-lg border text-center transition-all duration-150 cursor-pointer select-none flex flex-col justify-between min-h-[44px] sm:min-h-[46px] shadow-2xs ${cardStyle}`}
-        title={`${name} - ${loadKwVal.toFixed(1)} kW ${isCritical ? `(CRITICAL >= ${critLimit} kW)` : isHeavy ? `(WARNING >= ${warnLimit} kW)` : isTripped ? '(TRIPPED)' : isOffline ? '(OFFLINE - 0V)' : '(NORMAL)'}`}
+        title={`${name} - ${loadKwVal.toFixed(1)} kW ${isCritical ? `(CRITICAL >= ${critLimit} kW)` : isHeavy ? `(WARNING >= ${warnLimit} kW)` : isTripped ? '(TRIPPED)' : isStandby ? `(STANDBY - ${Number(b.voltage || 0).toFixed(0)}V)` : isOffline ? '(OFFLINE - 0V)' : '(NORMAL)'}`}
       >
         <div
           className="w-full text-center text-[7.5px] sm:text-[8px] font-bold tracking-tight leading-[1.15] line-clamp-2 px-0.5 text-slate-800 dark:text-slate-100 flex items-center justify-center gap-0.5"
