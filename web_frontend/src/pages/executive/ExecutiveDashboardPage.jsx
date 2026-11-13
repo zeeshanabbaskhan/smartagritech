@@ -125,7 +125,7 @@ function build24Variables(slave, loadKw, ratedA = 100, buildingCode = 'B1') {
       let numVal = safeExtractNumber(item, 0)
       if (k === 'Total Power' || k === 'Power' || k === 'ActivePower') {
         if (loadKw > 0) {
-          numVal = +loadKw.toFixed(1)
+          numVal = (loadKw < 1.0 && loadKw > 0) ? +loadKw.toFixed(2) : +loadKw.toFixed(1)
         } else if (numVal === 0 || !Number.isFinite(numVal)) {
           const pA = safeExtractNumber(metrics['PowerA'] ?? metrics['Power A'] ?? metrics['Power_A'] ?? metrics['P1'], 0)
           const pB = safeExtractNumber(metrics['PowerB'] ?? metrics['Power B'] ?? metrics['Power_B'] ?? metrics['P2'], 0)
@@ -216,7 +216,7 @@ function build24Variables(slave, loadKw, ratedA = 100, buildingCode = 'B1') {
     const units = safeExtractNumber(getMetricFromSlave(slave, ['Units', 'Power Consumption']), 0.0)
 
     return [
-      { key: 'Total Power', name: 'Total Power', shortName: 'Total Power', value: +pTotal.toFixed(1), unit: 'kW', group: 'power' },
+      { key: 'Total Power', name: 'Total Power', shortName: 'Total Power', value: (pTotal < 1.0 && pTotal > 0 ? +pTotal.toFixed(2) : +pTotal.toFixed(1)), unit: 'kW', group: 'power' },
       { key: 'Phase VoltageA', name: 'Phase VoltageA', shortName: 'Phase VoltageA', value: +rawLineA.toFixed(1), unit: 'V', group: 'voltage' },
       { key: 'Phase VoltageB', name: 'Phase VoltageB', shortName: 'Phase VoltageB', value: +rawLineB.toFixed(1), unit: 'V', group: 'voltage' },
       { key: 'Phase VoltageC', name: 'Phase VoltageC', shortName: 'Phase VoltageC', value: +rawLineC.toFixed(1), unit: 'V', group: 'voltage' },
@@ -306,7 +306,7 @@ function build24Variables(slave, loadKw, ratedA = 100, buildingCode = 'B1') {
   )
 
   return [
-    { key: 'Total Power', name: 'Total Power', shortName: 'Total Power', value: +pTotal.toFixed(1), unit: 'kW', group: 'power' },
+    { key: 'Total Power', name: 'Total Power', shortName: 'Total Power', value: (pTotal < 1.0 && pTotal > 0 ? +pTotal.toFixed(2) : +pTotal.toFixed(1)), unit: 'kW', group: 'power' },
     { key: 'PowerA', name: 'PowerA', shortName: 'PowerA', value: +pA.toFixed(1), unit: 'kW', group: 'power' },
     { key: 'PowerB', name: 'PowerB', shortName: 'PowerB', value: +pB.toFixed(1), unit: 'kW', group: 'power' },
     { key: 'PowerC', name: 'PowerC', shortName: 'PowerC', value: +pC.toFixed(1), unit: 'kW', group: 'power' },
@@ -357,13 +357,37 @@ function makeBreakerNode(id, fallbackName, defaultRatedA, slaveObj, buildingCode
   let metricKw = 0
   if (slaveObj) {
     const metrics = slaveObj.latestMetrics || {}
+
+    // Check A: Multi-phase active power sum (PowerA + PowerB + PowerC)
+    // In 3-phase metering, direct phase active power sum takes precedence over stale single-register caches
+    const pA = safeExtractNumber(metrics['PowerA'] ?? metrics['Power A'] ?? metrics['Power_A'] ?? metrics['ActivePowerA'] ?? metrics['P1'], NaN)
+    const pB = safeExtractNumber(metrics['PowerB'] ?? metrics['Power B'] ?? metrics['Power_B'] ?? metrics['ActivePowerB'] ?? metrics['P2'], NaN)
+    const pC = safeExtractNumber(metrics['PowerC'] ?? metrics['Power C'] ?? metrics['Power_C'] ?? metrics['ActivePowerC'] ?? metrics['P3'], NaN)
+    const hasPhasePowers = Number.isFinite(pA) && Number.isFinite(pB) && Number.isFinite(pC) && (pA > 0 || pB > 0 || pC > 0)
+    const phaseSum = hasPhasePowers ? +(pA + pB + pC).toFixed(2) : 0
+
+    // Check B: Total Apparent Power * Power Factor (for meters reporting S and PF like Office-Amb)
+    const sTot = safeExtractNumber(metrics['Total Apparent Power'] ?? metrics['TotalApparentPower'] ?? metrics['ApparentPower'], NaN)
+    const pfVal = safeExtractNumber(metrics['Power Factor'] ?? metrics['PowerFactor'] ?? metrics['PF'], NaN)
+    const hasPfPower = Number.isFinite(sTot) && sTot > 0 && Number.isFinite(pfVal) && pfVal > 0 && pfVal <= 1.0
+    const apparentActiveKw = hasPfPower ? +(sTot * pfVal).toFixed(2) : 0
+
+    // Check C: Direct Total Power register
     const tpRaw = metrics['Total Power'] ?? metrics['ActivePower'] ?? metrics['Power'] ?? metrics['TotalPower']
-    if (tpRaw != null) {
-      metricKw = safeExtractNumber(tpRaw, NaN)
-    }
-    if (!Number.isFinite(metricKw) || metricKw === 0) {
+    const tpNum = tpRaw != null ? safeExtractNumber(tpRaw, NaN) : NaN
+
+    if (hasPhasePowers && phaseSum > 0) {
+      metricKw = phaseSum
+    } else if (hasPfPower && apparentActiveKw > 0 && (!Number.isFinite(tpNum) || tpNum === 0 || /office[-_\s]*amb/i.test(displayName))) {
+      metricKw = apparentActiveKw
+    } else if (Number.isFinite(tpNum) && tpNum > 0) {
+      metricKw = tpNum
+    } else if (hasPfPower && apparentActiveKw > 0) {
+      metricKw = apparentActiveKw
+    } else {
       metricKw = readDeviceMetric(slaveObj, 'power')
     }
+
     if (!Number.isFinite(metricKw) || metricKw === 0) {
       if (slaveObj.currentKw != null && Number.isFinite(Number(slaveObj.currentKw))) {
         metricKw = Number(slaveObj.currentKw)
@@ -376,7 +400,8 @@ function makeBreakerNode(id, fallbackName, defaultRatedA, slaveObj, buildingCode
   const isExplicitOffline = slaveObj && (slaveObj.status === 'OFFLINE' || slaveObj.status === 'offline' || slaveObj.statusRaw === 'OFFLINE')
   const hasLiveReading = slaveObj && !isExplicitOffline && (metricKw > 0)
   const isOnline = slaveObj ? (!isExplicitOffline && (slaveObj.status === 'Online' || slaveObj.status === 'ONLINE' || slaveObj.statusRaw === 'ONLINE' || hasLiveReading)) : false
-  let loadKw = isOnline ? +metricKw.toFixed(1) : 0.0
+  // For small standby loads (< 1.0 kW like 3F-AIR-Cooler), display 2 decimals so real fluctuations (0.41 vs 0.44 kW) are visible
+  let loadKw = isOnline ? (metricKw < 1.0 && metricKw > 0 ? +metricKw.toFixed(2) : +metricKw.toFixed(1)) : 0.0
 
   const ratedA = defaultRatedA || 100
   const maxKw = Math.round((ratedA * 400 * Math.sqrt(3) * 0.95) / 1000)

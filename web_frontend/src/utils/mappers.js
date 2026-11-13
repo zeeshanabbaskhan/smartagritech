@@ -132,14 +132,17 @@ export const mapDevice = (d) => {
       const switchOff = d.switchState === 'OFF'
       const isParentOnline = !switchOff && (statusRaw === 'ONLINE' || status === 'Online')
       const isSlaveOnlineRaw = s.status === 'ONLINE' || s.status === 'Online' || s.statusRaw === 'ONLINE'
-      const last = s.lastDataReceivedAt || (isParentOnline ? d.lastDataReceivedAt : null)
+      const rawSlaveLast = s.lastDataReceivedAt
+      const slaveAge = rawSlaveLast ? Date.now() - new Date(rawSlaveLast).getTime() : null
+      const isSlaveStale = slaveAge !== null && Number.isFinite(slaveAge) && slaveAge > DEVICE_OFFLINE_AFTER_MS
+      const last = rawSlaveLast || (isParentOnline ? d.lastDataReceivedAt : null)
       const age = last ? Date.now() - new Date(last).getTime() : Infinity
-      const isOnline = !switchOff && (
+      const isOnline = !switchOff && !isSlaveStale && (
         isSlaveOnlineRaw ||
         (Number.isFinite(age) && age < DEVICE_OFFLINE_AFTER_MS) ||
-        isParentOnline
+        (isParentOnline && slaveAge === null)
       )
-      const effectiveLast = last || (isOnline ? d.lastDataReceivedAt : null)
+      const effectiveLast = rawSlaveLast || (isOnline ? d.lastDataReceivedAt : null)
       const slaveKw = s.currentKw != null && Number.isFinite(Number(s.currentKw)) ? Number(s.currentKw) : null
       return {
         id: s.id,
