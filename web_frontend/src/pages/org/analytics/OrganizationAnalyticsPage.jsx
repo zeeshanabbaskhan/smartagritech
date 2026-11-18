@@ -7,7 +7,7 @@ import { AlertTriangle, Download, Eye, RefreshCw, RotateCcw, Loader2 } from 'luc
 import DataTable from '../../../components/ui/DataTable'
 import Modal from '../../../components/ui/Modal'
 import emsApi, { list } from '../../../api/emsApi'
-import { mapDevice, mapAnomaly, mergeVoltageChart, mergeCurrentChart, aiPointsToChart } from '../../../utils/mappers'
+import { mapDevice, mapAnomaly, getDisplaySlaveName,mergeVoltageChart, mergeCurrentChart, aiPointsToChart } from '../../../utils/mappers'
 import {
   RANGE_LABELS,
   formatTs,
@@ -113,7 +113,8 @@ function exportCsv(filename, rows) {
 
 const EMPTY_RESULT = { chartData: [], rows: [], meta: {} }
 
-const normalizeName = (v) => String(v ?? '').trim().toLowerCase()
+// Compare via display names so raw backend names (e.g. 'Spare-1') match renamed labels ('LaserMachines').
+const normalizeName = (v) => getDisplaySlaveName(String(v ?? '')).toLowerCase()
 
 /** Stable 32-bit string hash so the same record always lands on the same meter. */
 const hashStr = (str) => {

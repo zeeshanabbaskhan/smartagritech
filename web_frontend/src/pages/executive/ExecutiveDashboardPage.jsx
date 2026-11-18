@@ -1,7 +1,7 @@
 import { Component, useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import ExecutiveDashboard, { INITIAL_FLOW_DATA, isFifteenVarSlave } from '../../components/executive-dashboard/ExecutiveDashboardStandalone'
 import emsApi, { list, one } from '../../api/emsApi'
-import { mapDevice } from '../../utils/mappers'
+import { mapDevice, getDisplaySlaveName } from '../../utils/mappers'
 import { readDeviceMetric } from '../../utils/deviceMetrics'
 import { onSocketEvent } from '../../services/socketService'
 import { useAuth } from '../../context/AuthContext'
@@ -339,8 +339,10 @@ function build24Variables(slave, loadKw, ratedA = 100, buildingCode = 'B1') {
 function makeBreakerNode(id, fallbackName, defaultRatedA, slaveObj, buildingCode = 'B1') {
   // 1. Dynamic Real-Name Propagation:
   // Exact slave name matching device telemetry / database
-  const rawLiveName = slaveObj?.name?.trim()
-  const rawFallback = fallbackName?.trim()
+  // getDisplaySlaveName applies frontend-only renames (e.g. Spare-1 -> LaserMachines)
+  // so renamed meters are never treated as spares and their live telemetry streams.
+  const rawLiveName = slaveObj?.name ? getDisplaySlaveName(slaveObj.name) : ''
+  const rawFallback = fallbackName ? getDisplaySlaveName(fallbackName) : ''
   let displayName = rawLiveName || rawFallback || 'Feeder'
   if (
     displayName.toLowerCase() === 'shall1' ||
@@ -350,8 +352,9 @@ function makeBreakerNode(id, fallbackName, defaultRatedA, slaveObj, buildingCode
     displayName = 'Sewing-1F-AMB'
   }
 
-  // Designated spares (Spare-1, Spare-2, Spare, etc.)
-  const isNamedSpare = /spare/i.test(displayName) || /spare/i.test(fallbackName)
+  // Designated spares (Spare-2, Spare Feeder 2, etc.). Uses display names only, so the
+  // renamed LaserMachines (ex Spare-1) and MetodWashing (ex Spare) are not suppressed.
+  const isNamedSpare = /spare/i.test(displayName) || /spare/i.test(rawFallback)
 
   // 2. Direct Power extraction from latestMetrics / currentKw / readDeviceMetric
   let metricKw = 0
@@ -519,7 +522,9 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
     for (const s of list) {
       if (!s) continue
       allSlaves.push(s)
-      const rawName = s.name ? String(s.name).trim() : ''
+      // Index by display name so original and renamed labels can't collide
+      // (e.g. original 'Washing Hall' vs. renamed 'WashingHall').
+      const rawName = s.name ? getDisplaySlaveName(s.name) : ''
       if (rawName) {
         slaveMap.set(rawName.toLowerCase(), s)
         slaveMap.set(normSlaveStr(rawName), s)
@@ -537,7 +542,7 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
 
     for (const raw of targets) {
       if (!raw) continue
-      const targetStr = String(raw).trim()
+      const targetStr = getDisplaySlaveName(raw)
       const lower = targetStr.toLowerCase()
       const norm = normSlaveStr(targetStr)
 
@@ -548,8 +553,8 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
       // 2. Check known aliases dictionary
       const aliasList = KNOWN_SLAVE_ALIASES[norm] || KNOWN_SLAVE_ALIASES[lower] || []
       for (const al of aliasList) {
-        const alLower = al.toLowerCase()
-        const alNorm = normSlaveStr(al)
+        const alLower = getDisplaySlaveName(al).toLowerCase()
+        const alNorm = normSlaveStr(getDisplaySlaveName(al))
         if (slaveMap.has(alLower)) return slaveMap.get(alLower)
         if (slaveMap.has(alNorm)) return slaveMap.get(alNorm)
       }
@@ -557,8 +562,9 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
       // 3. Scan allSlaves for fuzzy match
       const fuzzy = allSlaves.find((s) => {
         if (!s?.name) return false
-        const sLower = s.name.trim().toLowerCase()
-        const sNorm = normSlaveStr(s.name)
+        const sDisplay = getDisplaySlaveName(s.name)
+        const sLower = sDisplay.toLowerCase()
+        const sNorm = normSlaveStr(sDisplay)
         if (sLower === lower || sNorm === norm) return true
         if (sNorm.length >= 4 && norm.length >= 4 && (sNorm.includes(norm) || norm.includes(sNorm))) return true
         return false
@@ -572,7 +578,7 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
   const b1Row1 = [
     makeBreakerNode('b1-r1-1', 'Office-Amb', 100, findSlave(['Office-Amb', 'incoming', 'office amb']), 'B1'),
     makeBreakerNode('b1-r1-2', 'Sampling Stitching', 250, findSlave(['Sampling Stitching', 'shall', 's hall']), 'B1'),
-    makeBreakerNode('b1-r1-3', 'Washing Hall', 400, findSlave(['Washing Hall', 'whall', 'w hall']), 'B1'),
+    makeBreakerNode('b1-r1-3', 'Laundry', 400, findSlave(['Laundry', 'Washing Hall', 'whall', 'w hall']), 'B1'),
     makeBreakerNode('b1-r1-4', 'Finshing AMB', 250, findSlave(['Finshing AMB', 'Finishing AMB', 'fhall', 'f hall']), 'B1'),
     makeBreakerNode('b1-r1-5', 'Boiler', 350, findSlave('Boiler'), 'B1'),
     makeBreakerNode('b1-r1-6', 'SEWING-3F-AMB', 200, findSlave(['SEWING-3F-AMB', 'sewing-3f-amb', 'sh3', 'sewing 3f amb']), 'B1'),
@@ -594,8 +600,8 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
     makeBreakerNode('b1-r3-2', 'Solar-INVT-5', 160, findSlave(['Solar-INVT-5', 'solar-invt-5', 'sb2']), 'B1'),
     makeBreakerNode('b1-r3-3', 'Solar AMB-1,2,3', 160, findSlave(['Solar AMB-1,2,3', 'solar amb-1,2,3', 'solar amb']), 'B1'),
     makeBreakerNode('b1-r3-4', 'Dryer Hall', 350, findSlave(['Dryer Hall', 'dryer hall', 'dryerhall']), 'B1'),
-    makeBreakerNode('b1-r3-5', 'WashingLTPanel', 400, findSlave(['WashingLTPanel', 'washing lt panel', 'washingltpanel']), 'B1'),
-    makeBreakerNode('b1-r3-6', 'Spare-1', 100, findSlave(['Spare-1', 'spare-1', 'rm']), 'B1'),
+    makeBreakerNode('b1-r3-5', 'WashingHall', 400, findSlave(['WashingHall', 'WashingLTPanel', 'washing lt panel', 'washingltpanel']), 'B1'),
+    makeBreakerNode('b1-r3-6', 'LaserMachines', 100, findSlave(['LaserMachines', 'Spare-1', 'spare-1', 'rm']), 'B1'),
     makeBreakerNode('b1-r3-7', 'Spare-2', 100, findSlave(['4c5934e4-469d-45e4-bd79-1c069edbd287', 'Spare-2', 'spare-2']), 'B1'),
   ]
 
@@ -785,7 +791,7 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
     makeBreakerNode('b2-r3-3', 'Spray Booth 3', 125, findSlave(['Spray Booth 3', 'spray booth 3', 'spraybooth3']), 'B2'),
     makeBreakerNode('b2-r3-4', 'LT Panel Room-AFL', 160, findSlave(['LT Panel Room-AFL', 'lt panel room-afl', 'lt panel room', 'lt']), 'B2'),
     makeBreakerNode('b2-r3-5', 'Ozone UPS', 100, findSlave(['Ozone UPS', 'ozone ups', 'oups']), 'B2'),
-    makeBreakerNode('b2-r3-6', 'Spare', 100, findSlave(['Spare', 'spare']), 'B2'),
+    makeBreakerNode('b2-r3-6', 'MetodWashing', 100, findSlave(['MetodWashing', 'Spare', 'spare']), 'B2'),
   ]
 
   const b2Row4 = [

@@ -130,7 +130,7 @@ export const INITIAL_FLOW_DATA = {
     row1: [
       { id: 'b1-r1-1', name: 'Office-Amb', ratedA: 100, loadKw: 54.8, status: 'normal' },
       { id: 'b1-r1-2', name: 'Sampling Stitching', ratedA: 250, loadKw: 61.9, status: 'normal' },
-      { id: 'b1-r1-3', name: 'Washing Hall', ratedA: 400, loadKw: 192.8, status: 'heavy' },
+      { id: 'b1-r1-3', name: 'Laundry', ratedA: 400, loadKw: 192.8, status: 'heavy' },
       { id: 'b1-r1-4', name: 'Finshing AMB', ratedA: 250, loadKw: 45.2, status: 'normal' },
       { id: 'b1-r1-5', name: 'Boiler', ratedA: 350, loadKw: 54.5, status: 'normal' },
       { id: 'b1-r1-6', name: 'SEWING-3F-AMB', ratedA: 200, loadKw: 8.5, status: 'normal' },
@@ -150,8 +150,8 @@ export const INITIAL_FLOW_DATA = {
       { id: 'b1-r3-2', name: 'Solar-INVT-5', ratedA: 160, loadKw: 32.2, status: 'generating', units: 14561.8, slaveId: '7683034e-bfc6-429a-b1c3-7aa559ad9442', deviceId: 'b9e024c1-2fbb-4b53-bc2b-f1bab8fc7f12' },
       { id: 'b1-r3-3', name: 'Solar AMB-1,2,3', ratedA: 160, loadKw: 59.2, status: 'generating', units: 32921.7, slaveId: '8910d746-2eb2-4293-9feb-53f51b8d932b', deviceId: 'b9e024c1-2fbb-4b53-bc2b-f1bab8fc7f12' },
       { id: 'b1-r3-4', name: 'Dryer Hall', ratedA: 350, loadKw: 89.4, status: 'normal' },
-      { id: 'b1-r3-5', name: 'WashingLTPanel', ratedA: 400, loadKw: 241.9, status: 'heavy' },
-      { id: 'b1-r3-6', name: 'Spare-1', ratedA: 100, loadKw: 0.0, status: 'spare' },
+      { id: 'b1-r3-5', name: 'WashingHall', ratedA: 400, loadKw: 241.9, status: 'heavy' },
+      { id: 'b1-r3-6', name: 'LaserMachines', ratedA: 100, loadKw: 0.0, status: 'normal' },
       { id: 'b1-r3-7', name: 'Spare-2', ratedA: 100, loadKw: 0.0, status: 'standby', slaveId: '4c5934e4-469d-45e4-bd79-1c069edbd287', deviceId: 'b9e024c1-2fbb-4b53-bc2b-f1bab8fc7f12' },
     ],
     row4: [
@@ -197,7 +197,7 @@ export const INITIAL_FLOW_DATA = {
       { id: 'b2-r3-3', name: 'Spray Booth 3', ratedA: 125, loadKw: 10.3, status: 'normal' },
       { id: 'b2-r3-4', name: 'LT Panel Room-AFL', ratedA: 160, loadKw: 4.3, status: 'normal' },
       { id: 'b2-r3-5', name: 'Ozone UPS', ratedA: 100, loadKw: 2.6, status: 'normal' },
-      { id: 'b2-r3-6', name: 'Spare', ratedA: 100, loadKw: 0.0, status: 'spare' },
+      { id: 'b2-r3-6', name: 'MetodWashing', ratedA: 100, loadKw: 0.0, status: 'normal' },
     ],
     row4: [
       { id: 'b2-r4-1', name: 'G3 AFL', ratedA: 150, loadKw: 0.0, status: 'normal', units: 7038.9, slaveId: 'aa419c5c-27e5-460c-b9a4-ad4be67184f9', deviceId: 'cdd6d1b1-6fd8-48a5-9984-5e220328571d' },
@@ -237,6 +237,9 @@ export const FIFTEEN_VAR_SLAVE_NAMES = new Set([
   'finshing amb',
   'finishing amb',
   'fhall',
+  'laundry',
+  'lasermachines',
+  'metodwashing',
   'lt panel room-afl',
   'ozone ups',
   'sampling stitching',

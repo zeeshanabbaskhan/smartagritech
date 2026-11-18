@@ -9,6 +9,36 @@ const fmtDate = (d) => {
   return s.length > 16 ? s.slice(0, 16).replace('T', ' ') : s
 }
 
+/**
+ * Frontend-only display aliases for renamed slave meters. The backend name,
+ * Modbus slave ID and telemetry bindings stay unchanged; only the label differs.
+ * Idempotent: passing an already-mapped display name returns it unchanged.
+ */
+export function getDisplaySlaveName(name) {
+  if (!name) return name || ''
+  const trimmed = String(name).trim()
+  const lower = trimmed.toLowerCase()
+
+  // 1. Ambition: 'Washing Hall' -> 'Laundry'
+  if (lower === 'washing hall' || lower === 'w hall' || lower === 'whall') {
+    return 'Laundry'
+  }
+  // 2. Ambition: 'WashingLTPanel' -> 'WashingHall'
+  if (lower === 'washingltpanel' || lower === 'washing lt panel' || lower === 'washing ltpanel') {
+    return 'WashingHall'
+  }
+  // 3. Ambition: 'Spare-1' -> 'LaserMachines'
+  if (lower === 'spare-1' || lower === 'spare 1') {
+    return 'LaserMachines'
+  }
+  // 4. AFL: 'Spare' -> 'MetodWashing' (exact match so 'Spare Feeder 2' is untouched)
+  if (lower === 'spare') {
+    return 'MetodWashing'
+  }
+
+  return trimmed
+}
+
 /** Match backend DEVICE_OFFLINE_AFTER_MS (10 min). */
 const DEVICE_OFFLINE_AFTER_MS = 10 * 60_000
 
@@ -146,7 +176,7 @@ export const mapDevice = (d) => {
       const slaveKw = s.currentKw != null && Number.isFinite(Number(s.currentKw)) ? Number(s.currentKw) : null
       return {
         id: s.id,
-        name: s.name,
+        name: getDisplaySlaveName(s.name),
         deviceId: d.id,
         deviceName: d.name,
         isDefault: Boolean(s.isDefault),
@@ -246,9 +276,9 @@ export const mapSlabRate = (s) => {
     location: device?.name ?? '—',
     locationId: device?.id ?? slave?.deviceId ?? null,
     deviceId: device?.id ?? slave?.deviceId ?? null,
-    slave: slave?.name ?? s.deviceConfigSlaveId ?? '—',
+    slave: slave?.name ? getDisplaySlaveName(slave.name) : (s.deviceConfigSlaveId ?? '—'),
     slaveId: s.deviceConfigSlaveId,
-    slaveName: slave?.name ?? s.deviceConfigSlaveId ?? '—',
+    slaveName: slave?.name ? getDisplaySlaveName(slave.name) : (s.deviceConfigSlaveId ?? '—'),
     variable: s.variableName ?? '—',
     variableName: s.variableName ?? 'Power Consumption',
     from: s.unitFrom,
@@ -278,8 +308,8 @@ export const mapIntervalHistory = (h) => {
     variableName: h.variableName,
     location: device?.name ?? '—',
     deviceId,
-    slave: slave?.name ?? h.slaveName ?? '—',
-    slaveName: slave?.name ?? h.slaveName ?? '—',
+    slave: getDisplaySlaveName(slave?.name ?? h.slaveName) || '—',
+    slaveName: getDisplaySlaveName(slave?.name ?? h.slaveName) || '—',
     slaveId: h.deviceConfigSlaveId ?? slave?.id ?? null,
     unit: h.totalUnit != null ? String(h.totalUnit) : '—',
     totalUnit: h.totalUnit != null ? String(h.totalUnit) : '—',
@@ -451,8 +481,8 @@ export const mapVariableAlarm = (a, deviceName) => ({
   variable: a.variableName,
   variableName: a.variableName,
   type: a.triggerType ?? a.triggerName ?? '—',
-  slave: a.slaveName ?? '—',
-  slaveName: a.slaveName ?? '—',
+  slave: getDisplaySlaveName(a.slaveName) || '—',
+  slaveName: getDisplaySlaveName(a.slaveName) || '—',
   threshold: a.triggeringCondition ?? '—',
   actual: a.currentValue != null ? String(a.currentValue) : '—',
   time: fmtDate(a.alarmTime),
@@ -479,8 +509,8 @@ export const mapLinkageRecord = (r, deviceName) => {
     deviceId: r.deviceId,
     srcVar: watchedName ?? '—',
     triggerType: r.triggerType ?? r.trigger?.anomalyType ?? r.actionTaken ?? '—',
-    slave: r.slaveName ?? '—',
-    slaveName: r.slaveName ?? '—',
+    slave: getDisplaySlaveName(r.slaveName) || '—',
+    slaveName: getDisplaySlaveName(r.slaveName) || '—',
     variable: watchedName ?? '—',
     condition: r.triggeringCondition
       || conditionFromTrigger
