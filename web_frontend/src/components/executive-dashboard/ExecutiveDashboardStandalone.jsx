@@ -1087,7 +1087,8 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                   }
                 }
                 if (!usedDelta && sAvgP > 0) {
-                  const elapsedFrac = Math.max(0.05, Math.min(1, (nowPkt.min || 1) / 60))
+                  const nowMin = (nowPkt && Number.isFinite(nowPkt.min)) ? nowPkt.min : new Date().getMinutes()
+                  const elapsedFrac = Math.max(0.05, Math.min(1, (nowMin || 1) / 60))
                   sUnits = Number((sAvgP * elapsedFrac).toFixed(1))
                 }
               } else if (sData.units.length > 1) {
@@ -2200,7 +2201,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                           stroke="#2563EB"
                           unit=" kW"
                           width={48}
-                          domain={[0, (dataMax) => Math.max(20, Math.ceil(Number(dataMax || 0) * 1.15))]}
+                          domain={[0, (dataMax) => Math.max(20, Math.ceil((Number.isFinite(Number(dataMax)) ? Number(dataMax) : 0) * 1.15))]}
                           allowDataOverflow={false}
                         />
                       )}
@@ -2214,7 +2215,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                           stroke="#10B981"
                           unit=" kWh"
                           width={58}
-                          domain={[0, (dataMax) => Math.max(20, Math.ceil(Number(dataMax || 0) * 1.15))]}
+                          domain={[0, (dataMax) => Math.max(20, Math.ceil((Number.isFinite(Number(dataMax)) ? Number(dataMax) : 0) * 1.15))]}
                           allowDataOverflow={false}
                         />
                       )}
@@ -2358,7 +2359,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                           stroke="#2563EB"
                           unit=" kW"
                           width={48}
-                          domain={[0, (dataMax) => Math.max(20, Math.ceil(Number(dataMax || 0) * 1.15))]}
+                          domain={[0, (dataMax) => Math.max(20, Math.ceil((Number.isFinite(Number(dataMax)) ? Number(dataMax) : 0) * 1.15))]}
                           allowDataOverflow={false}
                         />
                       )}
@@ -2372,7 +2373,7 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
                           stroke="#10B981"
                           unit=" kWh"
                           width={58}
-                          domain={[0, (dataMax) => Math.max(20, Math.ceil(Number(dataMax || 0) * 1.15))]}
+                          domain={[0, (dataMax) => Math.max(20, Math.ceil((Number.isFinite(Number(dataMax)) ? Number(dataMax) : 0) * 1.15))]}
                           allowDataOverflow={false}
                         />
                       )}
