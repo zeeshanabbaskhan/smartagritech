@@ -55,6 +55,33 @@ function getMetricFromSlave(slave, aliasList, fallback = 0) {
   return fallback
 }
 
+/** True when the given (raw or display) slave name refers to the Office-Amb incoming meter. */
+function isOfficeAmbName(name) {
+  return /office[-_\s]*amb/i.test(String(name || ''))
+}
+
+/**
+ * Office-Amb live phase active powers derived from physical phase electricals:
+ * P_phase (kW) = V_phase * I_phase * PF / 1000.
+ * Returns null when the live V/I/PF readings are not available.
+ */
+function computeOfficeAmbPhasePowers(slave) {
+  const vA = getMetricFromSlave(slave, ['VoltageA', 'Voltage A'], NaN)
+  const vB = getMetricFromSlave(slave, ['VoltageB', 'Voltage B'], NaN)
+  const vC = getMetricFromSlave(slave, ['VoltageC', 'Voltage C'], NaN)
+  const iA = getMetricFromSlave(slave, ['Current A', 'CurrentA'], NaN)
+  const iB = getMetricFromSlave(slave, ['Current B', 'CurrentB'], NaN)
+  const iC = getMetricFromSlave(slave, ['Current C', 'CurrentC'], NaN)
+  const pfRaw = getMetricFromSlave(slave, ['Power Factor', 'PowerFactor', 'PF'], NaN)
+  const pf = Math.abs(pfRaw)
+  const vals = [vA, vB, vC, iA, iB, iC]
+  if (!vals.every(Number.isFinite) || !Number.isFinite(pf) || pf <= 0 || pf > 1) return null
+  const pA = (vA * iA * pf) / 1000
+  const pB = (vB * iB * pf) / 1000
+  const pC = (vC * iC * pf) / 1000
+  return { pA, pB, pC, total: pA + pB + pC }
+}
+
 /**
  * Exact Telemetry Variables Builder for a single Breaker Node
  * Populates real phase voltages, currents, active/reactive/apparent power,
@@ -95,6 +122,19 @@ function build24Variables(slave, loadKw, ratedA = 100, buildingCode = 'B1') {
   const metrics = slave?.latestMetrics || {}
   const metricKeys = Object.keys(metrics)
 
+  // Office-Amb: live per-phase active powers from V * I * PF (its PowerA/B/C registers are stale)
+  const officeAmbPhase = (isOfficeAmbName(slave?.name) || isOfficeAmbName(getDisplaySlaveName(slave?.name || '')))
+    ? computeOfficeAmbPhasePowers(slave)
+    : null
+  const officeAmbPhaseFor = (key) => {
+    if (!officeAmbPhase) return null
+    const norm = String(key).toLowerCase().replace(/[\s_\-]/g, '')
+    if (norm === 'powera' || norm === 'activepowera' || norm === 'p1') return officeAmbPhase.pA
+    if (norm === 'powerb' || norm === 'activepowerb' || norm === 'p2') return officeAmbPhase.pB
+    if (norm === 'powerc' || norm === 'activepowerc' || norm === 'p3') return officeAmbPhase.pC
+    return null
+  }
+
   // 1. Direct Dynamic Mapping from Slave Telemetry if configured variables exist (matches Device Telemetry exactly)
   if (metricKeys.length >= 6) {
     const directList = metricKeys.map((k) => {
@@ -123,13 +163,15 @@ function build24Variables(slave, loadKw, ratedA = 100, buildingCode = 'B1') {
       else if (/power/i.test(normKey)) group = 'power'
 
       let numVal = safeExtractNumber(item, 0)
+      const livePhaseKw = officeAmbPhaseFor(k)
+      if (livePhaseKw !== null) numVal = livePhaseKw
       if (k === 'Total Power' || k === 'Power' || k === 'ActivePower') {
         if (loadKw > 0) {
           numVal = (loadKw < 1.0 && loadKw > 0) ? +loadKw.toFixed(2) : +loadKw.toFixed(1)
         } else if (numVal === 0 || !Number.isFinite(numVal)) {
-          const pA = safeExtractNumber(metrics['PowerA'] ?? metrics['Power A'] ?? metrics['Power_A'] ?? metrics['P1'], 0)
-          const pB = safeExtractNumber(metrics['PowerB'] ?? metrics['Power B'] ?? metrics['Power_B'] ?? metrics['P2'], 0)
-          const pC = safeExtractNumber(metrics['PowerC'] ?? metrics['Power C'] ?? metrics['Power_C'] ?? metrics['P3'], 0)
+          const pA = officeAmbPhase ? officeAmbPhase.pA : safeExtractNumber(metrics['PowerA'] ?? metrics['Power A'] ?? metrics['Power_A'] ?? metrics['P1'], 0)
+          const pB = officeAmbPhase ? officeAmbPhase.pB : safeExtractNumber(metrics['PowerB'] ?? metrics['Power B'] ?? metrics['Power_B'] ?? metrics['P2'], 0)
+          const pC = officeAmbPhase ? officeAmbPhase.pC : safeExtractNumber(metrics['PowerC'] ?? metrics['Power C'] ?? metrics['Power_C'] ?? metrics['P3'], 0)
           const phaseSum = pA + pB + pC
           if (phaseSum > 0) numVal = +phaseSum.toFixed(1)
         }
@@ -148,9 +190,9 @@ function build24Variables(slave, loadKw, ratedA = 100, buildingCode = 'B1') {
     // Ensure Total Power is always present if multi-phase power exists
     const hasTotalPower = directList.some((v) => v.key === 'Total Power' || v.key === 'ActivePower' || v.key === 'Power')
     if (!hasTotalPower) {
-      const pA = safeExtractNumber(metrics['PowerA'] ?? metrics['Power A'] ?? metrics['Power_A'] ?? metrics['P1'], 0)
-      const pB = safeExtractNumber(metrics['PowerB'] ?? metrics['Power B'] ?? metrics['Power_B'] ?? metrics['P2'], 0)
-      const pC = safeExtractNumber(metrics['PowerC'] ?? metrics['Power C'] ?? metrics['Power_C'] ?? metrics['P3'], 0)
+      const pA = officeAmbPhase ? officeAmbPhase.pA : safeExtractNumber(metrics['PowerA'] ?? metrics['Power A'] ?? metrics['Power_A'] ?? metrics['P1'], 0)
+      const pB = officeAmbPhase ? officeAmbPhase.pB : safeExtractNumber(metrics['PowerB'] ?? metrics['Power B'] ?? metrics['Power_B'] ?? metrics['P2'], 0)
+      const pC = officeAmbPhase ? officeAmbPhase.pC : safeExtractNumber(metrics['PowerC'] ?? metrics['Power C'] ?? metrics['Power_C'] ?? metrics['P3'], 0)
       const derivedTotal = (Number.isFinite(loadKw) && loadKw > 0) ? loadKw : +(pA + pB + pC).toFixed(1)
       directList.unshift({
         key: 'Total Power',
@@ -234,10 +276,10 @@ function build24Variables(slave, loadKw, ratedA = 100, buildingCode = 'B1') {
     ]
   }
 
-  // Phase Active Powers
-  const pA = getMetricFromSlave(slave, ['PowerA', 'Power A', 'Power_A', 'ActivePowerA', 'P1'], pTotal > 0 ? (pTotal / 3) * 0.98 : 0)
-  const pB = getMetricFromSlave(slave, ['PowerB', 'Power B', 'Power_B', 'ActivePowerB', 'P2'], pTotal > 0 ? (pTotal / 3) * 1.01 : 0)
-  const pC = getMetricFromSlave(slave, ['PowerC', 'Power C', 'Power_C', 'ActivePowerC', 'P3'], pTotal > 0 ? (pTotal / 3) * 1.01 : 0)
+  // Phase Active Powers (Office-Amb: live V * I * PF per phase)
+  const pA = officeAmbPhase ? officeAmbPhase.pA : getMetricFromSlave(slave, ['PowerA', 'Power A', 'Power_A', 'ActivePowerA', 'P1'], pTotal > 0 ? (pTotal / 3) * 0.98 : 0)
+  const pB = officeAmbPhase ? officeAmbPhase.pB : getMetricFromSlave(slave, ['PowerB', 'Power B', 'Power_B', 'ActivePowerB', 'P2'], pTotal > 0 ? (pTotal / 3) * 1.01 : 0)
+  const pC = officeAmbPhase ? officeAmbPhase.pC : getMetricFromSlave(slave, ['PowerC', 'Power C', 'Power_C', 'ActivePowerC', 'P3'], pTotal > 0 ? (pTotal / 3) * 1.01 : 0)
 
   // Phase-to-Neutral Voltages (Voltage, VoltageA, VoltageB, VoltageC in meters ~230V)
   const rawNeutralA = getMetricFromSlave(slave, ['Voltage', 'VoltageA', 'Voltage A', 'Va', 'V1', 'Phase Voltage A (LN)'], null)
@@ -381,7 +423,7 @@ function makeBreakerNode(id, fallbackName, defaultRatedA, slaveObj, buildingCode
 
     if (hasPhasePowers && phaseSum > 0) {
       metricKw = phaseSum
-    } else if (hasPfPower && apparentActiveKw > 0 && (!Number.isFinite(tpNum) || tpNum === 0 || /office[-_\s]*amb/i.test(displayName))) {
+    } else if (hasPfPower && apparentActiveKw > 0 && (!Number.isFinite(tpNum) || tpNum === 0)) {
       metricKw = apparentActiveKw
     } else if (Number.isFinite(tpNum) && tpNum > 0) {
       metricKw = tpNum
@@ -389,6 +431,14 @@ function makeBreakerNode(id, fallbackName, defaultRatedA, slaveObj, buildingCode
       metricKw = apparentActiveKw
     } else {
       metricKw = readDeviceMetric(slaveObj, 'power')
+    }
+
+    // Office-Amb: its apparent-power register is frozen, so derive live active power
+    // from physical phase electricals: (Va*Ia + Vb*Ib + Vc*Ic) * PF / 1000
+    if (isOfficeAmbName(displayName)) {
+      const officeAmbPhase = computeOfficeAmbPhasePowers(slaveObj)
+      const calculatedPhaseKw = officeAmbPhase ? +officeAmbPhase.total.toFixed(2) : 0
+      if (calculatedPhaseKw > 0) metricKw = calculatedPhaseKw
     }
 
     if (!Number.isFinite(metricKw) || metricKw === 0) {
