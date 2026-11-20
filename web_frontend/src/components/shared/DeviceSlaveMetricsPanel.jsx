@@ -149,18 +149,104 @@ export default function DeviceSlaveMetricsPanel({
       const latestMap = Object.fromEntries(
         latestReadings.map((r) => [r.variableName, r]),
       )
+
+      // Office-Amb dynamic phase active power calculation:
+      // P_phase = (V_phase * I_phase * PF) / 1000, Total Power = P_A + P_B + P_C
+      let officeAmbCalc = null
+      const isOfficeAmb = targetSlaveId === '66fd0cfd-8e8f-4531-949e-922719b2d145' ||
+        /b2d145/i.test(String(targetSlaveId)) ||
+        (Array.isArray(slaves) && slaves.some((s) => s.id === targetSlaveId && /office[-_\s]*amb/i.test(s.name || s.displayName || '')))
+
+      if (isOfficeAmb) {
+        const parseVal = (nameList) => {
+          for (const n of nameList) {
+            const item = latestMap[n]
+            if (item) {
+              const raw = item.value ?? item.displayValue
+              const num = parseFloat(String(raw).replace(/,/g, ''))
+              if (Number.isFinite(num)) return num
+            }
+            const vObj = (vars || []).find((x) => (x.name === n || x.variableName === n))
+            if (vObj) {
+              const raw = vObj.currentValue ?? vObj.value ?? vObj.displayValue
+              const num = parseFloat(String(raw).replace(/,/g, ''))
+              if (Number.isFinite(num)) return num
+            }
+          }
+          return NaN
+        }
+        let vA = parseVal(['VoltageA', 'Voltage A', 'Voltage', 'Va', 'V1'])
+        if (!Number.isFinite(vA) || vA <= 0) {
+          const vLL = parseVal(['Phase VoltageA', 'Phase Voltage A', 'PhaseVoltageA'])
+          if (Number.isFinite(vLL) && vLL > 0) vA = vLL / Math.sqrt(3)
+        }
+        let vB = parseVal(['VoltageB', 'Voltage B', 'Vb', 'V2'])
+        if (!Number.isFinite(vB) || vB <= 0) {
+          const vLL = parseVal(['Phase VoltageB', 'Phase Voltage B', 'PhaseVoltageB'])
+          if (Number.isFinite(vLL) && vLL > 0) vB = vLL / Math.sqrt(3)
+          else vB = vA
+        }
+        let vC = parseVal(['VoltageC', 'Voltage C', 'Vc', 'V3'])
+        if (!Number.isFinite(vC) || vC <= 0) {
+          const vLL = parseVal(['Phase VoltageC', 'Phase Voltage C', 'PhaseVoltageC'])
+          if (Number.isFinite(vLL) && vLL > 0) vC = vLL / Math.sqrt(3)
+          else vC = vA
+        }
+        const iA = parseVal(['Current A', 'CurrentA', 'Ia', 'I1'])
+        const iB = parseVal(['Current B', 'CurrentB', 'Ib', 'I2'])
+        const iC = parseVal(['Current C', 'CurrentC', 'Ic', 'I3'])
+        let pfRaw = parseVal(['Power Factor', 'PowerFactor', 'PF', 'pf'])
+        let pf = Number.isFinite(pfRaw) ? Math.abs(pfRaw) : 0.95
+        if (pf > 100.0 && pf <= 1000.0) pf = pf / 1000
+        else if (pf > 1.0 && pf <= 100.0) pf = pf / 100
+        if (!Number.isFinite(pf) || pf <= 0 || pf > 1.0) pf = 0.95
+
+        if (Number.isFinite(vA) && vA > 0 && Number.isFinite(iA) && Number.isFinite(iB) && Number.isFinite(iC)) {
+          const pA = (vA * iA * pf) / 1000
+          const pB = (vB * iB * pf) / 1000
+          const pC = (vC * iC * pf) / 1000
+          const total = pA + pB + pC
+          officeAmbCalc = {
+            pA: +pA.toFixed(2),
+            pB: +pB.toFixed(2),
+            pC: +pC.toFixed(2),
+            total: +total.toFixed(2),
+          }
+        }
+      }
+
       const merged = (vars || []).map((v) => {
         const key = v.name ?? v.variableName
         const live = latestMap[key]
         const reg = v.templateVariable?.registerAddress ?? v.registerAddress ?? ''
+        let val = live?.displayValue ?? live?.value ?? (hasLiveBatch ? null : v.displayValue ?? v.currentValue ?? null)
+        let raw = live?.value ?? (hasLiveBatch ? null : v.currentValue ?? null)
+
+        if (officeAmbCalc) {
+          const normKey = key.toLowerCase().replace(/[\s_\-]/g, '')
+          if (normKey === 'powera' || normKey === 'activepowera' || normKey === 'p1') {
+            val = officeAmbCalc.pA
+            raw = officeAmbCalc.pA
+          } else if (normKey === 'powerb' || normKey === 'activepowerb' || normKey === 'p2') {
+            val = officeAmbCalc.pB
+            raw = officeAmbCalc.pB
+          } else if (normKey === 'powerc' || normKey === 'activepowerc' || normKey === 'p3') {
+            val = officeAmbCalc.pC
+            raw = officeAmbCalc.pC
+          } else if (normKey === 'totalpower' || normKey === 'power' || normKey === 'activepower') {
+            val = (officeAmbCalc.total < 1.0 && officeAmbCalc.total > 0) ? +officeAmbCalc.total.toFixed(2) : +officeAmbCalc.total.toFixed(1)
+            raw = officeAmbCalc.total
+          }
+        }
+
         return {
           id: v.id ?? key,
           name: key,
           displayName: v.displayName ?? '',
           registerAddress: reg,
           unit: live?.unit ?? v.unit ?? '',
-          value: live?.displayValue ?? live?.value ?? (hasLiveBatch ? null : v.displayValue ?? v.currentValue ?? null),
-          rawValue: live?.value ?? (hasLiveBatch ? null : v.currentValue ?? null),
+          value: val,
+          rawValue: raw,
           lastUpdatedAt: live?.lastUpdatedAt ?? v.lastUpdatedAt ?? null,
         }
       })
@@ -172,7 +258,7 @@ export default function DeviceSlaveMetricsPanel({
     } finally {
       setLoading(false)
     }
-  }, [deviceId])
+  }, [deviceId, slaves])
 
   useEffect(() => {
     if (!deviceId) {
