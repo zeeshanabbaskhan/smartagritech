@@ -367,7 +367,7 @@ export default function OrganizationAnalyticsPage({ type }) {
   useEffect(() => { reload() }, [type, deviceId, slaveId, timeRange])
 
   const scopeLabel = selectedSlave
-    ? `${selectedDevice?.name || ''} — ${selectedSlave.name || selectedSlave.id}`
+    ? `${selectedDevice?.name || ''} — ${getDisplaySlaveName(selectedSlave.name) || selectedSlave.id}`
     : selectedDevice ? selectedDevice.name : 'Organization'
 
   const filteredRows = useMemo(() => {
@@ -488,7 +488,7 @@ export default function OrganizationAnalyticsPage({ type }) {
                 <option value="">{type === 'anomalies' && !deviceId ? 'All meters' : 'Default (Gateway)'}</option>
               )}
               {availableSlaves.map((s) => (
-                <option key={s.id} value={s.id}>{s.name || s.id}</option>
+                <option key={s.id} value={s.id}>{getDisplaySlaveName(s.name) || s.id}</option>
               ))}
             </select>
           </div>

@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react'
 import emsApi, { list } from '../api/emsApi'
-import { mapDevice } from '../utils/mappers'
+import { mapDevice, getDisplaySlaveName } from '../utils/mappers'
 import { useAuth } from './AuthContext'
 import { onSocketEvent } from '../services/socketService'
 
@@ -40,7 +40,12 @@ export function DeviceProvider({ children }) {
     }
     try {
       const res = await emsApi.getDeviceConfig(deviceId, { withMetrics: 'true' })
-      const slaveList = list(res)
+      const rawSlaveList = list(res)
+      const slaveList = rawSlaveList.map((s) => ({
+        ...s,
+        name: getDisplaySlaveName(s.name),
+        displayName: getDisplaySlaveName(s.displayName || s.name),
+      }))
       setSlaves(slaveList)
       setSelectedSlaveId((prev) => {
         if (prev && slaveList.some((s) => sameId(s.id, prev))) return prev

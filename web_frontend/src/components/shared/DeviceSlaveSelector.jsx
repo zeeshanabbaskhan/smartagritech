@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from 'react'
 import { useDevices } from '../../context/DeviceContext'
 import { SearchableSelect } from '../ui/DataCenterFilterBar'
+import { getDisplaySlaveName } from '../../utils/mappers'
 
 function sameId(a, b) {
   if (a == null || b == null) return false
@@ -46,7 +47,7 @@ export default function DeviceSlaveSelector({
   )
 
   const slaveOptions = useMemo(
-    () => slaves.map((s) => ({ value: s.id, label: s.name ?? s.slaveName ?? s.id })),
+    () => slaves.map((s) => ({ value: s.id, label: getDisplaySlaveName(s.name ?? s.slaveName) || s.id })),
     [slaves],
   )
 

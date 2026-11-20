@@ -14,7 +14,7 @@ import { Skeleton } from 'boneyard-js/react'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
 import { fetchOrgStats, fetchOrgEnergyOverview } from '../../utils/dashboardHelpers'
-import { mapDevice, mapUser } from '../../utils/mappers'
+import { mapDevice, mapUser, getDisplaySlaveName } from '../../utils/mappers'
 import { readDeviceMetric, isOffline, isSwitchOff } from '../../utils/deviceMetrics'
 import emsApi, { list, one } from '../../api/emsApi'
 
@@ -1366,7 +1366,7 @@ export default function OrgDashboard() {
                               <span className="w-2 h-2 rounded-full bg-primary-500 flex-shrink-0" />
                               <div>
                                 <p className="text-xs font-bold text-surface-800 dark:text-surface-100 group-hover:text-primary-600 dark:group-hover:text-primary-400 transition-colors">
-                                  {name}
+                                  {getDisplaySlaveName(name)}
                                 </p>
                                 <p className="text-[10px] text-surface-400">Device: {devName}</p>
                               </div>
@@ -1544,7 +1544,7 @@ export default function OrgDashboard() {
                                     onChange={() => toggleEditSlave(slv.id)}
                                   />
                                   <span className="text-xs text-surface-700 dark:text-surface-200 flex-1">
-                                    {slv.name}
+                                    {getDisplaySlaveName(slv.name)}
                                     {slv.isDefault && (
                                       <span className="ml-1.5 text-[9px] text-surface-400 font-normal">(Default)</span>
                                     )}

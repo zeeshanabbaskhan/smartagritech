@@ -4,6 +4,7 @@ import emsApi, { list } from '../../api/emsApi'
 import { latestToReadings } from '../../utils/sensorReadings'
 import { formatMetricValue } from './dashboardFormatters'
 import { onSocketEvent, subscribeDevice, isSocketEnabled } from '../../services/socketService'
+import { getDisplaySlaveName } from '../../utils/mappers'
 
 /** Legacy cfsmartems.com default slave tab (not first-created slave). */
 const LEGACY_DEFAULT_SLAVE_NAMES = [
@@ -191,8 +192,13 @@ export default function DeviceSlaveMetricsPanel({
     let cancelled = false
     ;(async () => {
       try {
-        const slaveList = list(await emsApi.getDeviceConfig(deviceId, { limit: 100 }))
+        const rawSlaveList = list(await emsApi.getDeviceConfig(deviceId, { limit: 100 }))
         if (cancelled) return
+        const slaveList = rawSlaveList.map((s) => ({
+          ...s,
+          name: getDisplaySlaveName(s.name),
+          displayName: getDisplaySlaveName(s.displayName || s.name),
+        }))
         setSlaves(slaveList)
         const targetId = slaveId || pickDefaultSlaveId(slaveList)
         setActiveSlaveId(targetId)
@@ -302,7 +308,7 @@ export default function DeviceSlaveMetricsPanel({
                   }`}
                 >
                   <span className={`w-2 h-2 rounded-full flex-shrink-0 ${isOnline ? 'bg-emerald-400' : 'bg-surface-400'}`} />
-                  <span>{s.name ?? s.displayName ?? 'Slave'}</span>
+                  <span>{getDisplaySlaveName(s.name ?? s.displayName) || 'Slave'}</span>
                   {s.isDefault && <span className="text-[9px] opacity-75 font-normal">(Default)</span>}
                 </button>
               )
