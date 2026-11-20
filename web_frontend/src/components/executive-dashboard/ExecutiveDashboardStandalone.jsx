@@ -768,6 +768,54 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
           latestReadings.map((r) => [r.variableName, r]),
         )
 
+        // Office-Amb dynamic phase active power calculation:
+        // P_phase = (V_phase * I_phase * PF) / 1000, Total Power = P_A + P_B + P_C
+        let officeAmbPhase = null
+        const isOfficeAmb = /office[-_\s]*amb/i.test(node?.name || node?.slaveName || node?.displayName || '')
+        if (isOfficeAmb) {
+          const parseVal = (nameList) => {
+            for (const n of nameList) {
+              const item = latestMap[n]
+              if (item) {
+                const raw = item.value ?? item.displayValue
+                const num = parseFloat(String(raw).replace(/,/g, ''))
+                if (Number.isFinite(num)) return num
+              }
+              const vObj = vars.find((x) => (x.name === n || x.variableName === n))
+              if (vObj) {
+                const raw = vObj.currentValue ?? vObj.value ?? vObj.displayValue
+                const num = parseFloat(String(raw).replace(/,/g, ''))
+                if (Number.isFinite(num)) return num
+              }
+            }
+            return NaN
+          }
+          const vA = parseVal(['VoltageA', 'Voltage A', 'Voltage', 'Va', 'V1'])
+          const vB = parseVal(['VoltageB', 'Voltage B', 'Vb', 'V2']) || vA
+          const vC = parseVal(['VoltageC', 'Voltage C', 'Vc', 'V3']) || vA
+          const iA = parseVal(['Current A', 'CurrentA', 'Ia', 'I1'])
+          const iB = parseVal(['Current B', 'CurrentB', 'Ib', 'I2'])
+          const iC = parseVal(['Current C', 'CurrentC', 'Ic', 'I3'])
+          let pfRaw = parseVal(['Power Factor', 'PowerFactor', 'PF', 'pf'])
+          let pf = Number.isFinite(pfRaw) ? Math.abs(pfRaw) : 0.95
+          if (pf > 100.0 && pf <= 1000.0) pf = pf / 1000
+          else if (pf > 1.0 && pf <= 100.0) pf = pf / 100
+          if (!Number.isFinite(pf) || pf <= 0 || pf > 1.0) pf = 0.95
+
+          if (Number.isFinite(vA) && vA > 0 && Number.isFinite(iA) && Number.isFinite(iB) && Number.isFinite(iC)) {
+            const pA = (vA * iA * pf) / 1000
+            const pB = (vB * iB * pf) / 1000
+            const pC = (vC * iC * pf) / 1000
+            const total = pA + pB + pC
+            officeAmbPhase = {
+              pA: +pA.toFixed(2),
+              pB: +pB.toFixed(2),
+              pC: +pC.toFixed(2),
+              total: +total.toFixed(2),
+            }
+          }
+        }
+
         const merged = vars.map((v) => {
           const key = v.name ?? v.variableName
           const live = latestMap[key]
@@ -789,7 +837,18 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
           const formatted = formatMetricValue(rawVal, dispVal, key, unit)
           let numValue = formatted !== '—' && !isNaN(parseFloat(formatted)) ? parseFloat(formatted) : (dispVal || rawVal || '—')
 
-          if ((key === 'Total Power' || key === 'Power' || key === 'ActivePower') && (numValue === '—' || numValue === 0)) {
+          if (officeAmbPhase) {
+            const normKeyClean = key.toLowerCase().replace(/[\s_\-]/g, '')
+            if (normKeyClean === 'powera' || normKeyClean === 'activepowera' || normKeyClean === 'p1') {
+              numValue = officeAmbPhase.pA
+            } else if (normKeyClean === 'powerb' || normKeyClean === 'activepowerb' || normKeyClean === 'p2') {
+              numValue = officeAmbPhase.pB
+            } else if (normKeyClean === 'powerc' || normKeyClean === 'activepowerc' || normKeyClean === 'p3') {
+              numValue = officeAmbPhase.pC
+            } else if (normKeyClean === 'totalpower' || normKeyClean === 'power' || normKeyClean === 'activepower') {
+              numValue = (officeAmbPhase.total < 1.0 && officeAmbPhase.total > 0) ? +officeAmbPhase.total.toFixed(2) : +officeAmbPhase.total.toFixed(1)
+            }
+          } else if ((key === 'Total Power' || key === 'Power' || key === 'ActivePower') && (numValue === '—' || numValue === 0)) {
             const pa = parseFloat(latestMap['PowerA']?.value ?? latestMap['PowerA']?.displayValue ?? 0) || 0
             const pb = parseFloat(latestMap['PowerB']?.value ?? latestMap['PowerB']?.displayValue ?? 0) || 0
             const pc = parseFloat(latestMap['PowerC']?.value ?? latestMap['PowerC']?.displayValue ?? 0) || 0
