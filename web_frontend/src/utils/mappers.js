@@ -35,6 +35,10 @@ export function getDisplaySlaveName(name) {
   if (lower === 'spare') {
     return 'MetodWashing'
   }
+  // 5. Ambition: 'SHall1' / 'Sewing-IF-AMB' -> 'Sewing-1F-AMB'
+  if (lower === 'shall1' || lower === 's hall 1' || lower === 'shall 1' || lower === 'sewing-if-amb') {
+    return 'Sewing-1F-AMB'
+  }
 
   return trimmed
 }
