@@ -10,10 +10,14 @@ function clamp(val) {
 }
 
 function calculatePercentages(values, total) {
-  if (total <= 0) {
+  const sum = values.reduce((a, b) => a + (Number(b) || 0), 0)
+  const effectiveTotal = sum > 0 ? sum : Number(total) || 0
+
+  if (effectiveTotal <= 0 || sum <= 0) {
     return values.map(() => 0)
   }
-  const rawTenths = values.map((val) => (val / total) * 1000)
+
+  const rawTenths = values.map((val) => ((Number(val) || 0) / effectiveTotal) * 1000)
   const floorTenths = rawTenths.map((t) => Math.floor(t))
   let remainder = 1000 - floorTenths.reduce((a, b) => a + b, 0)
 
@@ -21,8 +25,10 @@ function calculatePercentages(values, total) {
     .map((t, i) => ({ frac: t - floorTenths[i], i }))
     .sort((a, b) => b.frac - a.frac)
 
-  for (let k = 0; k < remainder; k++) {
-    floorTenths[order[k].i]++
+  for (let k = 0; k < remainder && k < order.length; k++) {
+    if (order[k]) {
+      floorTenths[order[k].i]++
+    }
   }
   return floorTenths.map((t) => t / 10)
 }
@@ -155,11 +161,11 @@ function DonutLegend({ items, totalKw }) {
 
           <div className="flex items-center gap-1.5 font-mono">
             <span className="text-[10px] sm:text-[11px] font-black text-slate-900 dark:text-slate-100 text-right min-w-[48px]">
-              {item.kw.toFixed(1)}{' '}
+              {Number(item?.kw || 0).toFixed(1)}{' '}
               <span className="text-[7.5px] font-sans font-semibold text-slate-400">kW</span>
             </span>
             <span className="text-[9.5px] sm:text-[10px] font-bold text-slate-500 dark:text-slate-400 text-right min-w-[34px]">
-              {totalKw > 0 ? `${item.pct.toFixed(1)}%` : '0.0%'}
+              {totalKw > 0 ? `${Number(item?.pct || 0).toFixed(1)}%` : '0.0%'}
             </span>
           </div>
         </div>

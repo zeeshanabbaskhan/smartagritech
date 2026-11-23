@@ -1360,6 +1360,23 @@ export default function ExecutiveDashboardPage({ realData = null }) {
     return isAmbition ? INITIAL_FLOW_DATA : null
   })
 
+  // Synchronously sync data state when orgId changes to prevent mismatched render frames
+  const [prevOrgId, setPrevOrgId] = useState(orgId)
+  if (prevOrgId !== orgId) {
+    setPrevOrgId(orgId)
+    let nextData = null
+    try {
+      const cached = localStorage.getItem(getCacheKey(orgId))
+      if (cached) {
+        const parsed = JSON.parse(cached)
+        if (parsed?.metrics && parsed?.building1) {
+          nextData = parsed
+        }
+      }
+    } catch (_) {}
+    setData(nextData || (isAmbition ? INITIAL_FLOW_DATA : null))
+  }
+
   // Whenever active org changes, load its cached state immediately if available
   useEffect(() => {
     if (realData) {
@@ -1487,8 +1504,9 @@ export default function ExecutiveDashboardPage({ realData = null }) {
 
   return (
     <div className="w-full h-full min-h-screen bg-slate-50 dark:bg-slate-950">
-      <ExecutiveErrorBoundary cacheKey={cacheKey} onReset={() => setData(isAmbition ? INITIAL_FLOW_DATA : null)}>
+      <ExecutiveErrorBoundary key={orgId} cacheKey={cacheKey} onReset={() => setData(isAmbition ? INITIAL_FLOW_DATA : null)}>
         <ExecutiveDashboard
+          key={orgId}
           initialData={displayData}
           liveSimulation={false}
           showPreviewHeader={false}
