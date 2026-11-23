@@ -848,17 +848,22 @@ function BreakerTelemetryDrawer({ node, onClose, onToggleTrip }) {
             } else if (normKeyClean === 'totalpower' || normKeyClean === 'power' || normKeyClean === 'activepower') {
               numValue = (officeAmbPhase.total < 1.0 && officeAmbPhase.total > 0) ? +officeAmbPhase.total.toFixed(2) : +officeAmbPhase.total.toFixed(1)
             }
-          } else if ((key === 'Total Power' || key === 'Power' || key === 'ActivePower') && (numValue === '—' || numValue === 0)) {
-            const pa = parseFloat(latestMap['PowerA']?.value ?? latestMap['PowerA']?.displayValue ?? 0) || 0
-            const pb = parseFloat(latestMap['PowerB']?.value ?? latestMap['PowerB']?.displayValue ?? 0) || 0
-            const pc = parseFloat(latestMap['PowerC']?.value ?? latestMap['PowerC']?.displayValue ?? 0) || 0
-            const sumP = pa + pb + pc
-            if (sumP > 0) {
-              numValue = +sumP.toFixed(1)
-            } else if (Number.isFinite(node.loadKw) && node.loadKw > 0) {
-              numValue = +Number(node.loadKw).toFixed(1)
-            } else if (numValue === '—') {
-              numValue = 0.0
+          } else if (key === 'Total Power' || key === 'Power' || key === 'ActivePower') {
+            const isOffice = /office[-_\s]*amb/i.test(node?.name || '')
+            if (isOffice && Number.isFinite(node.loadKw) && node.loadKw > 0) {
+              numValue = (node.loadKw < 1.0 && node.loadKw > 0) ? +Number(node.loadKw).toFixed(2) : +Number(node.loadKw).toFixed(1)
+            } else if (numValue === '—' || numValue === 0) {
+              const pa = parseFloat(latestMap['PowerA']?.value ?? latestMap['PowerA']?.displayValue ?? 0) || 0
+              const pb = parseFloat(latestMap['PowerB']?.value ?? latestMap['PowerB']?.displayValue ?? 0) || 0
+              const pc = parseFloat(latestMap['PowerC']?.value ?? latestMap['PowerC']?.displayValue ?? 0) || 0
+              const sumP = pa + pb + pc
+              if (sumP > 0) {
+                numValue = +sumP.toFixed(1)
+              } else if (Number.isFinite(node.loadKw) && node.loadKw > 0) {
+                numValue = (node.loadKw < 1.0 && node.loadKw > 0) ? +Number(node.loadKw).toFixed(2) : +Number(node.loadKw).toFixed(1)
+              } else if (numValue === '—') {
+                numValue = 0.0
+              }
             }
           }
           if ((key === 'Units' || key === 'Active Energy') && (numValue === '—' || !Number.isFinite(numValue))) {
@@ -2772,27 +2777,31 @@ function EnergyFlowOverview({ data, onSelectNode }) {
 
   const metrics = data.metrics || {}
   const building1 = data.building1 || {}
-  const building2 = data.building2 || {}
+  const building2 = data.building2
+  const hasBuilding2 = !!(building2 && (
+    (Array.isArray(building2.row1) && building2.row1.length > 0) ||
+    (Array.isArray(building2.sources) && building2.sources.length > 0)
+  ))
   const executiveLimits = data.executiveLimits || {}
   const slaveThresholds = executiveLimits.slaveThresholds || {}
   const slaveDefault = executiveLimits.slaveDefault || {}
 
   // Aggregate cumulative units for top plant overview cards directly from real telemetry
   const b1WapdaUnits = Number(building1.sources?.find((s) => s.id === 'b1-wapda')?.units || 0)
-  const b2WapdaUnits = Number(building2.sources?.find((s) => s.id === 'b2-wapda')?.units || 0)
+  const b2WapdaUnits = Number(building2?.sources?.find((s) => s.id === 'b2-wapda')?.units || 0)
   const totalWapdaUnits = Number((b1WapdaUnits + b2WapdaUnits).toFixed(1))
 
   const b1RunningUnits = Number(building1.units || (building1.sources || []).reduce((sum, s) => sum + (Number(s.units) || 0), 0) || 0)
-  const b2RunningUnits = Number(building2.units || (building2.sources || []).reduce((sum, s) => sum + (Number(s.units) || 0), 0) || 0)
+  const b2RunningUnits = Number(building2?.units || (building2?.sources || []).reduce((sum, s) => sum + (Number(s.units) || 0), 0) || 0)
   const totalRunningUnits = Number((b1RunningUnits + b2RunningUnits).toFixed(1))
 
   const b1SolarUnits = Number(building1.sources?.find((s) => s.type === 'solar')?.units || 0)
-  const b2SolarUnits = Number(building2.sources?.find((s) => s.type === 'solar')?.units || 0)
+  const b2SolarUnits = Number(building2?.sources?.find((s) => s.type === 'solar')?.units || 0)
   const totalSolarUnits = Number((b1SolarUnits + b2SolarUnits).toFixed(1))
 
   const b1Gen1Units = Number(building1.sources?.find((s) => s.id === 'b1-genset1')?.units || 0)
   const b1Gen2Units = Number(building1.sources?.find((s) => s.id === 'b1-genset2')?.units || 0)
-  const b2GenUnits = Number(building2.sources?.find((s) => s.type === 'genset')?.units || 0)
+  const b2GenUnits = Number(building2?.sources?.find((s) => s.type === 'genset')?.units || 0)
   const totalGensetUnits = Number((b1Gen1Units + b1Gen2Units + b2GenUnits).toFixed(1))
 
   const thresholds = executiveLimits.thresholds || {}
@@ -2943,7 +2952,7 @@ function EnergyFlowOverview({ data, onSelectNode }) {
         key={b.id || `${buildingCode}-${name}`}
         onClick={() => onSelectNode?.(b, buildingCode)}
         className={`group relative p-1 sm:p-1.5 rounded-lg border text-center transition-all duration-150 cursor-pointer select-none flex flex-col justify-between min-h-[44px] sm:min-h-[46px] shadow-2xs ${cardStyle}`}
-        title={`${name} - ${loadKwVal.toFixed(1)} kW ${isCritical ? `(CRITICAL >= ${critLimit} kW)` : isHeavy ? `(WARNING >= ${warnLimit} kW)` : isTripped ? '(TRIPPED)' : isStandby ? `(STANDBY - ${Number(b.voltage || 0).toFixed(0)}V)` : isOffline ? '(OFFLINE - 0V)' : '(NORMAL)'}`}
+        title={`${name} - ${(loadKwVal < 1.0 && loadKwVal > 0 ? loadKwVal.toFixed(2) : loadKwVal.toFixed(1))} kW ${isCritical ? `(CRITICAL >= ${critLimit} kW)` : isHeavy ? `(WARNING >= ${warnLimit} kW)` : isTripped ? '(TRIPPED)' : isStandby ? `(STANDBY - ${Number(b.voltage || 0).toFixed(0)}V)` : isOffline ? '(OFFLINE - 0V)' : '(NORMAL)'}`}
       >
         <div
           className="w-full text-center text-[7.5px] sm:text-[8px] font-bold tracking-tight leading-[1.15] line-clamp-2 px-0.5 text-slate-800 dark:text-slate-100 flex items-center justify-center gap-0.5"
@@ -2958,7 +2967,7 @@ function EnergyFlowOverview({ data, onSelectNode }) {
           <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotClass}`} />
           <div className="flex items-baseline font-mono leading-none">
             <span className={`text-[10px] sm:text-[11px] font-black tracking-tight ${valueClass}`}>
-              {loadKwVal.toFixed(1)}
+              {loadKwVal < 1.0 && loadKwVal > 0 ? loadKwVal.toFixed(2) : loadKwVal.toFixed(1)}
             </span>
             <span className="text-[7px] font-sans font-semibold text-slate-400 ml-0.5">
               kW
@@ -3112,7 +3121,7 @@ function EnergyFlowOverview({ data, onSelectNode }) {
             <div className="flex items-center justify-center gap-1.5">
               <Sun size={14} className="text-amber-600 dark:text-amber-400 shrink-0" />
               <span className="text-[8px] sm:text-[8.5px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 block truncate">
-                Solar Total (All 7 Inverters B1+B2)
+                {hasBuilding2 ? 'Solar Total (All 7 Inverters B1+B2)' : 'Total Solar Power'}
               </span>
             </div>
             <div className="flex items-baseline justify-center gap-1">
@@ -3171,32 +3180,34 @@ function EnergyFlowOverview({ data, onSelectNode }) {
       </div>
 
       {/* ─── 3. HORIZONTAL SCHEMATIC BUS CONNECTOR LINE ─── */}
-      <div className="relative h-2.5 flex items-center justify-center">
-        {/* Main horizontal busbar connecting B1 to B2 */}
-        <div className="w-[88%] h-0.5 bg-slate-400 dark:bg-slate-600 rounded-full relative">
-          <div className="absolute inset-0 bg-linear-to-r from-blue-500 via-primary-500 to-emerald-500 rounded-full opacity-70 animate-pulse" />
+      {hasBuilding2 && (
+        <div className="relative h-2.5 flex items-center justify-center">
+          {/* Main horizontal busbar connecting B1 to B2 */}
+          <div className="w-[88%] h-0.5 bg-slate-400 dark:bg-slate-600 rounded-full relative">
+            <div className="absolute inset-0 bg-linear-to-r from-blue-500 via-primary-500 to-emerald-500 rounded-full opacity-70 animate-pulse" />
+          </div>
+          {/* Vertical drops down to B1 and B2 */}
+          <div className="absolute left-[8%] top-1.5 w-0.5 h-1.5 bg-slate-400 dark:bg-slate-600" />
+          <div className="absolute right-[8%] top-1.5 w-0.5 h-1.5 bg-slate-400 dark:bg-slate-600" />
         </div>
-        {/* Vertical drops down to B1 and B2 */}
-        <div className="absolute left-[8%] top-1.5 w-0.5 h-1.5 bg-slate-400 dark:bg-slate-600" />
-        <div className="absolute right-[8%] top-1.5 w-0.5 h-1.5 bg-slate-400 dark:bg-slate-600" />
-      </div>
+      )}
 
-      {/* ─── 4. DUAL BRANCH SPLIT: B1 (LEFT) & B2 (RIGHT) ─── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 xl:gap-3 items-start">
+      {/* ─── 4. DUAL BRANCH SPLIT (OR SINGLE FACILITY) ─── */}
+      <div className={`grid ${hasBuilding2 ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1 w-full max-w-5xl mx-auto'} gap-2 xl:gap-3 items-start`}>
         {/* ============================================================== */}
-        {/* ─── LEFT: B1 (AMBITION) ────────────────────────────────────── */}
+        {/* ─── LEFT: BUILDING 1 (MAIN / B1) ───────────────────────────── */}
         {/* ============================================================== */}
         <div className="p-1.5 sm:p-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xs flex flex-col justify-between">
           {/* B1 Header Row with Donut */}
           <div className="flex items-center justify-between gap-2 mb-1 px-1">
             <div className="flex flex-col items-start">
               <span className="text-[8.5px] sm:text-[9px] font-bold text-slate-500 uppercase tracking-widest leading-none mb-1">
-                B1 (Ambition)
+                {building1.name || 'Building 1'}
               </span>
               <div
-                onClick={() => onSelectNode?.({ ...building1, id: 'b1-total-running-load', name: 'Total Running Load B1 (AMB)', category: 'Main Substation', loadKw: building1.runningLoad, units: b1RunningUnits, contributingSlaves: metrics.contributingSlaves?.runningLoadB1 || INITIAL_FLOW_DATA.metrics.contributingSlaves.runningLoadB1 }, 'B1')}
+                onClick={() => onSelectNode?.({ ...building1, id: 'b1-total-running-load', name: building1.name ? `Total Running Load (${building1.name})` : 'Total Running Load B1', category: 'Main Substation', loadKw: building1.runningLoad, units: b1RunningUnits, contributingSlaves: metrics.contributingSlaves?.runningLoadB1 || INITIAL_FLOW_DATA.metrics.contributingSlaves.runningLoadB1 }, 'B1')}
                 className={`px-3 py-1 rounded-lg border-2 text-center cursor-pointer hover:scale-[1.01] transition shadow-2xs relative ${b1LoadAlert.cardStyle}`}
-                title="Click to view total plant B1 inflow telemetry & history"
+                title="Click to view total plant inflow telemetry & history"
               >
                 {b1LoadAlert.badgeText && (
                   <span className={`absolute -top-2 right-2 text-[7.5px] font-black px-1 py-0.2 rounded-full ${b1LoadAlert.badgeClass}`}>
@@ -3204,7 +3215,7 @@ function EnergyFlowOverview({ data, onSelectNode }) {
                   </span>
                 )}
                 <span className="text-[8px] sm:text-[8.5px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 block leading-none mb-0.5">
-                  Total Running Load B1
+                  {hasBuilding2 ? 'Total Running Load B1' : 'Total Running Load'}
                 </span>
                 <span className="text-sm sm:text-base font-black font-mono text-slate-900 dark:text-slate-100 leading-tight">
                   {Number(building1.runningLoad || 0).toFixed(1)} <span className="text-[8px] font-sans font-bold text-slate-400">kW</span>
@@ -3212,16 +3223,16 @@ function EnergyFlowOverview({ data, onSelectNode }) {
               </div>
             </div>
 
-            {/* Embedded Ambition Donut Card */}
+            {/* Embedded Donut Card */}
             <Building1RunningLoadDonut data={data} />
           </div>
 
-          {/* B1 Sources Row (4 Boxes from Sketch) */}
-          <div className="grid grid-cols-4 gap-1 mb-0.5">
+          {/* B1 Sources Row */}
+          <div className={`grid ${building1.sources && building1.sources.length >= 4 ? 'grid-cols-4' : 'grid-cols-3'} gap-1 mb-0.5`}>
             {(building1.sources || []).map((src) => {
               const srcKw = Number(src?.loadKw || 0)
-              const isWapda = src.id === 'b1-wapda' || src.type === 'grid' || /wapda/i.test(src.name)
-              const isSolar = src.type === 'solar' || /solar/i.test(src.name)
+              const isWapda = src.id === 'b1-wapda' || src.type === 'grid' || /wapda|grid/i.test(src.name)
+              const isSolar = src.type === 'solar' || /solar|pv/i.test(src.name)
               const isGenset = src.type === 'genset' || /genset|gen/i.test(src.name)
 
               const defaultBorder = isWapda ? 'border-blue-500' : isSolar ? 'border-amber-500' : 'border-purple-500'
@@ -3260,142 +3271,158 @@ function EnergyFlowOverview({ data, onSelectNode }) {
           <div className="flex items-center justify-center relative my-0.5">
             <div className="w-full h-0.5 bg-slate-400 dark:bg-slate-600" />
             <div className="absolute px-1.5 py-0.2 rounded bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-[8.5px] font-bold text-slate-600 dark:text-slate-300 whitespace-nowrap">
-              &#123; B1 Side Total 24 Breakers &#125;
+              &#123; {building1.name || 'Plant'} Total {[...(building1.row1 || []), ...(building1.row2 || []), ...(building1.row3 || []), ...(building1.row4 || [])].length} Breakers &#125;
             </div>
           </div>
 
-          {/* 4 Rows of Breakers */}
-          <div className="space-y-1 mt-1">
-            {/* Row 1 (7 boxes) */}
-            <div className="grid grid-cols-7 gap-1">
-              {(building1.row1 || []).map((b) => renderBreakerBox(b, 'B1'))}
+          {/* 4 Rows of Breakers OR Onboarding Empty State */}
+          {building1.isEmpty ? (
+            <div className="p-8 text-center flex flex-col items-center justify-center min-h-[190px] border border-dashed border-slate-200 dark:border-slate-800 rounded-xl my-2 bg-slate-50/50 dark:bg-slate-900/40">
+              <div className="w-10 h-10 rounded-full bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 flex items-center justify-center mb-2 shadow-2xs">
+                <Cpu className="text-blue-500 w-5 h-5 animate-pulse" />
+              </div>
+              <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200 mb-1">
+                No Devices Registered Yet
+              </h3>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 max-w-sm">
+                Add gateways and meter devices in Device Management to view real-time power flow and telemetry for {data.organizationName || 'your organization'}.
+              </p>
             </div>
-            {/* Row 2 (7 boxes) */}
-            <div className="grid grid-cols-7 gap-1">
-              {(building1.row2 || []).map((b) => renderBreakerBox(b, 'B1'))}
+          ) : (
+            <div className="space-y-1 mt-1">
+              {/* Row 1 (7 boxes) */}
+              <div className="grid grid-cols-7 gap-1">
+                {(building1.row1 || []).map((b) => renderBreakerBox(b, 'B1'))}
+              </div>
+              {/* Row 2 (7 boxes) */}
+              <div className="grid grid-cols-7 gap-1">
+                {(building1.row2 || []).map((b) => renderBreakerBox(b, 'B1'))}
+              </div>
+              {/* Row 3 (boxes) */}
+              <div className="grid grid-cols-7 gap-1">
+                {(building1.row3 || []).map((b) => renderBreakerBox(b, 'B1'))}
+                {(building1.row3?.length || 0) < 7 && (
+                  <div style={{ gridColumn: `span ${Math.max(1, 7 - (building1.row3?.length || 0))}` }} />
+                )}
+              </div>
+              {/* Row 4 (boxes) */}
+              <div className="grid grid-cols-7 gap-1">
+                {(building1.row4 || []).map((b) => renderBreakerBox(b, 'B1'))}
+                {/* Dynamic blank fillers to maintain 7-col alignment */}
+                <div style={{ gridColumn: `span ${Math.max(1, 7 - (building1.row4?.length || 0))}` }} />
+              </div>
             </div>
-            {/* Row 3 (boxes) */}
-            <div className="grid grid-cols-7 gap-1">
-              {(building1.row3 || []).map((b) => renderBreakerBox(b, 'B1'))}
-              {(building1.row3?.length || 0) < 7 && (
-                <div style={{ gridColumn: `span ${Math.max(1, 7 - (building1.row3?.length || 0))}` }} />
-              )}
-            </div>
-            {/* Row 4 (boxes) */}
-            <div className="grid grid-cols-7 gap-1">
-              {(building1.row4 || []).map((b) => renderBreakerBox(b, 'B1'))}
-              {/* Dynamic blank fillers to maintain 7-col alignment */}
-              <div style={{ gridColumn: `span ${Math.max(1, 7 - (building1.row4?.length || 0))}` }} />
-            </div>
-          </div>
+          )}
         </div>
 
         {/* ============================================================== */}
-        {/* ─── RIGHT: BUILDING 2 (AFL) ────────────────────────────────── */}
+        {/* ─── RIGHT: BUILDING 2 (OPTIONAL SECOND SITE / AFL) ─────────── */}
         {/* ============================================================== */}
-        <div className="p-1.5 sm:p-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xs flex flex-col justify-between">
-          {/* B2 Header Row with Donut (Mirrored: Donut inner-left, Total Card outer-right) */}
-          <div className="flex items-center justify-between gap-2 mb-1 px-1">
-            {/* Embedded AFL Donut Card */}
-            <Building2RunningLoadDonut data={data} />
+        {hasBuilding2 && (
+          <div className="p-1.5 sm:p-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xs flex flex-col justify-between">
+            {/* B2 Header Row with Donut */}
+            <div className="flex items-center justify-between gap-2 mb-1 px-1">
+              {/* Embedded AFL Donut Card */}
+              <Building2RunningLoadDonut data={data} />
 
-            <div className="flex flex-col items-end">
-              <span className="text-[8.5px] sm:text-[9px] font-bold text-slate-500 uppercase tracking-widest leading-none mb-1">
-                Building 2 (AFL)
-              </span>
-              <div
-                onClick={() => onSelectNode?.({ ...building2, id: 'b2-total-running-load', name: 'Total Running Load B2 (AFL)', category: 'Main Substation', loadKw: building2.runningLoad, units: b2RunningUnits, contributingSlaves: metrics.contributingSlaves?.runningLoadB2 || INITIAL_FLOW_DATA.metrics.contributingSlaves.runningLoadB2 }, 'B2')}
-                className={`px-3 py-1 rounded-lg border-2 text-center cursor-pointer hover:scale-[1.01] transition shadow-2xs relative ${b2LoadAlert.cardStyle}`}
-                title="Click to view total plant B2 inflow telemetry & history"
-              >
-                {b2LoadAlert.badgeText && (
-                  <span className={`absolute -top-2 right-2 text-[7.5px] font-black px-1 py-0.2 rounded-full ${b2LoadAlert.badgeClass}`}>
-                    {b2LoadAlert.badgeText}
+              <div className="flex flex-col items-end">
+                <span className="text-[8.5px] sm:text-[9px] font-bold text-slate-500 uppercase tracking-widest leading-none mb-1">
+                  {building2?.name || 'Building 2'}
+                </span>
+                <div
+                  onClick={() => onSelectNode?.({ ...building2, id: 'b2-total-running-load', name: building2?.name ? `Total Running Load (${building2.name})` : 'Total Running Load B2 (AFL)', category: 'Main Substation', loadKw: building2?.runningLoad, units: b2RunningUnits, contributingSlaves: metrics.contributingSlaves?.runningLoadB2 || INITIAL_FLOW_DATA.metrics.contributingSlaves.runningLoadB2 }, 'B2')}
+                  className={`px-3 py-1 rounded-lg border-2 text-center cursor-pointer hover:scale-[1.01] transition shadow-2xs relative ${b2LoadAlert.cardStyle}`}
+                  title="Click to view total plant B2 inflow telemetry & history"
+                >
+                  {b2LoadAlert.badgeText && (
+                    <span className={`absolute -top-2 right-2 text-[7.5px] font-black px-1 py-0.2 rounded-full ${b2LoadAlert.badgeClass}`}>
+                      {b2LoadAlert.badgeText}
+                    </span>
+                  )}
+                  <span className="text-[8px] sm:text-[8.5px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 block leading-none mb-0.5">
+                    Total Running Load B2
                   </span>
+                  <span className="text-sm sm:text-base font-black font-mono text-slate-900 dark:text-slate-100 leading-tight">
+                    {Number(building2?.runningLoad || 0).toFixed(1)} <span className="text-[8px] font-sans font-bold text-slate-400">kW</span>
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* B2 Sources Row */}
+            <div className="grid grid-cols-3 gap-1 mb-0.5">
+              {(building2?.sources || []).map((src) => {
+                const srcKw = Number(src?.loadKw || 0)
+                const isWapda = src.id === 'b2-wapda' || src.type === 'grid' || /wapda/i.test(src.name)
+                const isSolar = src.type === 'solar' || /solar/i.test(src.name)
+                const isGenset = src.type === 'genset' || /genset|gen/i.test(src.name)
+
+                const defaultBorder = isWapda ? 'border-blue-500' : isSolar ? 'border-amber-500' : 'border-purple-500'
+                const srcConf = sourceThresholds[src.id] || sourceThresholds[src.slaveId] || (isWapda ? thresholds.gridPower : isSolar ? thresholds.solarPower : thresholds.generatorPower)
+                const srcAlert = evaluateCardAlert(srcKw, srcConf, defaultBorder)
+
+                return (
+                  <div
+                    key={src.id}
+                    onClick={() => onSelectNode?.(src, 'B2')}
+                    className={`group py-0.5 px-1 rounded-md border text-center cursor-pointer hover:shadow-xs transition shadow-2xs relative ${srcAlert.cardStyle}`}
+                    title={`${src.name} - ${srcKw.toFixed(1)} kW (Click to view live telemetry & historical graph)`}
+                  >
+                    {srcAlert.badgeText && (
+                      <span className={`absolute -top-1.5 right-1 text-[6.5px] font-bold px-1 py-0.1 rounded-full ${srcAlert.badgeClass}`}>
+                        {srcAlert.badgeText}
+                      </span>
+                    )}
+                    <div className="flex items-center justify-center gap-1 px-0.5 mb-0.5">
+                      {isWapda && <Zap size={13} className="text-blue-500 shrink-0" />}
+                      {isSolar && <Sun size={13} className="text-amber-500 shrink-0" />}
+                      {isGenset && <Fuel size={13} className="text-purple-500 shrink-0" />}
+                      <span className="text-[7px] sm:text-[7.5px] font-bold text-slate-800 dark:text-slate-200 block truncate leading-tight group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition" title={src.name}>
+                        {src.name}
+                      </span>
+                    </div>
+                    <span className="text-[9.5px] sm:text-[10px] font-black font-mono text-slate-900 dark:text-slate-100 leading-none">
+                      {srcKw.toFixed(1)} <span className="text-[7px] font-sans text-slate-400">kW</span>
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* Distribution Feeder Busbar */}
+            <div className="flex items-center justify-center relative my-0.5">
+              <div className="w-full h-0.5 bg-slate-400 dark:bg-slate-600" />
+              <div className="absolute px-1.5 py-0.2 rounded bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-[8.5px] font-bold text-slate-600 dark:text-slate-300 whitespace-nowrap">
+                &#123; {building2?.name || 'Plant'} Total {[...(building2?.row1 || []), ...(building2?.row2 || []), ...(building2?.row3 || []), ...(building2?.row4 || [])].length} Breakers &#125;
+              </div>
+            </div>
+
+            {/* 4 Rows of Breakers */}
+            <div className="space-y-1 mt-1">
+              {/* Row 1 (7 boxes) */}
+              <div className="grid grid-cols-7 gap-1">
+                {(building2?.row1 || []).map((b) => renderBreakerBox(b, 'B2'))}
+              </div>
+              {/* Row 2 (7 boxes) */}
+              <div className="grid grid-cols-7 gap-1">
+                {(building2?.row2 || []).map((b) => renderBreakerBox(b, 'B2'))}
+              </div>
+              {/* Row 3 (boxes) */}
+              <div className="grid grid-cols-7 gap-1">
+                {(building2?.row3 || []).map((b) => renderBreakerBox(b, 'B2'))}
+                {(building2?.row3?.length || 0) < 7 && (
+                  <div style={{ gridColumn: `span ${Math.max(1, 7 - (building2?.row3?.length || 0))}` }} />
                 )}
-                <span className="text-[8px] sm:text-[8.5px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 block leading-none mb-0.5">
-                  Total Running Load B2
-                </span>
-                <span className="text-sm sm:text-base font-black font-mono text-slate-900 dark:text-slate-100 leading-tight">
-                  {Number(building2.runningLoad || 0).toFixed(1)} <span className="text-[8px] font-sans font-bold text-slate-400">kW</span>
-                </span>
+              </div>
+              {/* Row 4 (boxes) */}
+              <div className="grid grid-cols-7 gap-1">
+                {(building2?.row4 || []).map((b) => renderBreakerBox(b, 'B2'))}
+                {/* Dynamic blank fillers to maintain 7-col alignment */}
+                <div style={{ gridColumn: `span ${Math.max(1, 7 - (building2?.row4?.length || 0))}` }} />
               </div>
             </div>
           </div>
-
-          {/* B2 Sources Row (3 Boxes from Sketch: Solar 2 Inv, Genset 1, Wapda - B2) */}
-          <div className="grid grid-cols-3 gap-1 mb-0.5">
-            {(building2.sources || []).map((src) => {
-              const srcKw = Number(src?.loadKw || 0)
-              const isWapda = src.id === 'b2-wapda' || src.type === 'grid' || /wapda/i.test(src.name)
-              const isSolar = src.type === 'solar' || /solar/i.test(src.name)
-              const isGenset = src.type === 'genset' || /genset|gen/i.test(src.name)
-
-              const defaultBorder = isWapda ? 'border-blue-500' : isSolar ? 'border-amber-500' : 'border-purple-500'
-              const srcConf = sourceThresholds[src.id] || sourceThresholds[src.slaveId] || (isWapda ? thresholds.gridPower : isSolar ? thresholds.solarPower : thresholds.generatorPower)
-              const srcAlert = evaluateCardAlert(srcKw, srcConf, defaultBorder)
-
-              return (
-                <div
-                  key={src.id}
-                  onClick={() => onSelectNode?.(src, 'B2')}
-                  className={`group py-0.5 px-1 rounded-md border text-center cursor-pointer hover:shadow-xs transition shadow-2xs relative ${srcAlert.cardStyle}`}
-                  title={`${src.name} - ${srcKw.toFixed(1)} kW (Click to view live telemetry & historical graph)`}
-                >
-                  {srcAlert.badgeText && (
-                    <span className={`absolute -top-1.5 right-1 text-[6.5px] font-bold px-1 py-0.1 rounded-full ${srcAlert.badgeClass}`}>
-                      {srcAlert.badgeText}
-                    </span>
-                  )}
-                  <div className="flex items-center justify-center gap-1 px-0.5 mb-0.5">
-                    {isWapda && <Zap size={13} className="text-blue-500 shrink-0" />}
-                    {isSolar && <Sun size={13} className="text-amber-500 shrink-0" />}
-                    {isGenset && <Fuel size={13} className="text-purple-500 shrink-0" />}
-                    <span className="text-[7px] sm:text-[7.5px] font-bold text-slate-800 dark:text-slate-200 block truncate leading-tight group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition" title={src.name}>
-                      {src.name}
-                    </span>
-                  </div>
-                  <span className="text-[9.5px] sm:text-[10px] font-black font-mono text-slate-900 dark:text-slate-100 leading-none">
-                    {srcKw.toFixed(1)} <span className="text-[7px] font-sans text-slate-400">kW</span>
-                  </span>
-                </div>
-              )
-            })}
-          </div>
-
-          {/* Distribution Feeder Busbar */}
-          <div className="flex items-center justify-center relative my-0.5">
-            <div className="w-full h-0.5 bg-slate-400 dark:bg-slate-600" />
-            <div className="absolute px-1.5 py-0.2 rounded bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-[8.5px] font-bold text-slate-600 dark:text-slate-300 whitespace-nowrap">
-              &#123; B2 Side Total 22 Breakers &#125;
-            </div>
-          </div>
-
-          {/* 4 Rows of Breakers */}
-          <div className="space-y-1 mt-1">
-            {/* Row 1 (7 boxes) */}
-            <div className="grid grid-cols-7 gap-1">
-              {(building2.row1 || []).map((b) => renderBreakerBox(b, 'B2'))}
-            </div>
-            {/* Row 2 (7 boxes) */}
-            <div className="grid grid-cols-7 gap-1">
-              {(building2.row2 || []).map((b) => renderBreakerBox(b, 'B2'))}
-            </div>
-            {/* Row 3 (boxes) */}
-            <div className="grid grid-cols-7 gap-1">
-              {(building2.row3 || []).map((b) => renderBreakerBox(b, 'B2'))}
-              {(building2.row3?.length || 0) < 7 && (
-                <div style={{ gridColumn: `span ${Math.max(1, 7 - (building2.row3?.length || 0))}` }} />
-              )}
-            </div>
-            {/* Row 4 (boxes) */}
-            <div className="grid grid-cols-7 gap-1">
-              {(building2.row4 || []).map((b) => renderBreakerBox(b, 'B2'))}
-              {/* Dynamic blank fillers to maintain 7-col alignment */}
-              <div style={{ gridColumn: `span ${Math.max(1, 7 - (building2.row4?.length || 0))}` }} />
-            </div>
-          </div>
-        </div>
+        )}
       </div>
     </div>
   )
@@ -3424,8 +3451,16 @@ export default function ExecutiveDashboard({
   showPreviewHeader = false,
   onBreakerSelect,
   onRefresh,
+  organizationSelector = null,
+  organizationName = null,
 }) {
   const [data, setData] = useState(() => initialData || INITIAL_FLOW_DATA)
+
+  useEffect(() => {
+    if (initialData) {
+      setData(initialData)
+    }
+  }, [initialData])
   const [isLive, setIsLive] = useState(liveSimulation)
   const [refreshIntervalMs, setRefreshIntervalMs] = useState(3000)
   const [selectedNode, setSelectedNode] = useState(null)
@@ -3576,14 +3611,22 @@ export default function ExecutiveDashboard({
             <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
               Energy Flow Overview
             </span>
+            {organizationName && (
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                {organizationName}
+              </span>
+            )}
           </div>
           <p className="text-[11px] text-slate-500 mt-0.5 leading-tight">
-            Real-time dual-building power distribution network for <strong className="text-slate-700 dark:text-slate-300">Building 1 (Ambition)</strong> and <strong className="text-slate-700 dark:text-slate-300">Building 2 (AFL)</strong>.
+            {organizationName
+              ? `Real-time power distribution network for ${organizationName}.`
+              : 'Real-time dual-building power distribution network for Building 1 (Ambition) and Building 2 (AFL).'}
           </p>
         </div>
 
         {/* Action & View Controls */}
         <div className="flex flex-wrap items-center gap-2">
+          {organizationSelector}
           {/* Zoom / Screen Fit Controller */}
           <div className="flex items-center rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-1.5 py-1 text-xs gap-1 shadow-2xs">
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-1 hidden sm:inline">

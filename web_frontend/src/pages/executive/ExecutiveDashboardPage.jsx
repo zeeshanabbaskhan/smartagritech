@@ -1,4 +1,6 @@
 import { Component, useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { Building2 } from 'lucide-react'
 import ExecutiveDashboard, { INITIAL_FLOW_DATA, isFifteenVarSlave } from '../../components/executive-dashboard/ExecutiveDashboardStandalone'
 import emsApi, { list, one } from '../../api/emsApi'
 import { mapDevice, getDisplaySlaveName } from '../../utils/mappers'
@@ -7,7 +9,7 @@ import { onSocketEvent } from '../../services/socketService'
 import { useAuth } from '../../context/AuthContext'
 
 const AMBITION_ORG_ID = 'b99129f8-85f2-44c2-81ca-cc2d876092ea'
-const CACHE_KEY = 'ems_exec_ambition_v17'
+const getCacheKey = (orgId) => `ems_exec_${orgId || 'default'}_v19`
 
 /**
  * Safely parse any metric value (number, string, or { value, displayValue, unit } object).
@@ -456,6 +458,8 @@ function makeBreakerNode(id, fallbackName, defaultRatedA, slaveObj, buildingCode
       metricKw = phaseSum
     } else if (hasPfPower && apparentActiveKw > 0 && (!Number.isFinite(tpNum) || tpNum === 0)) {
       metricKw = apparentActiveKw
+    } else if (hasPhasePowers && phaseSum > 0) {
+      metricKw = phaseSum
     } else if (Number.isFinite(tpNum) && tpNum > 0) {
       metricKw = tpNum
     } else if (hasPfPower && apparentActiveKw > 0) {
@@ -661,7 +665,7 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
   const b1Row2 = [
     makeBreakerNode('b1-r2-1', 'Cutting Hall', 300, findSlave(['Cutting Hall', 'chall', 'c hall']), 'B1'),
     makeBreakerNode('b1-r2-2', 'Laser Hall', 100, findSlave(['Laser Hall', 'lhall', 'l hall']), 'B1'),
-    makeBreakerNode('b1-r2-3', 'ETP-AMB', 200, findSlave(['ETP-AMB', 'etp-amb', 'afl']), 'B1'),
+    makeBreakerNode('b1-r2-3', 'ETP-AMB', 200, findSlave(['ETP-AMB', 'etp-amb', 'etp amb']), 'B1'),
     makeBreakerNode('b1-r2-4', 'LT Room', 125, findSlave(['LT Room', 'lt room', 'lt']), 'B1'),
     makeBreakerNode('b1-r2-5', 'Comp-AMB', 200, findSlave(['Comp-AMB', 'comp-amb', 'comp']), 'B1'),
     makeBreakerNode('b1-r2-6', '3F-AIR-Cooler', 150, findSlave(['3F-AIR-Cooler', '3f-air-cooler', 'dac']), 'B1'),
@@ -851,7 +855,7 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
   const b2Row2 = [
     makeBreakerNode('b2-r2-1', 'COMP-132KW', 300, findSlave(['COMP-132KW', 'comp-132kw', '132 kw comp', '132kwcomp']), 'B2'),
     makeBreakerNode('b2-r2-2', '55KW Comp', 150, findSlave(['55KW Comp', '55kw comp', '55kwcomp']), 'B2'),
-    makeBreakerNode('b2-r2-3', 'Comp', 150, findSlave(['Comp', 'comp', 'comp-amb']), 'B2'),
+    makeBreakerNode('b2-r2-3', 'Comp', 150, findSlave(['698d8e91-afd9-412d-b699-c5f5e55e4589', 'Comp', 'comp']), 'B2'),
     makeBreakerNode('b2-r2-4', 'ETP-AFL', 200, findSlave(['ETP-AFL', 'etp-afl', 'etp dryer', 'etpdryer']), 'B2'),
     makeBreakerNode('b2-r2-5', 'Air Cooler 2nd Floor', 100, findSlave(['Air Cooler 2nd Floor', 'air cooler 2nd floor', '2f cooler', '2fcooler']), 'B2'),
     makeBreakerNode('b2-r2-6', 'Solar AFL', 250, findSlave(['Solar AFL', 'solar afl', 'solarafl']), 'B2'),
@@ -1041,6 +1045,186 @@ function mapAmbitionRealTopology(liveDevices, powerFlow) {
   }
 }
 
+/**
+ * Dynamic Multi-Tenant Topology Generator:
+ * Generates an executive power distribution network dynamically for ANY organization
+ * (e.g. Delecia Bakery, NUST, or any newly registered tenant) using their real registered
+ * meter devices, power flow sources, and live telemetry without dummy data or hardcoded Ambition names.
+ */
+function mapDynamicOrgTopology(currentOrg, liveDevices = [], powerFlow = null) {
+  const orgName = currentOrg?.name || 'Main Facility'
+
+  // 1. Index all slaves across all live devices
+  const allSlaves = []
+  for (const d of (liveDevices || [])) {
+    const list = d.slaves || d.configSlaves || []
+    for (const s of list) {
+      if (!s) continue
+      allSlaves.push({
+        ...s,
+        deviceId: s.deviceId || d.id,
+        deviceName: s.deviceName || d.name,
+      })
+    }
+  }
+
+  // 2. Identify supply sources (from powerFlow.sources or device slaves)
+  const pfSources = Array.isArray(powerFlow?.sources) ? powerFlow.sources : []
+  const mappedSources = []
+
+  if (pfSources.length > 0) {
+    for (const src of pfSources) {
+      const srcType = src.type || 'grid'
+      const valKw = Number(src.valueKw != null && Number.isFinite(Number(src.valueKw)) ? src.valueKw : (src.currentKw || 0))
+      const isGenerating = srcType === 'solar' && valKw > 0
+      const isActive = srcType === 'grid' && valKw > 0
+
+      mappedSources.push({
+        id: src.id || `src-${srcType}`,
+        name: src.name || (srcType === 'grid' ? 'Grid Main' : srcType === 'solar' ? 'Solar Generation' : 'Generator'),
+        type: srcType,
+        loadKw: +valKw.toFixed(1),
+        voltage: src.voltage || (valKw > 0 ? 400.0 : 0.0),
+        current: src.current || (valKw > 0 ? Math.round((valKw * 1000) / (Math.sqrt(3) * 400 * 0.96)) : 0),
+        pf: src.pf || (valKw > 0 ? 0.96 : 0.0),
+        status: isGenerating ? 'generating' : isActive ? 'active' : 'standby',
+        units: Number(src.units || 0),
+        siteId: src.siteId,
+      })
+    }
+  } else {
+    // Auto-discover sources from slave names
+    const gridSlaves = allSlaves.filter((s) => /grid|wapda/i.test(s.name || ''))
+    const solarSlaves = allSlaves.filter((s) => /solar|pv|inv/i.test(s.name || ''))
+    const genSlaves = allSlaves.filter((s) => /gen|generator|genset/i.test(s.name || ''))
+
+    gridSlaves.forEach((s, idx) => {
+      const kw = Math.abs(readDeviceMetric(s, 'power')) || s.currentKw || 0
+      mappedSources.push({
+        id: s.id || `grid-${idx}`,
+        name: s.name,
+        type: 'grid',
+        loadKw: +kw.toFixed(1),
+        voltage: safeExtractNumber(s.latestMetrics?.['Phase VoltageA'] || s.latestMetrics?.['Voltage'], kw > 0 ? 400 : 0),
+        current: safeExtractNumber(s.latestMetrics?.['Current A'], 0),
+        pf: safeExtractNumber(s.latestMetrics?.['Power Factor'], kw > 0 ? 0.96 : 0),
+        status: kw > 0 ? 'active' : 'standby',
+        units: safeExtractNumber(s.latestMetrics?.['Units'] || s.latestMetrics?.['Active Energy'], 0),
+        slaveId: s.id,
+        deviceId: s.deviceId,
+      })
+    })
+
+    solarSlaves.forEach((s, idx) => {
+      const kw = Math.abs(readDeviceMetric(s, 'power')) || s.currentKw || 0
+      mappedSources.push({
+        id: s.id || `solar-${idx}`,
+        name: s.name,
+        type: 'solar',
+        loadKw: +kw.toFixed(1),
+        voltage: safeExtractNumber(s.latestMetrics?.['Phase VoltageA'] || s.latestMetrics?.['Voltage'], kw > 0 ? 400 : 0),
+        current: safeExtractNumber(s.latestMetrics?.['Current A'], 0),
+        pf: safeExtractNumber(s.latestMetrics?.['Power Factor'], kw > 0 ? 0.98 : 0),
+        status: kw > 0 ? 'generating' : 'standby',
+        units: safeExtractNumber(s.latestMetrics?.['Units'] || s.latestMetrics?.['Active Energy'], 0),
+        slaveId: s.id,
+        deviceId: s.deviceId,
+      })
+    })
+
+    genSlaves.forEach((s, idx) => {
+      const kw = Math.abs(readDeviceMetric(s, 'power')) || s.currentKw || 0
+      mappedSources.push({
+        id: s.id || `gen-${idx}`,
+        name: s.name,
+        type: 'genset',
+        loadKw: +kw.toFixed(1),
+        voltage: safeExtractNumber(s.latestMetrics?.['Phase VoltageA'] || s.latestMetrics?.['Voltage'], kw > 0 ? 400 : 0),
+        current: safeExtractNumber(s.latestMetrics?.['Current A'], 0),
+        pf: safeExtractNumber(s.latestMetrics?.['Power Factor'], kw > 0 ? 0.96 : 0),
+        status: kw > 0 ? 'active' : 'standby',
+        units: safeExtractNumber(s.latestMetrics?.['Units'] || s.latestMetrics?.['Active Energy'], 0),
+        slaveId: s.id,
+        deviceId: s.deviceId,
+      })
+    })
+  }
+
+  // If no sources configured, provide clean default inactive sources matching industrial standard
+  if (mappedSources.length === 0) {
+    mappedSources.push(
+      { id: 'default-grid', name: 'Grid Main Inflow', type: 'grid', loadKw: 0.0, voltage: 0, current: 0, pf: 0, status: 'standby', units: 0.0 },
+      { id: 'default-solar', name: 'Solar Generation', type: 'solar', loadKw: 0.0, voltage: 0, current: 0, pf: 0, status: 'standby', units: 0.0 },
+      { id: 'default-gen', name: 'Backup Generator', type: 'genset', loadKw: 0.0, voltage: 0, current: 0, pf: 0, status: 'standby', units: 0.0 }
+    )
+  }
+
+  // 3. Filter consumer breaker loads (exclude sources)
+  const sourceSlaveIds = new Set(mappedSources.map((s) => s.slaveId).filter(Boolean))
+  const consumerSlaves = allSlaves.filter((s) => {
+    if (sourceSlaveIds.has(s.id)) return false
+    if (/^(grid|wapda|genset|generator)$/i.test((s.name || '').trim())) return false
+    return true
+  })
+
+  // Build real breaker nodes for each consumer meter
+  const breakerNodes = consumerSlaves.map((s, idx) => {
+    const ratedA = s.ratedCurrent || 100
+    return makeBreakerNode(`brk-${idx + 1}`, s.name, ratedA, s, 'B1')
+  })
+
+  // Chunk breaker nodes into rows of up to 7
+  const b1Row1 = breakerNodes.slice(0, 7)
+  const b1Row2 = breakerNodes.slice(7, 14)
+  const b1Row3 = breakerNodes.slice(14, 21)
+  const b1Row4 = breakerNodes.slice(21, 28)
+
+  const consumerLoad = Number(breakerNodes.reduce((sum, b) => sum + (b.loadKw || 0), 0).toFixed(1))
+  const totalGrid = Number(mappedSources.filter((s) => s.type === 'grid').reduce((sum, s) => sum + (s.loadKw || 0), 0).toFixed(1))
+  const totalSolar = Number(mappedSources.filter((s) => s.type === 'solar').reduce((sum, s) => sum + (s.loadKw || 0), 0).toFixed(1))
+  const totalGen = Number(mappedSources.filter((s) => s.type === 'genset').reduce((sum, s) => sum + (s.loadKw || 0), 0).toFixed(1))
+  const totalRunning = consumerLoad > 0 ? consumerLoad : Number((totalGrid + totalSolar + totalGen).toFixed(1))
+  const totalUnits = Number(mappedSources.reduce((sum, s) => sum + (Number(s.units) || 0), 0).toFixed(1))
+
+  const isEmpty = allSlaves.length === 0
+
+  return {
+    organizationName: orgName,
+    isEmpty,
+    metrics: {
+      totalWapda: totalGrid,
+      totalSolar: totalSolar,
+      solarTotal: totalSolar,
+      totalGenset: totalGen,
+      totalRunningLoad: totalRunning,
+      totalUnits: totalUnits,
+      contributingSlaves: {
+        wapda: mappedSources.filter((s) => s.type === 'grid').map((s) => ({ deviceId: s.deviceId, slaveId: s.slaveId, name: s.name })),
+        solar: mappedSources.filter((s) => s.type === 'solar').map((s) => ({ deviceId: s.deviceId, slaveId: s.slaveId, name: s.name })),
+        genset: mappedSources.filter((s) => s.type === 'genset').map((s) => ({ deviceId: s.deviceId, slaveId: s.slaveId, name: s.name })),
+        runningLoad: breakerNodes.map((b) => ({ deviceId: b.deviceId, slaveId: b.slaveId, name: b.name })),
+      },
+    },
+    building1: {
+      id: 'b1',
+      name: orgName,
+      code: 'B1',
+      runningLoad: totalRunning,
+      consumerLoad: consumerLoad,
+      units: totalUnits,
+      maxCapacityKw: Math.max(1000, Math.ceil(totalRunning * 1.5)),
+      sources: mappedSources,
+      row1: b1Row1,
+      row2: b1Row2,
+      row3: b1Row3,
+      row4: b1Row4,
+      isEmpty,
+    },
+    building2: null,
+    executiveLimits: powerFlow?.executiveLimits || null,
+  }
+}
+
 class ExecutiveErrorBoundary extends Component {
   constructor(props) {
     super(props)
@@ -1057,7 +1241,9 @@ class ExecutiveErrorBoundary extends Component {
 
   handleReset = () => {
     try {
-      localStorage.removeItem(CACHE_KEY)
+      if (this.props.cacheKey) {
+        localStorage.removeItem(this.props.cacheKey)
+      }
     } catch (_) {}
     this.setState({ hasError: false, error: null })
     if (this.props.onReset) this.props.onReset()
@@ -1070,7 +1256,7 @@ class ExecutiveErrorBoundary extends Component {
           <div className="p-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md shadow-xl">
             <h3 className="text-base font-bold text-amber-500 mb-2">Display Reset</h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
-              Restoring clean Ambition factory telemetry layout.
+              Restoring clean factory telemetry layout.
             </p>
             <button
               onClick={this.handleReset}
@@ -1090,49 +1276,100 @@ class ExecutiveErrorBoundary extends Component {
  * ExecutiveDashboardPage
  *
  * Dedicated isolated page connecting the Executive Energy Flow Overview to:
- * - Real Registered Factory Slaves (Ambition & AFL)
+ * - Real Registered Factory Slaves (Ambition & AFL or Dynamic Organization meters)
  * - Real-Time Telemetry and Power Flow streams from Organization Dashboard
  * - Socket.IO live updates with automated background polling
  * - Instant cache restoration ensuring TV wall display never crashes or shows fake data.
  */
 export default function ExecutiveDashboardPage({ realData = null }) {
   const { user } = useAuth()
-  const orgId = user?.organizationId || AMBITION_ORG_ID
+  const [searchParams, setSearchParams] = useSearchParams()
+  const queryOrgId = searchParams.get('orgId') || searchParams.get('organizationId')
+
+  const [orgList, setOrgList] = useState([])
+  const [currentOrg, setCurrentOrg] = useState(null)
+
+  const isSuperAdmin = user?.role === 'admin' || user?.role === 'SUPER_ADMIN'
+
+  // Fetch organization list for Super Admin dropdown
+  useEffect(() => {
+    if (isSuperAdmin) {
+      emsApi.getOrganizations({ limit: 100 })
+        .then((res) => {
+          const listOrgs = Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : [])
+          setOrgList(listOrgs)
+        })
+        .catch(() => {})
+    }
+  }, [isSuperAdmin])
+
+  // Resolve active organization ID:
+  // 1. URL search param (?orgId=...)
+  // 2. If Super Admin and no URL param: default to first org from list or Ambition
+  // 3. For Org Admin / User: their assigned organizationId
+  const orgId = useMemo(() => {
+    if (queryOrgId) return queryOrgId
+    if (user?.organizationId) return user.organizationId
+    if (isSuperAdmin && orgList.length > 0) return orgList[0].id
+    return AMBITION_ORG_ID
+  }, [queryOrgId, user?.organizationId, isSuperAdmin, orgList])
+
+  // Fetch active organization details
+  useEffect(() => {
+    if (!orgId) return
+    emsApi.getOrganization(orgId)
+      .then((res) => {
+        const org = one(res) || res?.data || res
+        if (org && org.name) setCurrentOrg(org)
+      })
+      .catch(() => {})
+  }, [orgId])
+
+  const cacheKey = useMemo(() => getCacheKey(orgId), [orgId])
+
+  const isAmbition = useMemo(() => {
+    return orgId === AMBITION_ORG_ID || /ambition/i.test(currentOrg?.name || '')
+  }, [orgId, currentOrg?.name])
 
   const [data, setData] = useState(() => {
     if (realData) return realData
     try {
-      const cached = localStorage.getItem(CACHE_KEY)
+      const cached = localStorage.getItem(getCacheKey(orgId))
       if (cached) {
         const parsed = JSON.parse(cached)
-        if (
-          parsed &&
-          parsed.metrics &&
-          parsed.building1 &&
-          Array.isArray(parsed.building1.row1) &&
-          parsed.building1.row1.length > 0 &&
-          parsed.building2 &&
-          Array.isArray(parsed.building2.row1) &&
-          parsed.building2.row1.length > 0
-        ) {
-          return parsed
-        } else {
-          localStorage.removeItem(CACHE_KEY)
+        if (parsed?.metrics && parsed?.building1) return parsed
+      }
+    } catch (_) {}
+    return isAmbition ? INITIAL_FLOW_DATA : null
+  })
+
+  // Whenever active org changes, load its cached state immediately if available
+  useEffect(() => {
+    if (realData) {
+      setData(realData)
+      return
+    }
+    try {
+      const cached = localStorage.getItem(cacheKey)
+      if (cached) {
+        const parsed = JSON.parse(cached)
+        if (parsed?.metrics && parsed?.building1) {
+          setData(parsed)
+          return
         }
       }
-    } catch (_) {
-      try {
-        localStorage.removeItem(CACHE_KEY)
-      } catch (_) {}
-    }
-    return INITIAL_FLOW_DATA
-  })
+    } catch (_) {}
+    setData(isAmbition ? INITIAL_FLOW_DATA : null)
+  }, [orgId, cacheKey, isAmbition, realData])
+
   const [liveDevices, setLiveDevices] = useState([])
   const [powerFlow, setPowerFlow] = useState(null)
-  const [hasRealData, setHasRealData] = useState(true)
+  const [hasRealData, setHasRealData] = useState(false)
 
   // Fetch live devices & power flow from backend (supports both authenticated & public wallboard sessions)
   const refreshData = useCallback(() => {
+    if (!orgId) return
+
     const devicesPromise = emsApi
       .getDevices({ organizationId: orgId, limit: 100, withMetrics: true })
       .catch(() => emsApi.getExecutiveDevices({ organizationId: orgId }))
@@ -1146,20 +1383,24 @@ export default function ExecutiveDashboardPage({ realData = null }) {
     Promise.all([devicesPromise, flowPromise]).then(([devRes, flowRes]) => {
       const devices = devRes ? list(devRes).map(mapDevice) : []
       const flow = flowRes ? one(flowRes) : null
-      
-      if (devices.length > 0) {
-        setLiveDevices(devices)
-        if (flow) setPowerFlow(flow)
-        
-        const mapped = mapAmbitionRealTopology(devices, flow)
-        setData(mapped)
-        setHasRealData(true)
-        try {
-          localStorage.setItem(CACHE_KEY, JSON.stringify(mapped))
-        } catch (_) {}
+
+      setLiveDevices(devices)
+      if (flow) setPowerFlow(flow)
+
+      let mapped
+      if (isAmbition) {
+        mapped = mapAmbitionRealTopology(devices, flow)
+      } else {
+        mapped = mapDynamicOrgTopology(currentOrg, devices, flow)
       }
+
+      setData(mapped)
+      setHasRealData(true)
+      try {
+        localStorage.setItem(cacheKey, JSON.stringify(mapped))
+      } catch (_) {}
     }).catch(() => {})
-  }, [orgId])
+  }, [orgId, isAmbition, currentOrg, cacheKey])
 
   // Throttled refresh to prevent socket event storms from freezing network & UI
   const lastRefreshTimeRef = useRef(0)
@@ -1199,25 +1440,41 @@ export default function ExecutiveDashboardPage({ realData = null }) {
     return () => unsub?.()
   }, [throttledRefresh])
 
-  // Safety net: never hand null/corrupted data to the dashboard (prevents white-screen on mount)
-  const safeData = (
-    data &&
-    typeof data === 'object' &&
-    data.metrics &&
-    data.building1 &&
-    Array.isArray(data.building1.row1) &&
-    data.building2 &&
-    Array.isArray(data.building2.row1)
-  ) ? data : INITIAL_FLOW_DATA
+  // Safety net: safe fallback data depending on active org
+  const displayData = data || (isAmbition ? INITIAL_FLOW_DATA : mapDynamicOrgTopology(currentOrg, [], null))
+
+  // Super Admin Organization Selector Pill
+  const organizationSelector = isSuperAdmin && orgList.length > 0 ? (
+    <div className="flex items-center gap-1.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1 shadow-2xs text-xs">
+      <Building2 size={13} className="text-blue-500 shrink-0" />
+      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider hidden sm:inline">Org:</span>
+      <select
+        value={orgId}
+        onChange={(e) => {
+          const nextId = e.target.value
+          setSearchParams({ orgId: nextId })
+        }}
+        className="bg-transparent text-xs font-bold text-slate-800 dark:text-slate-100 outline-none cursor-pointer"
+      >
+        {orgList.map((o) => (
+          <option key={o.id} value={o.id} className="dark:bg-slate-900 text-slate-800 dark:text-slate-100">
+            {o.name}
+          </option>
+        ))}
+      </select>
+    </div>
+  ) : null
 
   return (
     <div className="w-full h-full min-h-screen bg-slate-50 dark:bg-slate-950">
-      <ExecutiveErrorBoundary onReset={() => setData(INITIAL_FLOW_DATA)}>
+      <ExecutiveErrorBoundary cacheKey={cacheKey} onReset={() => setData(isAmbition ? INITIAL_FLOW_DATA : null)}>
         <ExecutiveDashboard
-          initialData={safeData}
+          initialData={displayData}
           liveSimulation={false}
           showPreviewHeader={false}
           onRefresh={refreshData}
+          organizationSelector={organizationSelector}
+          organizationName={currentOrg?.name || (isAmbition ? 'Ambition Plant' : null)}
         />
       </ExecutiveErrorBoundary>
     </div>
