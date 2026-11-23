@@ -1220,7 +1220,20 @@ function mapDynamicOrgTopology(currentOrg, liveDevices = [], powerFlow = null) {
       row4: b1Row4,
       isEmpty,
     },
-    building2: null,
+    building2: {
+      id: 'b2',
+      name: '',
+      code: 'B2',
+      sources: [],
+      row1: [],
+      row2: [],
+      row3: [],
+      row4: [],
+      runningLoad: 0,
+      consumerLoad: 0,
+      units: 0,
+      isEmpty: true,
+    },
     executiveLimits: powerFlow?.executiveLimits || null,
   }
 }
@@ -1305,14 +1318,18 @@ export default function ExecutiveDashboardPage({ realData = null }) {
 
   // Resolve active organization ID:
   // 1. URL search param (?orgId=...)
-  // 2. If Super Admin and no URL param: default to first org from list or Ambition
-  // 3. For Org Admin / User: their assigned organizationId
+  // 2. For Org Admin / User / Impersonation: their assigned organizationId
+  // 3. For Super Admin: saved preference, or Ambition if present, or first org
   const orgId = useMemo(() => {
     if (queryOrgId) return queryOrgId
     if (user?.organizationId) return user.organizationId
-    if (isSuperAdmin && orgList.length > 0) return orgList[0].id
+    const savedOrg = typeof window !== 'undefined' ? localStorage.getItem('ems_exec_selected_org') : null
+    if (savedOrg && orgList.some((o) => o.id === savedOrg)) return savedOrg
+    const ambitionOrg = orgList.find((o) => o.id === AMBITION_ORG_ID || /ambition/i.test(o.name))
+    if (ambitionOrg) return ambitionOrg.id
+    if (orgList.length > 0) return orgList[0].id
     return AMBITION_ORG_ID
-  }, [queryOrgId, user?.organizationId, isSuperAdmin, orgList])
+  }, [queryOrgId, user?.organizationId, orgList])
 
   // Fetch active organization details
   useEffect(() => {
@@ -1452,6 +1469,9 @@ export default function ExecutiveDashboardPage({ realData = null }) {
         value={orgId}
         onChange={(e) => {
           const nextId = e.target.value
+          try {
+            localStorage.setItem('ems_exec_selected_org', nextId)
+          } catch (_) {}
           setSearchParams({ orgId: nextId })
         }}
         className="bg-transparent text-xs font-bold text-slate-800 dark:text-slate-100 outline-none cursor-pointer"

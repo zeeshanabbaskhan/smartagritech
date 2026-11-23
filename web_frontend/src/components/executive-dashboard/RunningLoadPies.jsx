@@ -182,7 +182,7 @@ export function TotalPlantRunningLoadDonut({ data }) {
   const b1Sources = Array.isArray(building1.sources) ? building1.sources : []
   const b2Sources = Array.isArray(building2.sources) ? building2.sources : []
 
-  const b1Wapda = clamp(b1Sources.find((s) => s.id === 'b1-wapda' || /wapda/i.test(s.name))?.loadKw)
+  const b1Wapda = clamp(b1Sources.find((s) => s.id === 'b1-wapda' || s.type === 'grid' || /grid|wapda/i.test(s.name))?.loadKw)
   const b1Genset = clamp(
     b1Sources
       .filter((s) => s.type === 'genset' || /genset|gen/i.test(s.name))
@@ -190,7 +190,7 @@ export function TotalPlantRunningLoadDonut({ data }) {
   )
   const b1Solar = clamp(b1Sources.find((s) => s.type === 'solar' || /solar/i.test(s.name))?.loadKw)
 
-  const b2Wapda = clamp(b2Sources.find((s) => s.id === 'b2-wapda' || /wapda/i.test(s.name))?.loadKw)
+  const b2Wapda = clamp(b2Sources.find((s) => s.id === 'b2-wapda' || s.type === 'grid' || /grid|wapda/i.test(s.name))?.loadKw)
   const b2Genset = clamp(b2Sources.find((s) => s.type === 'genset' || /genset|gen/i.test(s.name))?.loadKw)
   const b2Solar = clamp(b2Sources.find((s) => s.type === 'solar' || /solar/i.test(s.name))?.loadKw)
 
@@ -211,7 +211,7 @@ export function TotalPlantRunningLoadDonut({ data }) {
   )
 
   const items = [
-    { key: 'wapda', label: 'Wapda', kw: midWapda, pct: midPcts[0], color: COLOR_WAPDA },
+    { key: 'wapda', label: 'Grid', kw: midWapda, pct: midPcts[0], color: COLOR_WAPDA },
     { key: 'genset', label: 'Genset', kw: midGenset, pct: midPcts[1], color: COLOR_GENSET },
     { key: 'solar', label: 'Solar', kw: midSolar, pct: midPcts[2], color: COLOR_SOLAR },
   ]
@@ -234,7 +234,7 @@ export function Building1RunningLoadDonut({ data }) {
   const building1 = data.building1 || {}
   const b1Sources = Array.isArray(building1.sources) ? building1.sources : []
 
-  const b1Wapda = clamp(b1Sources.find((s) => s.id === 'b1-wapda' || /wapda/i.test(s.name))?.loadKw)
+  const b1Wapda = clamp(b1Sources.find((s) => s.id === 'b1-wapda' || s.type === 'grid' || /grid|wapda/i.test(s.name))?.loadKw)
   const b1Genset = clamp(
     b1Sources
       .filter((s) => s.type === 'genset' || /genset|gen/i.test(s.name))
@@ -250,7 +250,7 @@ export function Building1RunningLoadDonut({ data }) {
   )
 
   const items = [
-    { key: 'wapda', label: 'Wapda', kw: b1Wapda, pct: b1Pcts[0], color: COLOR_WAPDA },
+    { key: 'wapda', label: 'Grid', kw: b1Wapda, pct: b1Pcts[0], color: COLOR_WAPDA },
     { key: 'genset', label: 'Genset', kw: b1Genset, pct: b1Pcts[1], color: COLOR_GENSET },
     { key: 'solar', label: 'Solar', kw: b1Solar, pct: b1Pcts[2], color: COLOR_SOLAR },
   ]
@@ -268,12 +268,12 @@ export function Building1RunningLoadDonut({ data }) {
  * Embedded inside the B2 header flex row, directly next to the "Total Running Load B2" badge.
  */
 export function Building2RunningLoadDonut({ data }) {
-  if (!data) return null
+  if (!data || !data.building2) return null
 
   const building2 = data.building2 || {}
   const b2Sources = Array.isArray(building2.sources) ? building2.sources : []
 
-  const b2Wapda = clamp(b2Sources.find((s) => s.id === 'b2-wapda' || /wapda/i.test(s.name))?.loadKw)
+  const b2Wapda = clamp(b2Sources.find((s) => s.id === 'b2-wapda' || s.type === 'grid' || /grid|wapda/i.test(s.name))?.loadKw)
   const b2Genset = clamp(b2Sources.find((s) => s.type === 'genset' || /genset|gen/i.test(s.name))?.loadKw)
   const b2Solar = clamp(b2Sources.find((s) => s.type === 'solar' || /solar/i.test(s.name))?.loadKw)
   const b2Total = clamp(building2.runningLoad)
@@ -285,7 +285,7 @@ export function Building2RunningLoadDonut({ data }) {
   )
 
   const items = [
-    { key: 'wapda', label: 'Wapda', kw: b2Wapda, pct: b2Pcts[0], color: COLOR_WAPDA },
+    { key: 'wapda', label: 'Grid', kw: b2Wapda, pct: b2Pcts[0], color: COLOR_WAPDA },
     { key: 'genset', label: 'Genset', kw: b2Genset, pct: b2Pcts[1], color: COLOR_GENSET },
     { key: 'solar', label: 'Solar', kw: b2Solar, pct: b2Pcts[2], color: COLOR_SOLAR },
   ]

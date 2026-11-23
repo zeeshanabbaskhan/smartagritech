@@ -208,7 +208,8 @@ export const INITIAL_FLOW_DATA = {
 
 // Flat list helper
 export function getAllBreakers(building) {
-  return [...building.row1, ...building.row2, ...building.row3, ...building.row4]
+  if (!building) return []
+  return [...(building.row1 || []), ...(building.row2 || []), ...(building.row3 || []), ...(building.row4 || [])]
 }
 
 /**
@@ -397,62 +398,65 @@ export function generateBreakerDetails(breaker, buildingCode) {
  * Real-time simulation tick for coherent mathematical balance
  */
 export function simulateFlowTick(prev) {
+  if (!prev) return prev
   const jitterFactor = () => (Math.random() * 0.01 - 0.005) // ±0.5% subtle jitter
 
   const updateRow = (row) =>
-    row.map((b) => {
+    (row || []).map((b) => {
       if (b.status === 'spare' || b.loadKw === 0) return b
       const newKw = Number((b.loadKw * (1 + jitterFactor())).toFixed(1))
       return { ...b, loadKw: Math.max(0.1, newKw) }
     })
 
-  const b1r1 = updateRow(prev.building1.row1)
-  const b1r2 = updateRow(prev.building1.row2)
-  const b1r3 = updateRow(prev.building1.row3)
-  const b1r4 = updateRow(prev.building1.row4)
+  const b1r1 = updateRow(prev.building1?.row1)
+  const b1r2 = updateRow(prev.building1?.row2)
+  const b1r3 = updateRow(prev.building1?.row3)
+  const b1r4 = updateRow(prev.building1?.row4)
 
-  const b2r1 = updateRow(prev.building2.row1)
-  const b2r2 = updateRow(prev.building2.row2)
-  const b2r3 = updateRow(prev.building2.row3)
-  const b2r4 = updateRow(prev.building2.row4)
-
-  const b1All = [...b1r1, ...b1r2, ...b1r3, ...b1r4]
-  const b2All = [...b2r1, ...b2r2, ...b2r3, ...b2r4]
-
-  const b1Solar = Number(((prev.building1.sources.find((s) => s.type === 'solar')?.loadKw || 136.2) * (1 + jitterFactor())).toFixed(1))
-  const b2Solar = Number(((prev.building2.sources.find((s) => s.type === 'solar')?.loadKw || 59.0) * (1 + jitterFactor())).toFixed(1))
-  const solarTotal = Number((b1Solar + b2Solar).toFixed(1))
-
-  const b1Genset1 = Number((prev.building1.sources.find((s) => s.id === 'b1-genset1')?.loadKw || 0.0))
-  const b1Genset2 = Number((prev.building1.sources.find((s) => s.id === 'b1-genset2')?.loadKw || 0.0))
-  const b2Genset = Number((prev.building2.sources.find((s) => s.type === 'genset')?.loadKw || 0.0))
-  const totalGenset = Number((b1Genset1 + b1Genset2 + b2Genset).toFixed(1))
-
-  const b1Wapda = Number(((prev.building1.sources.find((s) => s.id === 'b1-wapda')?.loadKw || 432.6) * (1 + jitterFactor())).toFixed(1))
-  const b2Wapda = Number(((prev.building2.sources.find((s) => s.id === 'b2-wapda')?.loadKw || 112.7) * (1 + jitterFactor())).toFixed(1))
-  const totalWapda = Number((b1Wapda + b2Wapda).toFixed(1))
-
+  const b1Solar = Number(((prev.building1?.sources?.find((s) => s.type === 'solar')?.loadKw || 0) * (1 + jitterFactor())).toFixed(1))
+  const b1Genset1 = Number((prev.building1?.sources?.find((s) => s.id === 'b1-genset1')?.loadKw || 0.0))
+  const b1Genset2 = Number((prev.building1?.sources?.find((s) => s.id === 'b1-genset2')?.loadKw || 0.0))
+  const b1Wapda = Number(((prev.building1?.sources?.find((s) => s.id === 'b1-wapda' || s.type === 'grid')?.loadKw || 0) * (1 + jitterFactor())).toFixed(1))
   const b1Load = Number((b1Wapda + b1Solar + b1Genset1 + b1Genset2).toFixed(1))
-  const b2Load = Number((b2Wapda + b2Solar + b2Genset).toFixed(1))
+
+  let b2r1 = [], b2r2 = [], b2r3 = [], b2r4 = []
+  let b2Solar = 0, b2Genset = 0, b2Wapda = 0, b2Load = 0
+
+  if (prev.building2) {
+    b2r1 = updateRow(prev.building2.row1)
+    b2r2 = updateRow(prev.building2.row2)
+    b2r3 = updateRow(prev.building2.row3)
+    b2r4 = updateRow(prev.building2.row4)
+    b2Solar = Number(((prev.building2.sources?.find((s) => s.type === 'solar')?.loadKw || 0) * (1 + jitterFactor())).toFixed(1))
+    b2Genset = Number((prev.building2.sources?.find((s) => s.type === 'genset')?.loadKw || 0.0))
+    b2Wapda = Number(((prev.building2.sources?.find((s) => s.id === 'b2-wapda' || s.type === 'grid')?.loadKw || 0) * (1 + jitterFactor())).toFixed(1))
+    b2Load = Number((b2Wapda + b2Solar + b2Genset).toFixed(1))
+  }
+
+  const solarTotal = Number((b1Solar + b2Solar).toFixed(1))
+  const totalGenset = Number((b1Genset1 + b1Genset2 + b2Genset).toFixed(1))
+  const totalWapda = Number((b1Wapda + b2Wapda).toFixed(1))
   const totalRunningLoad = Number((b1Load + b2Load).toFixed(1))
 
   return {
+    ...prev,
     timestamp: new Date().toISOString(),
     metrics: {
+      ...prev.metrics,
       totalWapda,
       totalRunningLoad,
       solarTotal,
       totalGenset,
       powerFactor: Number((0.96 + Math.random() * 0.01).toFixed(2)),
       gridFrequency: Number((50.0 + (Math.random() * 0.04 - 0.02)).toFixed(2)),
-      co2AvoidedKg: Number(((prev.metrics.co2AvoidedKg || 387.0) + (solarTotal * 0.0001)).toFixed(1)),
-      tariffRatePkr: prev.metrics.tariffRatePkr || 28.0,
+      co2AvoidedKg: Number(((prev.metrics?.co2AvoidedKg || 387.0) + (solarTotal * 0.0001)).toFixed(1)),
+      tariffRatePkr: prev.metrics?.tariffRatePkr || 28.0,
     },
     building1: {
       ...prev.building1,
       runningLoad: b1Load,
-      sources: prev.building1.sources.map((s) => {
-        if (s.id === 'b1-wapda') return { ...s, loadKw: b1Wapda }
+      sources: (prev.building1?.sources || []).map((s) => {
+        if (s.id === 'b1-wapda' || s.type === 'grid') return { ...s, loadKw: b1Wapda }
         if (s.type === 'solar') return { ...s, loadKw: b1Solar }
         return s
       }),
@@ -461,11 +465,11 @@ export function simulateFlowTick(prev) {
       row3: b1r3,
       row4: b1r4,
     },
-    building2: {
+    building2: prev.building2 ? {
       ...prev.building2,
       runningLoad: b2Load,
-      sources: prev.building2.sources.map((s) => {
-        if (s.id === 'b2-wapda') return { ...s, loadKw: b2Wapda }
+      sources: (prev.building2.sources || []).map((s) => {
+        if (s.id === 'b2-wapda' || s.type === 'grid') return { ...s, loadKw: b2Wapda }
         if (s.type === 'solar') return { ...s, loadKw: b2Solar }
         return s
       }),
@@ -473,7 +477,7 @@ export function simulateFlowTick(prev) {
       row2: b2r2,
       row3: b2r3,
       row4: b2r4,
-    },
+    } : null,
   }
 }
 
@@ -2873,12 +2877,12 @@ function EnergyFlowOverview({ data, onSelectNode }) {
 
   // Pre-evaluated alerts for Building Total Inflow Nodes
   const b1LoadAlert = evaluateCardAlert(
-    building1.runningLoad,
+    building1?.runningLoad,
     totalThresholds['totalRunningLoadB1'] || thresholds['totalRunningLoadB1'],
     'border-blue-500'
   )
   const b2LoadAlert = evaluateCardAlert(
-    building2.runningLoad,
+    building2?.runningLoad,
     totalThresholds['totalRunningLoadB2'] || thresholds['totalRunningLoadB2'],
     'border-emerald-500'
   )
@@ -2997,8 +3001,8 @@ function EnergyFlowOverview({ data, onSelectNode }) {
               onSelectNode?.(
                 {
                   id: 'total-wapda-plant',
-                  name: 'Total WAPDA',
-                  category: 'Grid Inflow (Dual-Building B1 + B2)',
+                  name: hasBuilding2 ? 'Total WAPDA' : 'Total Grid / WAPDA',
+                  category: hasBuilding2 ? 'Grid Inflow (Dual-Building B1 + B2)' : 'Grid Incoming Supply',
                   loadKw: Number(metrics.totalWapda || 0),
                   units: totalWapdaUnits,
                   type: 'wapda',
@@ -3007,12 +3011,12 @@ function EnergyFlowOverview({ data, onSelectNode }) {
                   voltage: 400.0,
                   powerFactor: 0.94,
                   slaveId: '0x01-0x11',
-                  deviceName: 'WAPDA Grid (B1+B2)',
-                  busChannel: 'Grid Feeders Dual-Inflow',
+                  deviceName: hasBuilding2 ? 'WAPDA Grid (B1+B2)' : 'Grid Incoming Supply',
+                  busChannel: hasBuilding2 ? 'Grid Feeders Dual-Inflow' : 'Main Grid Inflow',
                   createdAt: '2026-09-18T00:00:00.000Z',
-                  contributingSlaves: metrics.contributingSlaves?.wapda || INITIAL_FLOW_DATA.metrics.contributingSlaves.wapda,
+                  contributingSlaves: metrics.contributingSlaves?.wapda || (hasBuilding2 ? INITIAL_FLOW_DATA.metrics.contributingSlaves.wapda : []),
                 },
-                'B1+B2'
+                hasBuilding2 ? 'B1+B2' : 'B1'
               )
             }
             className={`py-0.5 px-2 rounded-lg border-2 text-center shadow-2xs cursor-pointer hover:scale-[1.02] transition relative w-[163.5px] shrink-0 ${wapdaAlert.cardStyle}`}
@@ -3026,7 +3030,7 @@ function EnergyFlowOverview({ data, onSelectNode }) {
             <div className="flex items-center justify-center gap-1.5">
               <Zap size={14} className="text-blue-600 dark:text-blue-400 shrink-0" />
               <span className="text-[8px] sm:text-[8.5px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 block truncate">
-                Total WAPDA
+                {hasBuilding2 ? 'Total WAPDA' : 'Total Grid / WAPDA'}
               </span>
             </div>
             <div className="flex items-baseline justify-center gap-1">
@@ -3043,8 +3047,8 @@ function EnergyFlowOverview({ data, onSelectNode }) {
               onSelectNode?.(
                 {
                   id: 'total-running-load-plant',
-                  name: 'Total Running Load B1 + B2',
-                  category: 'Plant Dual-Facility Total Inflow',
+                  name: hasBuilding2 ? 'Total Running Load B1 + B2' : 'Total Running Load',
+                  category: hasBuilding2 ? 'Plant Dual-Facility Total Inflow' : 'Facility Total Inflow',
                   loadKw: Number(metrics.totalRunningLoad || 0),
                   units: totalRunningUnits,
                   type: 'load',
@@ -3056,9 +3060,9 @@ function EnergyFlowOverview({ data, onSelectNode }) {
                   deviceName: 'Facility Load Totalizer',
                   busChannel: 'Main Plant Distribution',
                   createdAt: '2026-09-18T00:00:00.000Z',
-                  contributingSlaves: metrics.contributingSlaves?.runningLoad || INITIAL_FLOW_DATA.metrics.contributingSlaves.runningLoad,
+                  contributingSlaves: metrics.contributingSlaves?.runningLoad || (hasBuilding2 ? INITIAL_FLOW_DATA.metrics.contributingSlaves.runningLoad : []),
                 },
-                'B1+B2'
+                hasBuilding2 ? 'B1+B2' : 'B1'
               )
             }
             className={`py-0.5 px-2 rounded-lg border-2 text-center shadow-2xs ring-1 ring-blue-500/30 cursor-pointer hover:scale-[1.02] transition relative w-[163.5px] shrink-0 ${totalRunningAlert.cardStyle}`}
@@ -3072,7 +3076,7 @@ function EnergyFlowOverview({ data, onSelectNode }) {
             <div className="flex items-center justify-center gap-1.5">
               <Activity size={14} className="text-blue-600 dark:text-blue-400 shrink-0" />
               <span className="text-[8px] sm:text-[8.5px] font-black uppercase tracking-wider text-blue-600 dark:text-blue-400 block truncate">
-                Total Running Load B1 + B2
+                {hasBuilding2 ? 'Total Running Load B1 + B2' : 'Total Running Load'}
               </span>
             </div>
             <div className="flex items-baseline justify-center gap-1">
@@ -3092,8 +3096,8 @@ function EnergyFlowOverview({ data, onSelectNode }) {
               onSelectNode?.(
                 {
                   id: 'total-solar-plant',
-                  name: 'Solar Total (All 7 Inverters B1+B2)',
-                  category: 'Solar Generation (B1 5-Inv + B2 2-Inv)',
+                  name: hasBuilding2 ? 'Solar Total (All 7 Inverters B1+B2)' : 'Total Solar Power',
+                  category: hasBuilding2 ? 'Solar Generation (B1 5-Inv + B2 2-Inv)' : 'Solar Generation Inverters',
                   loadKw: Number(metrics.solarTotal || 0),
                   units: totalSolarUnits,
                   type: 'solar',
@@ -3102,12 +3106,12 @@ function EnergyFlowOverview({ data, onSelectNode }) {
                   voltage: 400.0,
                   powerFactor: 0.98,
                   slaveId: '7-INV',
-                  deviceName: 'Solar Farm Inverters (7x)',
+                  deviceName: 'Solar Farm Inverters',
                   busChannel: 'PV Inverter Bus RS485',
                   createdAt: '2026-09-18T00:00:00.000Z',
-                  contributingSlaves: metrics.contributingSlaves?.solar || INITIAL_FLOW_DATA.metrics.contributingSlaves.solar,
+                  contributingSlaves: metrics.contributingSlaves?.solar || (hasBuilding2 ? INITIAL_FLOW_DATA.metrics.contributingSlaves.solar : []),
                 },
-                'B1+B2'
+                hasBuilding2 ? 'B1+B2' : 'B1'
               )
             }
             className={`py-0.5 px-2 rounded-lg border-2 text-center shadow-2xs cursor-pointer hover:scale-[1.02] transition relative w-[163.5px] shrink-0 ${solarAlert.cardStyle}`}
@@ -3139,7 +3143,7 @@ function EnergyFlowOverview({ data, onSelectNode }) {
                 {
                   id: 'total-genset-plant',
                   name: 'Total Genset',
-                  category: 'Diesel Generation (G1, G2 AMB + Gen AFL)',
+                  category: hasBuilding2 ? 'Diesel Generation (G1, G2 AMB + Gen AFL)' : 'Diesel Backup Generator',
                   loadKw: Number(metrics.totalGenset || 0),
                   units: totalGensetUnits,
                   type: 'genset',
@@ -3151,9 +3155,9 @@ function EnergyFlowOverview({ data, onSelectNode }) {
                   deviceName: 'Diesel Generators Totalizer',
                   busChannel: 'Synchronizing Panel',
                   createdAt: '2026-09-18T00:00:00.000Z',
-                  contributingSlaves: metrics.contributingSlaves?.genset || INITIAL_FLOW_DATA.metrics.contributingSlaves.genset,
+                  contributingSlaves: metrics.contributingSlaves?.genset || (hasBuilding2 ? INITIAL_FLOW_DATA.metrics.contributingSlaves.genset : []),
                 },
-                'B1+B2'
+                hasBuilding2 ? 'B1+B2' : 'B1'
               )
             }
             className={`py-0.5 px-2 rounded-lg border-2 text-center shadow-2xs cursor-pointer hover:scale-[1.02] transition relative w-[163.5px] shrink-0 ${gensetAlert.cardStyle}`}
@@ -3205,7 +3209,7 @@ function EnergyFlowOverview({ data, onSelectNode }) {
                 {building1.name || 'Building 1'}
               </span>
               <div
-                onClick={() => onSelectNode?.({ ...building1, id: 'b1-total-running-load', name: building1.name ? `Total Running Load (${building1.name})` : 'Total Running Load B1', category: 'Main Substation', loadKw: building1.runningLoad, units: b1RunningUnits, contributingSlaves: metrics.contributingSlaves?.runningLoadB1 || INITIAL_FLOW_DATA.metrics.contributingSlaves.runningLoadB1 }, 'B1')}
+                onClick={() => onSelectNode?.({ ...building1, id: 'b1-total-running-load', name: building1.name ? `Total Running Load (${building1.name})` : (hasBuilding2 ? 'Total Running Load B1' : 'Total Running Load'), category: hasBuilding2 ? 'Main Substation' : 'Main Electrical Panel', loadKw: building1.runningLoad, units: b1RunningUnits, contributingSlaves: metrics.contributingSlaves?.runningLoadB1 || metrics.contributingSlaves?.runningLoad || [] }, 'B1')}
                 className={`px-3 py-1 rounded-lg border-2 text-center cursor-pointer hover:scale-[1.01] transition shadow-2xs relative ${b1LoadAlert.cardStyle}`}
                 title="Click to view total plant inflow telemetry & history"
               >
@@ -3330,7 +3334,7 @@ function EnergyFlowOverview({ data, onSelectNode }) {
                   {building2?.name || 'Building 2'}
                 </span>
                 <div
-                  onClick={() => onSelectNode?.({ ...building2, id: 'b2-total-running-load', name: building2?.name ? `Total Running Load (${building2.name})` : 'Total Running Load B2 (AFL)', category: 'Main Substation', loadKw: building2?.runningLoad, units: b2RunningUnits, contributingSlaves: metrics.contributingSlaves?.runningLoadB2 || INITIAL_FLOW_DATA.metrics.contributingSlaves.runningLoadB2 }, 'B2')}
+                  onClick={() => onSelectNode?.({ ...building2, id: 'b2-total-running-load', name: building2?.name ? `Total Running Load (${building2.name})` : 'Total Running Load B2 (AFL)', category: 'Main Substation', loadKw: building2?.runningLoad, units: b2RunningUnits, contributingSlaves: metrics.contributingSlaves?.runningLoadB2 || [] }, 'B2')}
                   className={`px-3 py-1 rounded-lg border-2 text-center cursor-pointer hover:scale-[1.01] transition shadow-2xs relative ${b2LoadAlert.cardStyle}`}
                   title="Click to view total plant B2 inflow telemetry & history"
                 >
@@ -3543,20 +3547,20 @@ export default function ExecutiveDashboard({
 
       return {
         ...prev,
-        building1: {
+        building1: prev.building1 ? {
           ...prev.building1,
-          row1: toggleInRow(prev.building1.row1),
-          row2: toggleInRow(prev.building1.row2),
-          row3: toggleInRow(prev.building1.row3),
-          row4: toggleInRow(prev.building1.row4),
-        },
-        building2: {
+          row1: toggleInRow(prev.building1.row1 || []),
+          row2: toggleInRow(prev.building1.row2 || []),
+          row3: toggleInRow(prev.building1.row3 || []),
+          row4: toggleInRow(prev.building1.row4 || []),
+        } : prev.building1,
+        building2: prev.building2 ? {
           ...prev.building2,
-          row1: toggleInRow(prev.building2.row1),
-          row2: toggleInRow(prev.building2.row2),
-          row3: toggleInRow(prev.building2.row3),
-          row4: toggleInRow(prev.building2.row4),
-        },
+          row1: toggleInRow(prev.building2.row1 || []),
+          row2: toggleInRow(prev.building2.row2 || []),
+          row3: toggleInRow(prev.building2.row3 || []),
+          row4: toggleInRow(prev.building2.row4 || []),
+        } : null,
       }
     })
 
